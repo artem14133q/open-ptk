@@ -380,6 +380,21 @@ bytecode array** — confirmed by cross-referencing: topic0's four subs have
 `bytecode_offset` 0, 2, 20, 22, and those are exactly where four distinct
 instruction sequences start in the decoded word dump.
 
+Beyond the 4 standard verbs, `verb_id` also encodes a **5th, per-item
+"use/put inventory item X on this object" verb**, decoded by reading real
+reply text: `verb_id = 0xFFFE` (65534) is the generic reply when any item
+is used on this object with no specific reaction written for it (e.g.
+topic 89, the aquarium: *"Хватит бросать что-попало в аквариум."* / "Stop
+throwing random stuff in the aquarium"; topic 95, the bed: *"Я не буду
+класть что попало к себе в кровать."*). `verb_id = (item_id << 16) | 26`
+is a reaction specific to inventory item `item_id` (e.g. topic 89 also has
+`verb_id = (1<<16)|26` → *"Я выпил бы, да для желудка говорят вредно."* /
+"I'd drink it, but they say it's bad for the stomach" — a joke reaction to
+using a specific drink item on the aquarium). No item-id→name table was
+found in `CAST.INI`/`NAMES.INI`/`INVNTR.TXT` to confirm which `item_id`
+is which inventory item by number; inferred only from each reply's joke
+content matching a specific item.
+
 ### Bytecode instruction set (word = `u32`, opcode = top byte)
 
 | opcode | mnemonic | operand (low 24 bits)                    | meaning |
@@ -390,21 +405,39 @@ instruction sequences start in the decoded word dump.
 | `0x06` | `STOP`   | unused                                     | end of this instruction sequence (also used as an error sentinel by the runtime) |
 | `0x07` | `PHRASE` | phrase index                               | speak/display phrase N (index into `DIALOGUE.LOD`'s phrase table — text + voice clip) |
 | `0x08` | `SKIPN`  | count                                      | randomly pick one of the next `count` `DELIM`-separated phrase blocks (variant/idle-line selection) |
+| `0x04` | `MARKOPT` | `(option_index << 16) \| choice_addr`      | mark option `option_index` of the `CHOICE` block at word offset `choice_addr` as used, so it won't be offered again |
+| `0x05` | `MARKOPT_OUTER` | `(option_index << 16) \| choice_addr`| same as `MARKOPT`, but for a `CHOICE` *other than* the nearest enclosing one (see below) |
+| `0x09` | `GIVEITEM` | item id                                  | grant inventory item N to the player |
 
-Also present but **not yet mapped**: `0x04` (62 occurrences in
-`PART_1/DIALOGUE.FIX`), `0x05` (4 occurrences), and `0x09` (23
-occurrences, previously mistaken for a `SKIPN` duplicate -- its operands
-are small distinct integers like 4/5/6/10/20-26/100/101/105/106/110/
-242-244, too varied to be a phrase/count field, more likely a flag or
-scene-event id). `0x04`'s 24-bit operand consistently decodes as `(k <<
-16) | target` for `k` = 0..3 across sibling instructions, where `target`
-is always a valid bytecode word-offset that also appears as a nearby
-`GOTO`'s target -- i.e. it looks like a **conditional jump gated by some
-flag `k`**, not a resource reference. Investigated as a candidate for the
-missing object-visibility-state mechanism (see "Scene object state
-variants" below) but not confirmed; flag semantics not decoded. Worth
-revisiting if the per-object state problem needs a real fix instead of the
-current overlap heuristic.
+`MARKOPT`/`MARKOPT_OUTER`/`GIVEITEM` fully decoded by tracing real
+conversations byte-by-byte (not guessed from isolated operand patterns —
+see `PART_1/DIALOGUE.FIX` topic 173, the Petka/Anka/Vasily banya
+conversation, and topic 220, the shopkeeper). Confirms and completes
+`CHOICE`'s "availability bitmask" note above: a `CHOICE` block is a player
+dialogue menu, each option followed (after its own reply text) by one of
+these two mark instructions, naming *this same* `choice_addr` with the
+*option index* that was just taken — the runtime must flip that bit in
+the bitmask so re-visiting this `CHOICE` (dialogues loop back via `GOTO`
+to let the player ask something else) no longer offers an already-heard
+line. `MARKOPT_OUTER` is rarer (4 occurrences) and marks an *ancestor*
+`CHOICE` instead of the enclosing one — seen when a nested sub-conversation
+fully resolves a question that was also a top-level menu option, so both
+get retired together (topic 173: finishing the inner "баня" chat, reached
+through menu-option 2 of `CHOICE(1058)`, also marks option 4 of the outer
+`CHOICE(951)` — the standalone "Как там насчет баньки?" question — as
+answered). `GIVEITEM`'s operand is a small item id (4-244 in
+`PART_1/DIALOGUE.FIX`); confirmed by context, not a lookup table (no
+numeric item-id table exists in `CAST.INI`/`NAMES.INI`/`INVNTR.TXT` — item
+names there are plain strings with no ids) — e.g. word 1533-1534 in topic
+220 is the shopkeeper saying "На, может поумнеешь!" ("Here, might make you
+smarter") handing over a book, immediately followed by `GIVEITEM(242)`;
+word 1576-1577 is her giving seeds instead of a palm tree, followed by
+`GIVEITEM(243)`.
+
+None of this turned out to be the mechanism behind "Scene object state
+variants" below (door/aquarium visibility) — it's purely about the
+dialogue menu/inventory system. That problem remains unsolved; see that
+section.
 
 Content-verified end to end: bytecode word 2 is `SKIPN(8)` followed by
 `PHRASE(1), DELIM, PHRASE(2), DELIM, ..., PHRASE(8), DELIM` — decoding
@@ -460,10 +493,13 @@ Investigated and ruled out as the "real" state-selection mechanism:
 - **`BGDATA.DAT`/`SCRIPT.DAT`** — already established above to be editor
   debug-panel strings, re-checked specifically for these object names via
   `strings`, no hits.
-- The `0x04`/`0x05` bytecode opcodes discussed above are a plausible
-  *mechanism* (conditional branch gated by a flag) but were found in the
-  **dialogue** bytecode, which decides what's said, not confirmed to be
-  the same flag space that decides what's drawn. Not followed further.
+- The `0x04`/`0x05` bytecode opcodes (see the instruction set table above)
+  are now **fully decoded**: `MARKOPT`/`MARKOPT_OUTER`, which retire a
+  used dialogue-menu option so it isn't offered again. Ruled out as the
+  object-visibility mechanism — confirmed to be purely about the dialogue
+  `CHOICE` menu system, nothing to do with which FLC is drawn.
+- `0x09` is also decoded (`GIVEITEM`, grants an inventory item) — same
+  verdict, unrelated to scene rendering.
 
 Likely conclusion: this is real per-room game logic compiled into
 `Petka.exe` (e.g. a `CRoom`-style per-room message handler), not a generic
