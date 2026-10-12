@@ -270,37 +270,127 @@ Both are plain `cp1251` (not cp866!) INI text, trivial to parse:
   item localization, where many internal variants collapse to one display
   name, e.g. `IГолова Чапаева = Голова`, `IГолова с Усами = Голова`.
 
-## `BGDATA.DAT` / `BGEDIT.BG` / `BACKGRND.BG` / (`PART_0` only) `SCRIPT.DAT` — level-editor debug artifacts, deprioritized
+## `BGDATA.DAT` / `BGEDIT.BG` / `BACKGRND.BG` / `SCRIPT.DAT` — level-editor debug artifacts, deprioritized
 
-These are small (under 2KB) binary tables found only in `MAIN.STR`'s
-`PART_0` entries. Content is overwhelmingly background-editor debug-panel
-UI strings (`"Панель опций - слайдер 1 min"`, `"STARTUP - New"`,
-`"SAVELOAD"`) plus the two hero names (`Петька`, `Василий Иванович`) — not
-per-background hotspot/trigger coordinates as originally suspected. Record
-shape is roughly `u32 index/flag, u32 strlen, string bytes, then ~20 bytes
-of 0x00/0xFF padding` (confirmed over ~19 records in `BGDATA.DAT`, with two
-irregular short-padding exceptions) but exact padding semantics weren't
-worth fully nailing down — this is **`BGEDIT` = Background Editor**, i.e.
-leftover authoring-tool state, not something the shipped game needs at
-runtime for rendering or gameplay. **Deprioritized — skip unless something
-later turns out to depend on it.**
+Found under `MAIN.STR`'s `PART_0` *and* `PART_1`/`PART_2`/`PART_3` entries
+(bigger for the real parts, e.g. `PART_1/SCRIPT.DAT` is 53KB vs `PART_0`'s
+1.9KB — scales with how many interactive objects that part has, but it's
+the same record family either way — initially mistaken for real per-part
+gameplay script logic given the size and promising name, until decoded).
+Content is overwhelmingly background-editor debug-panel UI strings
+(`"Панель опций - слайдер 1 min"`, `"STARTUP - New"`, `"SAVELOAD"`) plus
+character names — not per-background hotspot/trigger coordinates as
+originally suspected, and not related to the real dialogue/interaction
+data (that's `DIALOGUE.FIX`/`.LOD`, solved below). Record shape is roughly
+`u32 index/flag, u32 strlen, string bytes, then ~20 bytes of 0x00/0xFF
+padding` but exact padding semantics weren't worth fully nailing down —
+this is **`BGEDIT` = Background Editor**, i.e. leftover authoring-tool
+state, not something the shipped game needs at runtime for rendering or
+gameplay. **Deprioritized — skip unless something later turns out to
+depend on it.**
 
-Actual per-screen interactivity is most likely just the already-solved
+Actual per-screen interactivity is the combination of the already-solved
 `.FLC`+`.MSK` pairs (each interactive object = one animated clip + one
-clickable mask rect) combined with the `.CVX` walk mesh — no separate
-hotspot format may even exist.
+clickable mask rect), the `.CVX` walk mesh, and — now solved — the
+`DIALOGUE.FIX`/`.LOD` topic/verb/bytecode system below for what happens on
+interaction.
 
-## Genuinely still open (deferred — separate, large task)
+## `DIALOGUE.FIX` / `DIALOGUE.LOD` bytecode VM — SOLVED (byte-exact, content-verified)
 
-**`dialogue.dat` bytecode VM** (`Bigdlg.cpp`, `BigDialogue`) — dialogue
-trees are compiled bytecode interpreted by a small VM baked into the engine
-itself (confirmed via `"DisAssembled *ip:\n%s\n"`, `"goto %04xh\n"`, `"code
-%02xh is not disassembled yet\n"`). This is effectively "reverse-engineer a
-small custom instruction set," comparable in scope to the rest of this
-investigation combined — not a format worth cracking by byte-staring. Punt
-this to its own dedicated session once dialogue/interaction is actually on
-the critical path (not needed for rendering backgrounds/animations or
-walking around).
+Full per-part dialogue/interaction data lives in `MAIN.STR` under
+`PART_N/DIALOGUE.FIX` and `PART_N/DIALOGUE.LOD` (**not** inside the
+per-part `BGS`/`FLC` stores — easy to miss). Reverse-engineered from
+`Bigdlg.cpp`'s `BigDialogue` loader (`sub_40AF90`), destructor (`sub_40B270`,
+confirms every field independently), and the runtime step/disassemble
+helpers (`sub_40B500`, `sub_40BAA0`, `sub_40BC80`). Both the tree structure
+and the bytecode semantics were validated **byte-exact to EOF** and
+cross-checked against the actual extracted Russian dialogue text — not just
+a plausible guess.
+
+### `DIALOGUE.LOD`: phrase table + text blob
+
+```
+u32 phrase_count N
+N × 24-byte phrase records:
+    char filename[16]   "11_01701.wav" style voice-clip filename (NUL-padded)
+    u32  _unused1        (on-disk garbage, overwritten at load time)
+    u32  _unused2
+immediately followed by:
+N NUL-terminated strings, CP1251, in the same order as the phrase
+records — the actual on-screen dialogue text for each phrase.
+```
+
+Verified on `PART_1/DIALOGUE.LOD`: `N=2916`, phrase table is exactly
+`8 + 2916*24 = 69992` bytes, and the text blob runs to **exactly** EOF
+(164025 bytes total) with no remainder.
+
+### `DIALOGUE.FIX`: a 4-level tree index + one shared bytecode array
+
+```
+u32 topic_count N
+N × 12-byte TopicRecord:      { u32 id; u32 n_subs; u32 _ptr_ignored }
+for each topic, immediately: n_subs × 16-byte SubRecord:
+                               { u32 verb_id; u32 n_subsubs; u32 data; u32 _ptr_ignored }
+for each sub, immediately:    n_subsubs × 12-byte SubsubRecord:
+                               { u32 bytecode_offset; u32 n_extra; u32 _ptr_ignored }
+for each subsub, immediately: n_extra × u32   (optional extra data; empty for most entries)
+
+then, once, after the whole tree:
+u32 bytecode_word_count M
+M × u32 bytecode words   -- ONE shared program for the whole file,
+                            indexed into by every SubsubRecord.bytecode_offset
+```
+
+This is a **"flat array, then recurse into each child" serialization at
+every level** (not fully depth-first-interleaved) — each level's whole
+sibling block is read in one shot before recursing into any of them, which
+is why naively reading header-then-immediately-recurse per node
+desyncs the parser. All three pointer-sized "ignored" fields are leftover
+build-tool memory (same `0x83xxxxxx`-pattern garbage seen elsewhere in
+these formats), confirmed safe to skip by the destructor freeing exactly
+those fields and no others.
+
+Verified byte-exact on `PART_1/DIALOGUE.FIX` (48868 bytes): the tree
+(`topic_count=285`) consumes bytes `[4, 30528)`, then
+`bytecode_word_count=4584` at offset 30528 accounts for the remaining
+`4 + 4*4584 = 18340` bytes — **`30528 + 18340 = 48868`, exactly the file
+size.**
+
+`TopicRecord` = one interactive object/NPC. `SubRecord.verb_id` = one
+applicable verb/action for it (small IDs like 1/4/6/10 recur across many
+different topics — a shared verb-ID space, e.g. look/use/take/talk).
+`SubsubRecord.bytecode_offset` is a **direct word-index into the shared
+bytecode array** — confirmed by cross-referencing: topic0's four subs have
+`bytecode_offset` 0, 2, 20, 22, and those are exactly where four distinct
+instruction sequences start in the decoded word dump.
+
+### Bytecode instruction set (word = `u32`, opcode = top byte)
+
+| opcode | mnemonic | operand (low 24 bits)                    | meaning |
+|-------:|----------|-------------------------------------------|---------|
+| `0x01` | `DELIM`  | unused                                     | separates alternatives within a block |
+| `0x02` | `CHOICE` | low byte = option count, bits 8-23 = availability bitmask | player dialogue menu: pick the Nth *available* option, where availability is tested per `DELIM`-separated segment against game-state flags |
+| `0x03` | `GOTO`   | u16 target                                 | jump to absolute word offset |
+| `0x06` | `STOP`   | unused                                     | end of this instruction sequence (also used as an error sentinel by the runtime) |
+| `0x07` | `PHRASE` | phrase index                               | speak/display phrase N (index into `DIALOGUE.LOD`'s phrase table — text + voice clip) |
+| `0x08` | `SKIPN`  | count                                      | randomly pick one of the next `count` `DELIM`-separated phrase blocks (variant/idle-line selection) |
+
+Content-verified end to end: bytecode word 2 is `SKIPN(8)` followed by
+`PHRASE(1), DELIM, PHRASE(2), DELIM, ..., PHRASE(8), DELIM` — decoding
+phrases 1-8 against `DIALOGUE.LOD`'s text blob gives exactly Petka's
+self-introduction monologue variants ("Это я.", "Любимый!", "Неправда ли,
+хорош?", "Ладно скроен, крепко сбит!", "Умен не по годам...", "Да еще и
+скромен, к тому же...", "Нравлюсь?..", "То-то же!") — a random-idle-line
+system, which is exactly what `SKIPN` + `DELIM`-separated `PHRASE`s should
+produce.
+
+Not yet mapped: exactly how `TopicRecord.id` and `SubRecord.verb_id`
+connect to a specific clicked screen object and cursor action at runtime
+(i.e. the glue between `QObject`/`QM_*` messages and a topic/verb lookup) —
+needed to actually *drive* dialogue from gameplay, not just extract/replay
+it. The data format itself, however, is fully solved: all dialogue text,
+voice-clip filenames, and branching/random-variant logic can already be
+extracted and replayed from any `PART_N/DIALOGUE.FIX`+`.LOD` pair.
 
 ## Tooling
 
