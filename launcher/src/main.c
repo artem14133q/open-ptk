@@ -95,8 +95,8 @@ typedef struct {
     // one the game is in, until ENDSEQ. PETKA_NONE = no sequence.
     uint16_t seq_room;
 
-    // Hero scale by screen y, from BGS.INI: base + delta over [y0, y1], * k.
-    float persp_base, persp_delta, persp_y0, persp_y1, persp_k;
+    // Hero scale by screen row, from BGS.INI; see hero_scale().
+    float persp_base, persp_delta, persp_y0, persp_y1, persp_max;
     Walk walk[2];
 
     const PetkaDialogueVerb *dialogue; // picked by the script, played by DIALOG
@@ -426,24 +426,27 @@ static void visual_update(Game *g, const PetkaObject *obj) {
 
 // ---- heroes ----
 
-// Scale of a hero standing at screen row y. The five numbers per room in
-// BGS.INI's [Settings] read naturally as "base + delta across [y0, y1],
-// times k" (base + delta is 1.0 almost everywhere); not confirmed in the exe.
+// Scale of a hero standing at screen row y (the exe's sub_409460). The five
+// numbers a room has in BGS.INI's [Settings] are "a b y0 y1 max": the scale
+// is a at row y0 and grows by b over the rows down to y1, never below a and
+// never above max. A room with no entry draws heroes at full size.
 static float hero_scale(const Game *g, float y) {
-    float t = g->persp_y1 > g->persp_y0 ? (y - g->persp_y0) / (g->persp_y1 - g->persp_y0) : 1.0f;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    float s = (g->persp_base + g->persp_delta * t) * g->persp_k;
-    return s > 0.05f ? s : 0.05f;
+    if (y > GAME_H) y = GAME_H;
+    float grow = g->persp_y1 != g->persp_y0
+        ? (y - g->persp_y0) * g->persp_delta / (g->persp_y1 - g->persp_y0) : 0;
+    if (grow < 0) grow = 0;
+    float s = g->persp_base + grow;
+    if (s > g->persp_max) s = g->persp_max;
+    return s > 0.05f ? s : 0.05f; // ours: never let a hero vanish
 }
 
 static void load_perspective(Game *g, const char *room_name) {
-    g->persp_base = 1; g->persp_delta = 0; g->persp_y0 = 0; g->persp_y1 = GAME_H; g->persp_k = 1;
+    g->persp_base = 1; g->persp_delta = 0; g->persp_y0 = 0; g->persp_y1 = GAME_H; g->persp_max = 1;
     char value[128];
     float a, b, c, d, e;
     if (g->bgs_ini && petka_ini_get(g->bgs_ini, g->bgs_ini_len, "Settings", room_name, value, sizeof(value)) &&
         sscanf(value, "%f %f %f %f %f", &a, &b, &c, &d, &e) == 5) {
-        g->persp_base = a; g->persp_delta = b; g->persp_y0 = c; g->persp_y1 = d; g->persp_k = e;
+        g->persp_base = a; g->persp_delta = b; g->persp_y0 = c; g->persp_y1 = d; g->persp_max = e;
     }
 }
 

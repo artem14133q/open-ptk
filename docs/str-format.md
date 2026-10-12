@@ -563,12 +563,45 @@ elsewhere in this document:
   here, as on a chapter change;
 - each room's `BGS.INI` `[Settings]` line is parsed as
   `"%lf %lf %d %d %lf"` into a per-room record, default `1.0 0.0 0 480 1.0`
-  -- two doubles, two screen rows, one double, which fits the launcher's
-  reading of it as hero scale `(a + b * t) * k` across rows `[y0, y1]` (the
-  code that applies it was not seen);
+  -- `a b y0 y1 max`, the hero scale of that room (below);
 - `TOTALINIT` is posted to every object, in list order, with no sender, and
   before the cursor and the two panel objects are created -- so those three
   never get it.
+
+**Hero scale** (`sub_409460`, the heroes' vtable slot `+68`): for a hero at
+screen row `y` in a room whose `BGS.INI` line is `a b y0 y1 max`,
+
+```
+y     = min(y, 480)
+grow  = max(0, (y - y0) * b / (y1 - y0))
+scale = min(a + grow, max)
+```
+
+and 1.0 for a room with no line. So the hero is `a` times full size at row
+`y0` and above, grows by `b` down to row `y1`, and `max` is a ceiling, not a
+factor: `МОСТ = 0.9 0.0 0 480 0.9` is a flat 0.9. The walk step asks for
+this on every frame, and the hero's clip is drawn at its frame size times it.
+
+**Walk offsets**: next to each of the 24 walk clips (`MAIN\WALK\P-W-E.FLC`,
+...) lie an `.OFF` and a `.LEG` file of the same layout:
+
+```
+"xyof"
+(clip frames + 1) x (i32 x, i32 y)     -- the last pair repeats the first
+```
+
+`.OFF` is how far the hero moves on each frame: over one cycle the eastward
+clip adds up to about +123 pixels in x, the westward one to -119, north to
+-20 in y, south to +30. `.LEG` is a point inside the sprite for each frame
+(e.g. 84,186 in the eastward clip) -- by the look of it the foot that is on
+the ground, i.e. what stays put on the hero's position. The walk step
+(`sub_424030`) takes the current frame's entry from two per-direction
+tables, scales it by the hero scale, adds it to two running sums, rotates
+them by the leg's angle and adds the leg's start point; when a leg's step
+count runs out it moves to the next route point. Which table is which, the
+rotation and the use of `.LEG` are in functions not decompiled yet
+(`sub_422D30`, `sub_423B80`, `0x4089A0`), so the launcher still walks at a
+constant speed.
 
 `CHAPTER n` (`sub_411C00`) opens the store named by `[Part P Chapter n]` in
 `PARTS.INI` (`chap21.str`, `chap22.str`) and re-reads `NAMES.INI`/`CAST.INI`
@@ -782,11 +815,8 @@ several passes looking for topology there). Plain CP1251 INI text:
 StartRoom = Seq - INTRO0          ; or a room name directly
 ;StartRoom = КОМНАТА ПЕТЬКИ         (commented-out alternates, ignored)
 
-<room name> = <5 numbers>          ; per-room walk/perspective scale params,
-                                    ; e.g. "0.3 0.7 130 290 1.0" -- not
-                                    ; parsed (not needed for the graph
-                                    ; itself; likely camera/character
-                                    ; depth-scaling factors, unverified)
+<room name> = a b y0 y1 max        ; hero scale in that room, e.g.
+                                    ; "0.3 0.7 130 290 1.0" (see below)
 
 [<room name>]
 <target room name> = <human-readable exit description>
