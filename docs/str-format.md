@@ -264,12 +264,30 @@ point pairs across them without one route missing or leaving the floor. Two
 meshes (`OKNO.CVX`, `VREMUNKY.CVX`) contain a polygon
 that is concave by a pixel or two -- level-editor slack, harmless.
 
-Implemented in `core/src/walk.c`: `petka_walkmesh_open`, and
-`petka_walkmesh_path`, which finds the chain of polygons between two points
-(Dijkstra over centroids) and pulls the route tight through the shared
-diagonals (funnel algorithm). This is our own pathfinder over the game's
-mesh; how `Walk.cpp` itself routes was not decompiled, so the hero may take
-a slightly different line than in the original.
+Implemented in `core/src/walk.c`: `petka_walkmesh_open` and
+`petka_walkmesh_path`, which builds a route the way the exe does
+(`sub_423650`):
+
+1. Each end gets its polygon; an end that is off the floor is first moved
+   onto it (`sub_425120`).
+2. If both are in one polygon, the route is the straight line.
+3. Otherwise the chain of polygons between them is found. The exe searches
+   depth-first, taking each polygon's neighbours in turn and refusing only
+   to step straight back. In all 85 meshes the polygons form a tree (one
+   diagonal fewer than polygons), so there is exactly one chain; the
+   implementation finds it with Dijkstra.
+4. The route is the start, the **midpoint of each diagonal crossed**, and
+   the goal.
+5. It is straightened as it is built: after each point is added, if the
+   point two back can be joined to it by a straight line that stays on the
+   floor (`sub_424E40`), the point in between is dropped.
+
+So the hero keeps to the middle of doorways and gaps instead of cutting
+corners. Two helpers were not decompiled and are stood in for: moving an
+off-floor point onto the floor (ours goes to the nearest point of the
+nearest polygon) and the stays-on-the-floor test (ours: the line must not
+meet the outline). `walktest` routes 425,000 random point pairs with it,
+none missing and none leaving the floor.
 
 ## Resource-ID indirection — SOLVED: `RESOURCE.QRC` is plain text
 
@@ -634,10 +652,9 @@ pixels from the leg's end on average and always within one step, with all
 eight clips in use -- which a wrong sign in the turn or swapped tables
 would not survive. Not seen in the exe: how the position is applied to the
 sprite (`0x4089A0`; drawing by the `.LEG` point is the reading that makes
-the sprite move by exactly `.OFF`), how a clip without a `.LEG` is anchored
-(the launcher uses the bottom centre of its MSK rect), and how the route
-itself is built (`sub_423650`; the launcher uses its own pathfinder over the
-`.CVX` mesh).
+the sprite move by exactly `.OFF`) and how a clip without a `.LEG` is
+anchored (the launcher uses the bottom centre of its MSK rect). The route
+itself is described under `.CVX` above.
 
 `CHAPTER n` (`sub_411C00`) opens the store named by `[Part P Chapter n]` in
 `PARTS.INI` (`chap21.str`, `chap22.str`) and re-reads `NAMES.INI`/`CAST.INI`

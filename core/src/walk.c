@@ -213,7 +213,9 @@ int petka_walkmesh_snap(const PetkaWalkMesh *mesh, float x, float y, float *out_
 // ---- pathfinding ----
 
 // Chain of polygons from `from` to `to` by Dijkstra over centroid
-// distances. Fills via[p] with the portal used to enter p (-1 for the
+// distances. (The exe searches depth-first, refusing only to step straight
+// back; the polygons of a cut-up outline form a tree, so there is one chain
+// and both find it.) Fills via[p] with the portal used to enter p (-1 for the
 // start). Returns 0 if `to` cannot be reached.
 static int find_corridor(const PetkaWalkMesh *mesh, int from, int to, int *via) {
     uint32_t n = mesh->poly_count;
@@ -246,101 +248,95 @@ static int find_corridor(const PetkaWalkMesh *mesh, int from, int to, int *via) 
     return found;
 }
 
-// Signed area test used by the funnel; the sign convention only has to be
-// the same everywhere, which makes the code independent of y pointing down.
-static float triarea2(const float *a, const float *b, const float *c) {
-    return (c[0] - a[0]) * (b[1] - a[1]) - (b[0] - a[0]) * (c[1] - a[1]);
+static float orient(float ax, float ay, float bx, float by, float cx, float cy) {
+    return cross(bx - ax, by - ay, cx - ax, cy - ay);
 }
 
-static int same_point(const float *a, const float *b) {
-    return fabsf(a[0] - b[0]) < 0.001f && fabsf(a[1] - b[1]) < 0.001f;
+// Do the closed segments a-b and c-d have a point in common?
+static int segments_meet(float ax, float ay, float bx, float by, float cx, float cy, float dx, float dy) {
+    float o1 = orient(ax, ay, bx, by, cx, cy), o2 = orient(ax, ay, bx, by, dx, dy);
+    float o3 = orient(cx, cy, dx, dy, ax, ay), o4 = orient(cx, cy, dx, dy, bx, by);
+    if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return 1;
+    // Touching or collinear: a point of one lying on the other.
+    #define ON(o, px, py, qx, qy, rx, ry) \
+        ((o) == 0 && (rx) >= fminf(px, qx) && (rx) <= fmaxf(px, qx) && (ry) >= fminf(py, qy) && (ry) <= fmaxf(py, qy))
+    int touch = ON(o1, ax, ay, bx, by, cx, cy) || ON(o2, ax, ay, bx, by, dx, dy) ||
+                ON(o3, cx, cy, dx, dy, ax, ay) || ON(o4, cx, cy, dx, dy, bx, by);
+    #undef ON
+    return touch;
 }
 
-static int emit(PetkaPoint *out, int max, int n, const float *p) {
-    if (n >= max) return -1;
-    out[n].x = (int32_t)lroundf(p[0]);
-    out[n].y = (int32_t)lroundf(p[1]);
-    return n + 1;
+// Does the straight line from a to b leave the floor? It does if it meets
+// the outline anywhere. (Our stand-in for the exe's sub_424E40, which was
+// not decompiled; touching the outline counts as leaving, the safe side.)
+static int blocked(const PetkaWalkMesh *mesh, float ax, float ay, float bx, float by) {
+    for (uint32_t i = 0; i < mesh->point_count; i++) {
+        const PetkaPoint *c = &mesh->points[i], *d = &mesh->points[(i + 1) % mesh->point_count];
+        if (segments_meet(ax, ay, bx, by, (float)c->x, (float)c->y, (float)d->x, (float)d->y)) return 1;
+    }
+    return 0;
 }
 
+// The route the exe builds (sub_423650): through the middle of every
+// diagonal between the start's polygon and the goal's, then straightened by
+// dropping a point whenever its two neighbours can see each other.
 int petka_walkmesh_path(const PetkaWalkMesh *mesh, float from_x, float from_y,
                         float to_x, float to_y, PetkaPoint *out, int max) {
     float start[2], goal[2];
     int from = petka_walkmesh_snap(mesh, from_x, from_y, &start[0], &start[1]);
     int to = petka_walkmesh_snap(mesh, to_x, to_y, &goal[0], &goal[1]);
     if (max < 1) return 0;
-    if (from == to) return emit(out, max, 0, goal) > 0 ? 1 : 0;
+    PetkaPoint goal_pt = { (int32_t)lroundf(goal[0]), (int32_t)lroundf(goal[1]) };
+    if (from == to) { out[0] = goal_pt; return 1; }
 
     int *via = (int *)malloc(mesh->poly_count * sizeof(int));
     if (!find_corridor(mesh, from, to, via)) { free(via); return 0; }
-
-    // Portals along the corridor, start to goal, each as a (left, right)
-    // pair seen from the polygon being left; the goal closes the list.
     uint32_t steps = 0;
-    for (int p = to; via[p] >= 0; ) {
+    for (int p = to; via[p] >= 0; steps++) {
         const PetkaWalkPortal *portal = &mesh->portals[via[p]];
         p = (int)portal->poly_a == p ? (int)portal->poly_b : (int)portal->poly_a;
-        steps++;
     }
-    float *left = (float *)malloc((steps + 1) * 2 * sizeof(float));
-    float *right = (float *)malloc((steps + 1) * 2 * sizeof(float));
+
+    // Start, the diagonals' midpoints in walking order, goal.
+    uint32_t total = steps + 2;
+    float *pts = (float *)malloc(total * 2 * sizeof(float));
+    pts[0] = start[0];
+    pts[1] = start[1];
     uint32_t at = steps;
-    for (int p = to; via[p] >= 0; ) {
+    for (int p = to; via[p] >= 0; at--) {
         const PetkaWalkPortal *portal = &mesh->portals[via[p]];
-        int prev = (int)portal->poly_a == p ? (int)portal->poly_b : (int)portal->poly_a;
-        float c[2] = { mesh->polys[prev].cx, mesh->polys[prev].cy };
-        float u[2] = { (float)mesh->points[portal->v0].x, (float)mesh->points[portal->v0].y };
-        float v[2] = { (float)mesh->points[portal->v1].x, (float)mesh->points[portal->v1].y };
-        int u_is_right = triarea2(c, u, v) <= 0;
-        at--;
-        memcpy(&right[2 * at], u_is_right ? u : v, sizeof(u));
-        memcpy(&left[2 * at], u_is_right ? v : u, sizeof(u));
-        p = prev;
+        const PetkaPoint *u = &mesh->points[portal->v0], *v = &mesh->points[portal->v1];
+        pts[2 * at] = (float)((u->x + v->x) >> 1);
+        pts[2 * at + 1] = (float)((u->y + v->y) >> 1);
+        p = (int)portal->poly_a == p ? (int)portal->poly_b : (int)portal->poly_a;
     }
-    memcpy(&left[2 * steps], goal, sizeof(goal));
-    memcpy(&right[2 * steps], goal, sizeof(goal));
+    pts[2 * (total - 1)] = goal[0];
+    pts[2 * (total - 1) + 1] = goal[1];
     free(via);
 
-    // String pulling ("simple stupid funnel"): keep the widest wedge from
-    // the last corner that still sees through every portal passed so far;
-    // when the next portal falls outside it, the wedge's edge becomes a
-    // corner of the path.
-    float apex[2] = { start[0], start[1] }, wl[2], wr[2];
-    memcpy(wl, apex, sizeof(apex));
-    memcpy(wr, apex, sizeof(apex));
-    uint32_t il = 0, ir = 0;
-    int n = 0;
-    for (uint32_t i = 0; i <= steps && n >= 0; i++) {
-        const float *l = &left[2 * i], *r = &right[2 * i];
-        if (triarea2(apex, wr, r) <= 0) {
-            if (same_point(apex, wr) || triarea2(apex, wl, r) > 0) {
-                memcpy(wr, r, sizeof(wr));
-                ir = i;
-            } else {
-                n = emit(out, max, n, wl);
-                memcpy(apex, wl, sizeof(apex));
-                memcpy(wr, apex, sizeof(apex));
-                i = ir = il;
-                continue;
-            }
-        }
-        if (triarea2(apex, wl, l) >= 0) {
-            if (same_point(apex, wl) || triarea2(apex, wr, l) < 0) {
-                memcpy(wl, l, sizeof(wl));
-                il = i;
-            } else {
-                n = emit(out, max, n, wr);
-                memcpy(apex, wr, sizeof(apex));
-                memcpy(wl, apex, sizeof(apex));
-                i = il = ir;
-                continue;
-            }
+    // Straighten in place: n points are kept so far.
+    uint32_t n = 1;
+    for (uint32_t i = 1; i < total; i++) {
+        pts[2 * n] = pts[2 * i];
+        pts[2 * n + 1] = pts[2 * i + 1];
+        n++;
+        if (n >= 3 && !blocked(mesh, pts[2 * (n - 3)], pts[2 * (n - 3) + 1], pts[2 * (n - 1)], pts[2 * (n - 1) + 1])) {
+            pts[2 * (n - 2)] = pts[2 * (n - 1)];
+            pts[2 * (n - 2) + 1] = pts[2 * (n - 1) + 1];
+            n--;
         }
     }
-    if (n >= 0) n = emit(out, max, n, goal);
-    free(left);
-    free(right);
-    return n > 0 ? n : 0;
+
+    int count = 0;
+    if ((int)(n - 1) <= max) {
+        for (uint32_t i = 1; i < n; i++) {
+            out[count].x = (int32_t)lroundf(pts[2 * i]);
+            out[count].y = (int32_t)lroundf(pts[2 * i + 1]);
+            count++;
+        }
+    }
+    free(pts);
+    return count;
 }
 
 // ---- gait ----

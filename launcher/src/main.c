@@ -58,9 +58,8 @@ typedef struct {
 #define MAX_WAYPOINTS 32
 #define MAX_GAITS 8
 
-// A hero on the move. The route across the room's walk mesh is ours; how he
-// moves along it -- one step per frame of the walk clip -- is the exe's
-// (petka/walk.h).
+// A hero on the move: a route across the room's walk mesh, walked one step
+// per frame of the walk clip. Both follow the exe (petka/walk.h).
 typedef struct {
     int active;
     PetkaWalker walker;

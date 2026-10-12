@@ -51,11 +51,13 @@ int petka_walkmesh_locate(const PetkaWalkMesh *mesh, float x, float y);
 // point of the nearest polygon). Returns that polygon's index.
 int petka_walkmesh_snap(const PetkaWalkMesh *mesh, float x, float y, float *out_x, float *out_y);
 
-// Shortest way across the floor from one point to another. Both ends are
-// snapped onto the floor first. Writes the corners to turn at, ending with
-// the (snapped) destination, and returns how many were written. Returns 0
-// if the two points are in parts of the floor that do not connect, or if
-// the route needs more than `max` points.
+// A way across the floor from one point to another, built as the exe builds
+// it: through the middle of each diagonal crossed, then straightened where
+// the floor allows. Not the shortest way -- it keeps clear of corners. Both
+// ends are snapped onto the floor first. Writes the points to walk to,
+// ending with the (snapped) destination, and returns how many were written.
+// Returns 0 if the two points are in parts of the floor that do not
+// connect, or if the route needs more than `max` points.
 int petka_walkmesh_path(const PetkaWalkMesh *mesh, float from_x, float from_y,
                         float to_x, float to_y, PetkaPoint *out, int max);
 
