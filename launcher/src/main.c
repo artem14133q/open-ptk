@@ -335,6 +335,83 @@ int main(int argc, char **argv) {
     InitAudioDevice();
     Font cyrillicFont = load_cyrillic_font();
 
+    // Title/start menu. Background is the game's own MAIN\INTRFACE.BG\
+    // INTRFASE.BMP (found in MAIN.STR). NOT using that folder's button
+    // FLC/MSK pairs for the buttons themselves, though: their MSK rects
+    // turn out to be calibrated for a different composite screen (this one
+    // background is shared across main menu/options/save-load, all
+    // overlaid in the raw asset), so drawing them at face value produces
+    // an unreadable overlapping mess. Simpler and more honest to lay out
+    // our own plain-text menu over the backdrop than fake a pixel-perfect
+    // reconstruction we don't actually have the data for. Up/Down selects,
+    // Enter confirms. CONTINUE/LOAD are real entries but there's no save
+    // system yet, so they just report that rather than doing nothing.
+    if (main_store) {
+        typedef struct {
+            const char *label_utf8;
+            int is_stub;
+        } MenuItem;
+        MenuItem items[] = {
+            {"Новая игра", 0},
+            {"Продолжить", 1},
+            {"Загрузить", 1},
+            {"Выход", 0},
+        };
+        const int item_count = (int)(sizeof(items) / sizeof(items[0]));
+
+        const PetkaEntry *menu_bg_e = petka_store_find(main_store, "MAIN\\INTRFACE.BG\\INTRFASE.BMP");
+        Texture2D menu_bg_tex = {0};
+        if (menu_bg_e) {
+            size_t blen = 0;
+            const uint8_t *bbytes = petka_store_entry_data(main_store, menu_bg_e, &blen);
+            int mw = 0, mh = 0;
+            uint8_t *rgb = petka_bmp_decode(bbytes, blen, &mw, &mh);
+            if (rgb) {
+                Image img = {.data = rgb, .width = mw, .height = mh, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8};
+                menu_bg_tex = LoadTextureFromImage(img);
+                UnloadImage(img);
+            }
+        }
+
+        int selected = 0;
+        char menu_status[256] = "";
+        int entered_game = 0;
+        while (!WindowShouldClose() && !entered_game) {
+            if (IsKeyPressed(KEY_DOWN)) { selected = (selected + 1) % item_count; menu_status[0] = 0; }
+            if (IsKeyPressed(KEY_UP)) { selected = (selected - 1 + item_count) % item_count; menu_status[0] = 0; }
+            if (IsKeyPressed(KEY_ENTER)) {
+                if (items[selected].is_stub) {
+                    snprintf(menu_status, sizeof(menu_status), "%s: not implemented yet (no save system)", items[selected].label_utf8);
+                } else if (selected == item_count - 1) { // "Выход"
+                    CloseWindow();
+                    return 0;
+                } else {
+                    entered_game = 1;
+                }
+            }
+
+            BeginDrawing();
+            ClearBackground(BLACK);
+            Rectangle dst = {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()};
+            if (menu_bg_tex.id) DrawTexturePro(menu_bg_tex, (Rectangle){0, 0, (float)menu_bg_tex.width, (float)menu_bg_tex.height}, dst, (Vector2){0, 0}, 0, WHITE);
+
+            int panel_w = 320, panel_h = item_count * 44 + 20;
+            int px = GetScreenWidth() / 2 - panel_w / 2, py = GetScreenHeight() / 2 - panel_h / 2;
+            DrawRectangle(px, py, panel_w, panel_h, Fade(BLACK, 0.65f));
+            for (int i = 0; i < item_count; i++) {
+                Color c = (i == selected) ? ORANGE : WHITE;
+                const char *prefix = (i == selected) ? "> " : "  ";
+                DrawTextEx(cyrillicFont, TextFormat("%s%s", prefix, items[i].label_utf8),
+                           (Vector2){(float)(px + 16), (float)(py + 10 + i * 44)}, 28, 1, c);
+            }
+            if (menu_status[0]) DrawTextEx(cyrillicFont, menu_status, (Vector2){10, (float)(GetScreenHeight() - 30)}, 16, 1, RED);
+            EndDrawing();
+        }
+
+        if (menu_bg_tex.id) UnloadTexture(menu_bg_tex);
+        if (!entered_game) { CloseWindow(); return 0; } // window closed mid-menu
+    }
+
     int bg_index = 0;
     int flic_index = -1; // -1 = no overlay
     Texture2D bg_tex = {0};
