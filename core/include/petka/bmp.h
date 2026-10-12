@@ -1,16 +1,20 @@
 // Decoder for the BMP variant used by Petka's background/UI images.
 //
-// These are technically well-formed Windows BMP files (BM magic, standard
-// 40-byte BITMAPINFOHEADER, bfOffBits=54, no BITFIELDS section) EXCEPT for
-// one quirk found by trial and error: 16bpp pixels are NOT the usual
-// little-endian RGB565 Windows uses -- they're a big-endian 16-bit word
-// with bits laid out BBBBB GGGGGG RRRRR (B in the high bits, R in the low
-// bits). Standard BMP decoders (including stb_image, which raylib uses
-// internally) render this as per-pixel noise since they assume the normal
-// little-endian 555/565 layout. 24bpp images (if any) are standard BGR888.
+// They carry a standard header (BM magic, 40-byte BITMAPINFOHEADER,
+// bfOffBits=54), but the 16bpp ones -- nearly all of them -- are not really
+// Windows BMPs:
+//   - 8 more bytes follow the header: a u32 tag (0 or 2, no visible effect)
+//     and the file's length as a u32. Pixels start at 62, not at bfOffBits.
+//   - rows are width*2 bytes, NOT padded to a multiple of four (it only
+//     shows on odd widths: the two 1349-pixel backgrounds).
+//   - each pixel is a big-endian 16-bit word, BBBBB GGGGGG RRRRR.
+// Standard BMP decoders (including stb_image, which raylib uses internally)
+// get all three wrong. The length field is how this variant is recognised.
 //
-// See docs/str-format.md for how this was found (visual A/B test of
-// several byte-order/channel-order hypotheses against a known background).
+// A few images are ordinary 8bpp BMPs with a palette, and 24bpp is handled
+// as standard BGR888 too.
+//
+// See docs/str-format.md for how this was found.
 #ifndef PETKA_BMP_H
 #define PETKA_BMP_H
 

@@ -23,7 +23,21 @@ uint8_t *petka_bmp_decode(const uint8_t *data, size_t len, int *out_width, int *
     int bottom_up = height_field > 0; // negative biHeight means top-down
 
     size_t row_stride = (((size_t)width * bpp / 8) + 3) & ~(size_t)3;
-    if (bits_off + row_stride * (size_t)height > len) return NULL;
+    // Petka's own 16bpp layout: an 8-byte block { tag, file length } sits
+    // between the header and the pixels, and rows are not padded.
+    if (bpp == 16 && len >= 62 && read_u32le(data + 58) == len) {
+        bits_off = 62;
+        row_stride = (size_t)width * 2;
+    }
+    if (bits_off > len || row_stride * (size_t)height > len - bits_off) return NULL;
+
+    // 8bpp: BGRA palette entries right after the info header.
+    const uint8_t *palette = NULL;
+    if (bpp == 8) {
+        size_t palette_off = 14 + (size_t)read_u32le(data + 14);
+        if (palette_off > len || len - palette_off < 256 * 4) return NULL;
+        palette = data + palette_off;
+    }
 
     uint8_t *out = (uint8_t *)malloc((size_t)width * (size_t)height * 3);
     if (!out) return NULL;
@@ -43,6 +57,13 @@ uint8_t *petka_bmp_decode(const uint8_t *data, size_t len, int *out_width, int *
                 dst[x * 3 + 0] = (uint8_t)((r5 * 255) / 31);
                 dst[x * 3 + 1] = (uint8_t)((g6 * 255) / 63);
                 dst[x * 3 + 2] = (uint8_t)((b5 * 255) / 31);
+            }
+        } else if (bpp == 8) {
+            for (int x = 0; x < width; x++) {
+                const uint8_t *c = palette + (size_t)row[x] * 4;
+                dst[x * 3 + 0] = c[2];
+                dst[x * 3 + 1] = c[1];
+                dst[x * 3 + 2] = c[0];
             }
         } else if (bpp == 24) {
             for (int x = 0; x < width; x++) {

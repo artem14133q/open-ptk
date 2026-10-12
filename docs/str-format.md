@@ -110,34 +110,47 @@ of loading the whole clip into memory ("memory flic").
   named tracks (`MUSIC1\BOLOTO.WAV`, `MUSIC1\DEREVNIA.WAV`, ...) — longer,
   whole-track files, not hundreds of short clips.
 
-## BMP pixel format — SOLVED: non-standard 16bpp word order
+## BMP pixel format — SOLVED: a private 16bpp layout behind a standard header
 
-Extracted BMPs (e.g. `BOLOTO.BMP`) are well-formed 640x480 **16bpp**
-Windows BMPs (`biBitCount=16`, `biCompression=0/BI_RGB`, standard 54-byte
-header, no BITFIELDS section) — `file(1)`'s `cbSize 921656` is just a stale
-`bfSize` header field (real file is 614464 bytes = 640*480*2 + header,
-exactly right for 16bpp; the field is simply wrong/unused, not a sign of a
-different bit depth).
+The background and UI images open like Windows BMPs -- `BM`, a 40-byte
+`BITMAPINFOHEADER`, `bfOffBits=54`, `biBitCount=16`, `biCompression=0`, no
+BITFIELDS -- but the 16bpp ones (111 of the 115 images) are not:
 
-The catch: standard BMP decoders (including stb_image, which raylib uses
-for `LoadImageFromMemory`) assume 16bpp `BI_RGB` pixels are little-endian
-RGB565/555. Feeding these files through that path produces full-image
-per-pixel color noise with perfectly sharp edges (confirmed — see
-`/tmp/boloto_565.png` et al. during investigation) — a dead giveaway of a
-bit-packing/endianness mismatch, not a structural (width/stride) one.
+```
+0   standard 54-byte BMP header (bfSize and biSizeImage are stale, ignore)
+54  u32 tag            0 or 2; no difference found between the two
+58  u32 file length    the real one
+62  pixels             height rows, bottom-up, each width*2 bytes -- NOT
+                       padded to a multiple of 4
+    (two zero bytes follow in the tag=2 files)
+```
 
-Found empirically by rendering every plausible hypothesis and comparing
-(scripted A/B test, see commit history of this doc): the actual packing is
-a **big-endian 16-bit word**, with bits `BBBBB GGGGGG RRRRR` (B in the high
-5 bits, G in the middle 6, R in the low 5 — i.e. "BGR565" read as a
-big-endian u16). 24bpp images (if any exist) are standard little-endian BGR
-triples, no quirk.
+Each pixel is a **big-endian** 16-bit word, `BBBBB GGGGGG RRRRR`.
 
-Implemented in `core/src/bmp.c` (`petka_bmp_decode`) — decodes directly to
-top-down RGB888, used by the launcher instead of raylib's built-in BMP
-loader. Verified visually: swamp background renders correctly (blue sky,
-green trees, red toadstools, campfire) end-to-end through the real
-`petka_launcher` raylib window.
+How each part was found:
+
+- The word layout came first, by rendering every plausible byte and channel
+  order and comparing. Standard decoders (stb_image, which raylib uses) assume
+  little-endian 555/565 and show per-pixel colour noise.
+- The 8 bytes at 54 were missed at that point, so pixels were read from 54:
+  every row came out 4 pixels to the right, with the end of the row below
+  wrapped into a strip down the left edge of every background. The second
+  word being exactly the file length (614464 for a 640x480 image) is what
+  gives the block away; with pixels read from 62 the object clips, which are
+  cut from the same paintings, match the background best at a shift of
+  exactly 0 (measured over all clips of `P-ROOM.BG` and `BOLOTO.BG`; before,
+  the background sat 4 pixels off).
+- The missing row padding only matters for odd widths. `FONTAN.BMP` and
+  `RESTORAN.BMP` are 1349 wide: `62 + 480*2698 + 2` is their exact length,
+  and with padded rows they do not fit in the file at all.
+
+Three images are ordinary palette BMPs instead: `BANIA-0.BMP` and
+`KARTA000.BMP` (8bpp, palette at 54, pixels at 1078, padded rows) and the
+1bpp `MAIN\BG1.BMP`, which is the only one `petka_bmp_decode` does not
+handle.
+
+Implemented in `core/src/bmp.c` (`petka_bmp_decode`), which recognises the
+private layout by the length field and decodes to top-down RGB888.
 
 ## FLIC frame codec — SOLVED (standard format, no reversing needed)
 
