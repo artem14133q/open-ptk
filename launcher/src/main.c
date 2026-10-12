@@ -1,18 +1,19 @@
-// Cross-platform (desktop raylib+OpenGL today, Switch later) resource
-// browser: cycles through every background BMP in a store (Left/Right),
-// every FLIC clip in another store composited on top with MSK
-// positioning/clipping and palette-index-0 color-key transparency
-// (Up/Down; None is one of the cycle positions), and every WAV in a third
-// store (PageUp/PageDown to select -- auto-plays on selection; Space to
-// stop/replay). 1-4 picks a verb (LOOK/TAKE/USE/TALK), Enter "interacts"
-// with the currently selected FLIC overlay (if it belongs to the current
-// background and has a matching .MSK) via a heuristic topic mapping into
-// PART_N/DIALOGUE.FIX+.LOD -- see build_object_list()'s comment and
-// docs/str-format.md for why this numbering is an approximation, not the
-// recovered original scheme. TAB cycles the current room's exits (per
-// PART_N/BGS.INI's room graph, right-hand panel); G walks through the
-// highlighted exit if its target room has a known .BG mapping (see
-// kRoomFolders -- deliberately incomplete, many rooms show "(?)").
+// Cross-platform (desktop raylib+OpenGL today, Switch later) viewer: cycles
+// through every background BMP in a store (Left/Right), renders every
+// standing object in the current room simultaneously (see
+// build_object_list()'s comment), and plays every WAV in a third store
+// (PageUp/PageDown to select -- auto-plays on selection; Space to
+// stop/replay). 1-4 picks a verb (LOOK/TAKE/USE/TALK). An object can be
+// selected either with the mouse (hover highlights it, left-click
+// interacts) or the keyboard (Up/Down to select, Enter to interact); both
+// drive the same heuristic topic mapping into PART_N/DIALOGUE.FIX+.LOD --
+// see build_object_list()'s comment and docs/str-format.md for why this
+// numbering is an approximation, not the recovered original scheme.
+// Likewise, room-graph navigation (per PART_N/BGS.INI, right-hand panel)
+// works by mouse (click an exit's line) or keyboard (TAB to highlight an
+// exit, G to walk through it) -- only if its target room has a known .BG
+// mapping (see kRoomFolders -- deliberately incomplete, many rooms show
+// "(?)").
 #include "petka/bmp.h"
 #include "petka/dialogue.h"
 #include "petka/flic.h"
@@ -469,7 +470,25 @@ int main(int argc, char **argv) {
         }
         if (current_room && current_room->exit_count > 0) {
             if (IsKeyPressed(KEY_TAB)) exit_choice = (exit_choice + 1) % (int)current_room->exit_count;
-            if (IsKeyPressed(KEY_G)) {
+
+            // Mouse: clicking an exit's line in the room panel (same layout
+            // as the panel drawing code below) selects it and goes, in one
+            // click -- no need for TAB first.
+            int go_requested = IsKeyPressed(KEY_G);
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                int panel_w = 360;
+                int px = GetScreenWidth() - panel_w;
+                Vector2 m = GetMousePosition();
+                for (uint32_t i = 0; i < current_room->exit_count; i++) {
+                    Rectangle row = {(float)px, (float)(34 + 24 * i), (float)panel_w, 22};
+                    if (CheckCollisionPointRec(m, row)) {
+                        exit_choice = (int)i;
+                        go_requested = 1;
+                        break;
+                    }
+                }
+            }
+            if (go_requested) {
                 const PetkaExit *ex = &current_room->exits[exit_choice];
                 char target_utf8[256];
                 cp1251_to_utf8(ex->target, target_utf8, sizeof(target_utf8));
@@ -496,6 +515,26 @@ int main(int argc, char **argv) {
             if (IsKeyPressed(KEY_UP)) selected_object = selected_object + 1 >= scene_count ? -1 : selected_object + 1;
             if (IsKeyPressed(KEY_DOWN)) selected_object = selected_object - 1 < -1 ? scene_count - 1 : selected_object - 1;
         }
+
+        // Mouse: hovering a scene object's MSK rect selects it (same
+        // highlight Up/Down gives); left-click interacts with it using the
+        // current verb, same as Enter.
+        int hovered_object = -1;
+        if (bg_width > 0 && scene_count > 0) {
+            float sx = (float)GetScreenWidth() / (float)bg_width;
+            float sy = (float)GetScreenHeight() / (float)bg_height;
+            Vector2 m = GetMousePosition();
+            for (int i = 0; i < scene_count; i++) {
+                if (!scene_flic[i]) continue;
+                Rectangle clip = {scene_rect[i].left * sx, scene_rect[i].top * sy,
+                                   (scene_rect[i].right - scene_rect[i].left) * sx,
+                                   (scene_rect[i].bottom - scene_rect[i].top) * sy};
+                if (CheckCollisionPointRec(m, clip)) { hovered_object = i; break; }
+            }
+        }
+        if (hovered_object >= 0) selected_object = hovered_object;
+        int interact_requested = IsKeyPressed(KEY_ENTER) ||
+                                  (hovered_object >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT));
         if (sounds.count > 0) {
             if (IsKeyPressed(KEY_PAGE_UP)) sound_index = sound_index + 1 >= sounds.count ? -1 : sound_index + 1;
             if (IsKeyPressed(KEY_PAGE_DOWN)) sound_index = sound_index - 1 < -1 ? sounds.count - 1 : sound_index - 1;
@@ -505,7 +544,7 @@ int main(int argc, char **argv) {
             }
         }
         for (int k = 0; k < 4; k++) if (IsKeyPressed(KEY_ONE + k)) verb_choice = k;
-        if (IsKeyPressed(KEY_ENTER) && dtree && phrases && selected_object >= 0) {
+        if (interact_requested && dtree && phrases && selected_object >= 0) {
             int topic_idx = selected_object; // same ordering build_object_list produced below
 
             dialogue_line_count = 0;
@@ -664,7 +703,7 @@ int main(int argc, char **argv) {
 
         if (dtree) {
             DrawRectangle(0, 0, GetScreenWidth(), 34, Fade(BLACK, 0.6f));
-            DrawText(TextFormat("verb [%s]  (1=LOOK 2=TAKE 3=USE 4=TALK, ENTER=interact)", kVerbs[verb_choice].label),
+            DrawText(TextFormat("verb [%s]  (1=LOOK 2=TAKE 3=USE 4=TALK, click/ENTER=interact)", kVerbs[verb_choice].label),
                       10, 8, 18, ORANGE);
             if (dialogue_line_count > 0) {
                 DrawRectangle(0, 34, GetScreenWidth(), 18 * dialogue_line_count + 10, Fade(BLACK, 0.6f));
@@ -683,7 +722,7 @@ int main(int argc, char **argv) {
             int lines = current_room ? 1 + (int)current_room->exit_count : 1;
             int panel_h = 24 * lines + (nav_status[0] ? 24 : 0) + 34 + 10;
             DrawRectangle(GetScreenWidth() - panel_w, 0, panel_w, panel_h, Fade(BLACK, 0.6f));
-            DrawTextEx(cyrillicFont, TextFormat("Room: %s  (TAB next exit, G go)", room_utf8),
+            DrawTextEx(cyrillicFont, TextFormat("Room: %s  (click or TAB+G to use an exit)", room_utf8),
                        (Vector2){(float)(GetScreenWidth() - panel_w + 10), 8}, 18, 1, SKYBLUE);
             if (current_room) {
                 for (uint32_t i = 0; i < current_room->exit_count; i++) {
