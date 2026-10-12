@@ -175,6 +175,8 @@ typedef struct {
 
     // Heroes only.
     uint16_t costume;    // +148, base resource id: +1 talk, +10..17 walk
+    int rest_after_loop; // +124, the clip pauses on its first frame after
+                         // one loop: set for the idle pose and for PLAY
     PetkaTail walk_tail; // +172, rest of a reaction waiting for WALKED
     int walk_sender;     // +176
 } PetkaObjectState;

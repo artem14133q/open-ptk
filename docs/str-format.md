@@ -456,6 +456,27 @@ message normally replaces the clip. A clip's sound is the file of the same
 path with a `.WAV` extension; `SET` arms it, and `SET` with 5 as its second
 argument clears `+72`, i.e. "play the sound once".
 
+The heroes' update (`sub_407BF0`) is the same loop with these differences:
+
+- a clip flagged `+124` -- the hero's message handler sets it for his idle
+  pose and for `PLAY` clips, not for the talking clip -- has its clock wound
+  back by 10 seconds when it returns to frame 1, so it plays once and then
+  rests on its first frame;
+- while the hero walks, elapsed time is multiplied by `(n + 50) / 50`, `n`
+  being a value of the object at `QSystem+544` (it looks like the walk-speed
+  slider of the options panel);
+- after each frame it calls the hero's method in vtable slot `+76` -- the
+  walk step, taken once per frame of the walk clip rather than continuously.
+  Not decompiled; this is presumably where the `.OFF`/`.LEG` files next to
+  the walk clips come in;
+- the clip's drawn size is its frame size times the double at `+152`, the
+  hero's current scale;
+- the sound is armed again on every loop regardless of `+72`, and it may
+  step several frames in one call.
+
+The launcher reproduces the resting clip and the re-armed sound; its walk
+is its own (constant speed along the route, not one step per clip frame).
+
 ### Opcodes
 
 Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).

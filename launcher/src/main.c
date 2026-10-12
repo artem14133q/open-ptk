@@ -40,6 +40,9 @@
 // only known to centre the view on the entry point when a room is entered.
 #define SCROLL_MARGIN 200.0f
 #define SCROLL_SPEED 480.0f // px/s
+// A hero's idle or PLAY clip stops on its first frame after one loop: the
+// exe (sub_407BF0) winds that clip's clock back by this much.
+#define HERO_REST_SECONDS 10.0
 
 // What is on screen for one script object.
 typedef struct {
@@ -373,6 +376,11 @@ static int is_hero(uint16_t id) { return id == PETKA_ID_PETKA || id == PETKA_ID_
 //     sound is armed again if the object repeats it;
 //   - when the middle frame comes up HALF is posted;
 //   - the clip then simply goes round again.
+// The heroes have their own update (sub_407BF0) that differs in two ways
+// handled here: their sound is armed again on every loop regardless, and a
+// clip marked rest_after_loop pauses once it is back on its first frame.
+// (It also scales the walk clip's speed by an options slider and moves the
+// hero one step per frame of that clip; neither is reproduced.)
 // A clip's sound is the same path with a .WAV extension.
 static void visual_update(Game *g, const PetkaObject *obj) {
     Visual *v = &g->visuals[obj_index(g, obj)];
@@ -408,11 +416,12 @@ static void visual_update(Game *g, const PetkaObject *obj) {
 
     int frame = v->flic->frame_index + 1; // the exe counts frames from 1
     if (frame == v->flic->frame_count) {
-        if (st->repeat_sound) v->sound_pending = 1;
+        if (st->repeat_sound || is_hero(obj->id)) v->sound_pending = 1;
         petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
     }
     if (frame == v->flic->frame_count / 2)
         petka_scriptvm_post(g->vm, obj->id, PETKA_OP_HALF, v->resource, 0, 0, -1);
+    if (is_hero(obj->id) && st->rest_after_loop && frame == 1) v->next_frame += HERO_REST_SECONDS;
 }
 
 // ---- heroes ----
@@ -523,6 +532,7 @@ static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
     if (dx * dx + dy * dy < 25) return 0; // the exe's own "already there" threshold
     w->active = 1;
     w->next = 0;
+    st->rest_after_loop = 0; // the walk clip loops, as when the exe starts a walk
     return 1;
 }
 
@@ -561,6 +571,7 @@ static void stop_heroes(Game *g) {
         if (!st || !g->walk[id].active) continue;
         g->walk[id].active = 0;
         if (st->costume != PETKA_NONE) st->resource = st->costume;
+        st->rest_after_loop = 1;
         petka_scriptvm_walk_ended(g->vm, id);
     }
 }
@@ -579,6 +590,7 @@ static void walk_update(Game *g, uint16_t hero_id, float dt) {
         if (++w->next < w->count) return; // on to the next corner
         w->active = 0;
         if (st->costume != PETKA_NONE) st->resource = st->costume;
+        st->rest_after_loop = 1;
         petka_scriptvm_walk_ended(g->vm, hero_id);
         return;
     }

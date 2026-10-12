@@ -650,6 +650,10 @@ static int process_hero(PetkaScriptVM *vm, PetkaObject *obj, PetkaQueued *q) {
         m->arg1 = (uint16_t)(st->costume + 1);
         m->arg2 = 1;
     }
+    // A hero's idle pose and his PLAY clips run once and then rest; his
+    // talking clip keeps going.
+    if (m->opcode == PETKA_OP_SET || m->opcode == PETKA_OP_PLAY)
+        st->rest_after_loop = m->arg1 == st->costume || m->opcode == PETKA_OP_PLAY;
     if (m->opcode == PETKA_OP_WALK) return 0; // heroes ignore WALK
     if (m->opcode == PETKA_OP_WALKED && st->walk_tail.present)
         run_tail(vm, &st->walk_tail, st->walk_sender);
