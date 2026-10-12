@@ -536,33 +536,52 @@ content matching a specific item.
 
 | opcode | mnemonic | operand (low 24 bits)                    | meaning |
 |-------:|----------|-------------------------------------------|---------|
-| `0x01` | `DELIM`  | unused                                     | separates alternatives within a block |
-| `0x02` | `CHOICE` | low byte = option count, bits 8-23 = availability bitmask | player dialogue menu: pick the Nth *available* option, where availability is tested per `DELIM`-separated segment against game-state flags |
+| `0x01` | `DELIM`  | unused                                     | ends a menu label or a `SKIPN` variant |
+| `0x02` | `CHOICE` | low byte = option count, bits 8-23 = one on/off bit per option | player dialogue menu, see below |
 | `0x03` | `GOTO`   | u16 target                                 | jump to absolute word offset |
 | `0x06` | `STOP`   | unused                                     | end of this instruction sequence (also used as an error sentinel by the runtime) |
 | `0x07` | `PHRASE` | phrase index                               | speak/display phrase N (index into `DIALOGUE.LOD`'s phrase table — text + voice clip) |
 | `0x08` | `SKIPN`  | count                                      | randomly pick one of the next `count` `DELIM`-separated phrase blocks (variant/idle-line selection) |
-| `0x04` | `MARKOPT` | `(option_index << 16) \| choice_addr`      | mark option `option_index` of the `CHOICE` block at word offset `choice_addr` as used, so it won't be offered again |
-| `0x05` | `MARKOPT_OUTER` | `(option_index << 16) \| choice_addr`| same as `MARKOPT`, but for a `CHOICE` *other than* the nearest enclosing one (see below) |
+| `0x04` | `DISABLE` | `(option_index << 16) \| choice_addr`     | switch option `option_index` of the `CHOICE` at word `choice_addr` off |
+| `0x05` | `ENABLE` | `(option_index << 16) \| choice_addr`      | switch that option on |
 | `0x09` | `USERMSG` | message number                           | pause the dialogue and post script message `USERMSG` N to Chapayev (object 1); the script resumes it with `CONTINUE` |
 
-`MARKOPT`/`MARKOPT_OUTER` fully decoded by tracing real
-conversations byte-by-byte (not guessed from isolated operand patterns —
-see `PART_1/DIALOGUE.FIX` topic 173, the Petka/Anka/Vasily banya
-conversation, and topic 220, the shopkeeper). Confirms and completes
-`CHOICE`'s "availability bitmask" note above: a `CHOICE` block is a player
-dialogue menu, each option followed (after its own reply text) by one of
-these two mark instructions, naming *this same* `choice_addr` with the
-*option index* that was just taken — the runtime must flip that bit in
-the bitmask so re-visiting this `CHOICE` (dialogues loop back via `GOTO`
-to let the player ask something else) no longer offers an already-heard
-line. `MARKOPT_OUTER` is rarer (4 occurrences) and marks an *ancestor*
-`CHOICE` instead of the enclosing one — seen when a nested sub-conversation
-fully resolves a question that was also a top-level menu option, so both
-get retired together (topic 173: finishing the inner "баня" chat, reached
-through menu-option 2 of `CHOICE(1058)`, also marks option 4 of the outer
-`CHOICE(951)` — the standalone "Как там насчет баньки?" question — as
-answered).
+A menu is laid out as
+
+```
+CHOICE(count | bits << 8)
+count label segments, each ending in DELIM
+count GOTOs                 -- one per option, into the code that plays it
+```
+
+The label is the first `PHRASE` of its segment; three menus carry another
+word in a segment besides, so the segments have to be found by counting
+`DELIM`s, not by assuming two words each. Bit `i` of the `CHOICE` word says
+whether option `i` is offered. The code an option jumps to speaks the label
+again (it is the player's line), plays the answer, and usually ends with
+`DISABLE` for itself followed by a `GOTO` back to a menu, or `STOP`.
+
+The bits live in the bytecode itself and are rewritten in place, so a line
+that was said stays gone for the rest of the game. `ENABLE` is the opposite
+and rare (13 in the three parts); every one of them targets an option whose
+bit starts cleared -- e.g. topic 173 (Anka): "Ну что, Анка? Как там насчет
+баньки?" is not offered until the conversation about the bathhouse has
+switched it on. (An earlier reading called this "mark an outer menu's
+option as used"; the starting bits show it is the reverse.) A `DISABLE` may
+name any menu, not just the one being played: the options of Anka's
+sub-menu at word 975 disable themselves there and then jump back to the
+top menu at 951.
+
+`SKIPN` plays one of the next `count` variants. When that variant's `DELIM`
+is reached the dialogue goes on after the whole group -- almost always a
+`STOP`, in eight cases more dialogue. That, and the random pick, are read off
+the data; the exe's own routine was not decompiled, and it may well cycle
+through the variants in order rather than pick at random.
+
+Checked on the three parts: all 79 menus have this layout and all 213
+`DISABLE`/`ENABLE` words name an existing option; `dlgtest` plays every
+entry point 50 times with random menu picks -- 145,200 playthroughs, every
+one comes to an end with all phrases and labels in range.
 
 `0x09` was first read as "give inventory item N" because the two samples
 looked at both hand something over (topic 220, the shopkeeper: "На, может
@@ -675,12 +694,13 @@ take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
 `launcher/` — the game front end: `petka_launcher <game_dir> [PART_N]`. It
 draws the current room from the script VM's state, turns clicks into script
 messages and tells the VM when animations, walks and dialogues finish; heroes
-walk across the room's `.CVX` mesh. Not done yet: per-frame hero offsets
-(`.OFF`/`.LEG`), dialogue menus (`CHOICE` takes the first option),
+walk across the room's `.CVX` mesh, and dialogue menus are shown for the
+player to pick a line. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
 AVI playback, part switching, save/load. For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
 quit), `PETKA_POST=<frame>:<obj>:<opcode>,...`, `PETKA_FAST=1`,
-`PETKA_TRACE=1` and `PETKA_DEBUG=1` (start with the F1 overlay, which draws
+`PETKA_PICK=<n>|last` (answer dialogue menus without asking), `PETKA_TRACE=1`
+and `PETKA_DEBUG=1` (start with the F1 overlay, which draws
 the walk mesh and the heroes' routes).
 
 `tools/walktest/main.c` — parses every `.CVX` in a store and routes random

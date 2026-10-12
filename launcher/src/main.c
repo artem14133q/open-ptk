@@ -8,6 +8,9 @@
 // there is none), right click / 1-5 = pick a verb, click an inventory item
 // to use it on something, F1 = debug overlay.
 //
+// In a conversation, click a line of the menu (or press its number) to say
+// it; a click or Space skips the phrase being spoken.
+//
 // Known gaps (not in the script, still to be reversed): nobody's mouth
 // moves in dialogues,
 // AVI playback and part switching are only reported, backgrounds wider than
@@ -85,6 +88,9 @@ typedef struct {
     PetkaDialogueVM dvm;
     int talking;
     int paused;        // dialogue waits for the script's CONTINUE
+    uint32_t menu[16]; // phrase indices of the lines the player may pick
+    int menu_count;    // > 0 while the dialogue waits for that pick
+    int auto_pick;     // dev: line to pick without asking; -1 = the last one, -2 = ask
     int dialogue_done; // tell the VM on the next frame
     char line[512];    // current phrase, UTF-8
     double line_until;
@@ -536,6 +542,20 @@ static void next_phrase(Game *g) {
                             PETKA_NONE, PETKA_ID_CHAPAYEV);
         return;
     }
+    if (step == 3) {
+        g->menu_count = petka_dialoguevm_choices(&g->dvm, g->menu, 16);
+        if (g->menu_count > 16) g->menu_count = 16;
+        g->line[0] = 0;
+        if (g->auto_pick != -2 && g->menu_count > 0) {
+            // Unattended run: answer at once.
+            int pick = g->auto_pick >= 0 && g->auto_pick < g->menu_count ? g->auto_pick : g->menu_count - 1;
+            fprintf(stderr, "menu: %d lines, picking %d\n", g->menu_count, pick);
+            g->menu_count = 0;
+            petka_dialoguevm_choose(&g->dvm, pick);
+            next_phrase(g);
+        }
+        return;
+    }
     if (step != 1 || idx >= g->phrases->count) {
         g->talking = 0;
         g->dialogue_done = 1;
@@ -570,6 +590,7 @@ static void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
     g->dialogue = NULL;
     g->talking = 1;
     g->paused = 0;
+    g->menu_count = 0;
     next_phrase(g);
 }
 
@@ -722,6 +743,12 @@ static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float
     return NULL;
 }
 
+// Row of the line menu, in window pixels; the menu sits at the bottom.
+static Rectangle menu_row(const Game *g, int row) {
+    float top = (float)GetScreenHeight() - 16 - 34.0f * (float)g->menu_count;
+    return (Rectangle){10, top + 34.0f * (float)row, (float)GetScreenWidth() - 20, 32};
+}
+
 static const char *display_name(const PetkaObject *obj) {
     // Inventory objects are named "I<name>" in the script.
     return utf8_name(obj->name[0] == 'I' && obj->name[1] ? obj->name + 1 : obj->name);
@@ -819,8 +846,11 @@ int main(int argc, char **argv) {
     //   PETKA_SHOT_FRAME=<n>   ...after this many frames (default 120)
     //   PETKA_POST=<frame>:<obj_id>:<opcode>[,...]  post script messages
     //   PETKA_FAST=1           no voice-over, phrases flash by
+    //   PETKA_PICK=<n>|last    dialogue menus answer themselves with that line
     //   PETKA_TRACE=1          log delivered script messages to stderr
     g->fast = getenv("PETKA_FAST") != NULL;
+    const char *pick = getenv("PETKA_PICK");
+    g->auto_pick = !pick ? -2 : strcmp(pick, "last") == 0 ? -1 : atoi(pick);
     g->trace = getenv("PETKA_TRACE") != NULL;
     const char *shot_path = getenv("PETKA_SHOT");
     const char *post_plan = getenv("PETKA_POST");
@@ -847,7 +877,7 @@ int main(int argc, char **argv) {
         PetkaScriptVM *vm = g->vm;
 
         if (IsKeyPressed(KEY_F1)) debug = !debug;
-        for (int k = 0; k < VERB_COUNT; k++) if (IsKeyPressed(KEY_ONE + k)) g->verb = k;
+        for (int k = 0; k < VERB_COUNT && !g->menu_count; k++) if (IsKeyPressed(KEY_ONE + k)) g->verb = k;
 
         frame++;
         for (const char *p = post_plan; p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : "") {
@@ -919,7 +949,19 @@ int main(int argc, char **argv) {
             if (CheckCollisionPointRec(mouse, cell)) inv_hover = (int)i;
         }
 
-        if (g->talking) {
+        int menu_hover = -1;
+        for (int i = 0; i < g->menu_count; i++)
+            if (CheckCollisionPointRec(mouse, menu_row(g, i))) menu_hover = i;
+        if (g->menu_count > 0) {
+            // The dialogue waits for the player's line: click it or press
+            // its number.
+            int pick = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ? menu_hover : -1;
+            for (int k = 0; k < g->menu_count && k < 9; k++) if (IsKeyPressed(KEY_ONE + k)) pick = k;
+            if (pick >= 0 && petka_dialoguevm_choose(&g->dvm, pick) == 0) {
+                g->menu_count = 0;
+                next_phrase(g);
+            }
+        } else if (g->talking) {
             int voiced = g->voice.frameCount > 0;
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_SPACE) ||
                 (voiced ? !IsSoundPlaying(g->voice) : GetTime() >= g->line_until))
@@ -1006,7 +1048,18 @@ int main(int argc, char **argv) {
             DrawTextEx(font, row, (Vector2){20, y}, 24, 1, WHITE);
         }
 
-        for (uint32_t i = 0; i < vm->inventory_count; i++) {
+        for (int i = 0; i < g->menu_count; i++) {
+            Rectangle row = menu_row(g, i);
+            char text[512];
+            cp1251_to_utf8(g->menu[i] < g->phrases->count ? g->phrases->phrases[g->menu[i]].text : "?",
+                           text, sizeof(text));
+            DrawRectangleRec(row, Fade(BLACK, i == menu_hover ? 0.9f : 0.7f));
+            if (i == menu_hover) DrawRectangleLinesEx(row, 1, ORANGE);
+            DrawTextEx(font, TextFormat("%d. %s", i + 1, text), (Vector2){row.x + 10, row.y + 5}, 22, 1,
+                       i == menu_hover ? ORANGE : WHITE);
+        }
+
+        for (uint32_t i = 0; !g->menu_count && i < vm->inventory_count; i++) {
             const PetkaObject *item = petka_script_find(g->script, vm->inventory[i]);
             Rectangle cell = {8 + 150.0f * i, inv_y, 146, 24};
             int picked = vm->cursor_object == vm->inventory[i];

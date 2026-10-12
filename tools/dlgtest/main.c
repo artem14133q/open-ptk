@@ -5,6 +5,8 @@
 #include "petka/store.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char **argv) {
     if (argc < 3) {
@@ -51,6 +53,12 @@ int main(int argc, char **argv) {
                 int steps = 0;
                 int step;
                 while ((step = petka_dialoguevm_next(&vm, &phrase_idx)) > 0 && steps < 10) {
+                    if (step == 3) {
+                        uint32_t options[16];
+                        int n = petka_dialoguevm_choices(&vm, options, 16);
+                        printf("    MENU (%d lines)\n", n);
+                        break;
+                    }
                     if (step == 2)
                         printf("    USERMSG %u\n", phrase_idx);
                     else if (phrase_idx < phrases->count)
@@ -64,8 +72,50 @@ int main(int argc, char **argv) {
         shown++;
     }
 
+    // Stress: play every entry point many times, picking menu lines at
+    // random, and check that each conversation comes to an end with every
+    // phrase and menu label in range. Menus switch their options off as
+    // they are used, so the bytecode is restored before each playthrough.
+    uint32_t *pristine = (uint32_t *)malloc(tree->code_count * sizeof(uint32_t));
+    memcpy(pristine, tree->code, tree->code_count * sizeof(uint32_t));
+    long plays = 0, endless = 0, bad_phrase = 0, menus = 0, usermsgs = 0, bad_menu = 0;
+    srand(1);
+    for (uint32_t i = 0; i < tree->topic_count; i++) {
+        for (uint32_t j = 0; j < tree->topics[i].verb_count; j++) {
+            PetkaDialogueVerb *verb = &tree->topics[i].verbs[j];
+            for (uint32_t k = 0; k < verb->entry_count; k++) {
+                for (int run = 0; run < 50; run++) {
+                    memcpy(tree->code, pristine, tree->code_count * sizeof(uint32_t));
+                    PetkaDialogueVM vm;
+                    petka_dialoguevm_start(&vm, tree, verb->entries[k].bytecode_offset);
+                    uint32_t value;
+                    int step, steps = 0;
+                    while ((step = petka_dialoguevm_next(&vm, &value)) > 0 && steps < 5000) {
+                        steps++;
+                        if (step == 1 && value >= phrases->count) bad_phrase++;
+                        if (step == 2) usermsgs++;
+                        if (step != 3) continue;
+                        uint32_t options[16];
+                        int n = petka_dialoguevm_choices(&vm, options, 16);
+                        menus++;
+                        for (int o = 0; o < n && o < 16; o++)
+                            if (options[o] >= phrases->count) bad_menu++;
+                        if (n <= 0 || petka_dialoguevm_choose(&vm, rand() % n) != 0) { bad_menu++; break; }
+                    }
+                    plays++;
+                    if (step > 0) endless++;
+                }
+            }
+        }
+    }
+    memcpy(tree->code, pristine, tree->code_count * sizeof(uint32_t));
+    free(pristine);
+    printf("\nstress: %ld playthroughs, %ld menus shown, %ld USERMSGs\n", plays, menus, usermsgs);
+    printf("        never ended: %ld  bad phrase: %ld  bad menu: %ld\n", endless, bad_phrase, bad_menu);
+    int failed = endless || bad_phrase || bad_menu;
+
     petka_dialoguetree_close(tree);
     petka_phrasetable_close(phrases);
     petka_store_close(store);
-    return 0;
+    return failed;
 }

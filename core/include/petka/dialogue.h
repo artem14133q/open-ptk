@@ -57,7 +57,11 @@ typedef struct {
     PetkaDialogueTopic *topics;
     uint32_t topic_count;
 
-    uint32_t *code; // owned, shared bytecode words
+    // Owned, shared bytecode words. Not constant while the game runs: a
+    // CHOICE word carries the on/off bit of each of its options, and
+    // DISABLE/ENABLE rewrite those bits in place (as the exe does), so an
+    // option stays answered for the rest of the game.
+    uint32_t *code;
     uint32_t code_count;
 } PetkaDialogueTree;
 
@@ -73,6 +77,8 @@ typedef enum {
     PETKA_DLG_OP_DELIM = 1,
     PETKA_DLG_OP_CHOICE = 2,
     PETKA_DLG_OP_GOTO = 3,
+    PETKA_DLG_OP_DISABLE = 4,
+    PETKA_DLG_OP_ENABLE = 5,
     PETKA_DLG_OP_STOP = 6,
     PETKA_DLG_OP_PHRASE = 7,
     PETKA_DLG_OP_SKIPN = 8,
@@ -80,12 +86,13 @@ typedef enum {
 } PetkaDialogueOp;
 
 typedef struct {
-    const PetkaDialogueTree *tree;
+    PetkaDialogueTree *tree;
     uint32_t ip; // current word offset into tree->code
     int done;
+    uint32_t skip_end; // word after the SKIPN group being played, 0 = none
 } PetkaDialogueVM;
 
-void petka_dialoguevm_start(PetkaDialogueVM *vm, const PetkaDialogueTree *tree, uint32_t start_offset);
+void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32_t start_offset);
 
 // Runs the VM forward until it hits a PHRASE (returns its phrase index via
 // *out_phrase_index and leaves the VM positioned just after it, ready for
@@ -97,7 +104,20 @@ void petka_dialoguevm_start(PetkaDialogueVM *vm, const PetkaDialogueTree *tree, 
 // dialogue pauses here and the caller posts a USERMSG script message with
 // that argument to Chapayev (see petka/script.h); the script answers with
 // CONTINUE, and the next call carries on from after the USERMSG.
+//
+// Returns 3 on CHOICE: the player has to pick a line. The VM stays on the
+// menu; list it with petka_dialoguevm_choices(), then call
+// petka_dialoguevm_choose() and carry on with petka_dialoguevm_next().
 int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index);
+
+// The lines currently on offer at the menu the VM is stopped on, as phrase
+// indices, in menu order. Returns how many there are (the first `max` are
+// written), 0 if the VM is not on a menu.
+int petka_dialoguevm_choices(const PetkaDialogueVM *vm, uint32_t *out_phrases, int max);
+
+// Picks the n-th line of that list (0-based). Returns 0 on success, -1 if
+// n is out of range or the VM is not on a menu.
+int petka_dialoguevm_choose(PetkaDialogueVM *vm, int n);
 
 #ifdef __cplusplus
 }

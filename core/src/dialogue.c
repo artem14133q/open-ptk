@@ -167,14 +167,78 @@ void petka_dialoguetree_close(PetkaDialogueTree *tree) {
 
 // ---- VM ----
 
-void petka_dialoguevm_start(PetkaDialogueVM *vm, const PetkaDialogueTree *tree, uint32_t start_offset) {
+void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32_t start_offset) {
     vm->tree = tree;
     vm->ip = start_offset;
     vm->done = 0;
+    vm->skip_end = 0;
+}
+
+static uint32_t op_of(uint32_t word) { return (word >> 24) & 0xFF; }
+
+// Word offset just past the n-th DELIM at or after `from`.
+static uint32_t skip_delims(const PetkaDialogueTree *tree, uint32_t from, uint32_t n) {
+    uint32_t at = from;
+    for (uint32_t seen = 0; seen < n && at < tree->code_count; at++)
+        if (op_of(tree->code[at]) == PETKA_DLG_OP_DELIM) seen++;
+    return at;
+}
+
+// A menu is laid out as
+//   CHOICE(count | on/off bits << 8)
+//   count label segments, each ending in DELIM; the label is the first
+//       PHRASE of its segment (a few carry another word besides)
+//   count GOTOs, one per option, into the code that plays it
+// Each option's code speaks the label, plays the answer, usually switches
+// itself off with DISABLE and jumps back to a menu or stops.
+static uint32_t choice_count(uint32_t word) { return word & 0xFF; }
+static int choice_enabled(uint32_t word, uint32_t option) { return (word >> (8 + option)) & 1; }
+
+int petka_dialoguevm_choices(const PetkaDialogueVM *vm, uint32_t *out_phrases, int max) {
+    const PetkaDialogueTree *tree = vm->tree;
+    if (vm->done || vm->ip >= tree->code_count || op_of(tree->code[vm->ip]) != PETKA_DLG_OP_CHOICE) return 0;
+    uint32_t word = tree->code[vm->ip];
+    uint32_t at = vm->ip + 1;
+    int n = 0;
+    for (uint32_t option = 0; option < choice_count(word); option++) {
+        uint32_t end = skip_delims(tree, at, 1);
+        if (choice_enabled(word, option)) {
+            uint32_t phrase = 0xFFFFFFFFu;
+            for (uint32_t i = at; i < end; i++)
+                if (op_of(tree->code[i]) == PETKA_DLG_OP_PHRASE) { phrase = tree->code[i] & 0xFFFFFF; break; }
+            if (n < max) out_phrases[n] = phrase;
+            n++;
+        }
+        at = end;
+    }
+    return n;
+}
+
+int petka_dialoguevm_choose(PetkaDialogueVM *vm, int n) {
+    const PetkaDialogueTree *tree = vm->tree;
+    if (vm->done || vm->ip >= tree->code_count || op_of(tree->code[vm->ip]) != PETKA_DLG_OP_CHOICE) return -1;
+    uint32_t word = tree->code[vm->ip];
+    uint32_t table = skip_delims(tree, vm->ip + 1, choice_count(word));
+    for (uint32_t option = 0; option < choice_count(word); option++) {
+        if (!choice_enabled(word, option)) continue;
+        if (n-- > 0) continue;
+        if (table + option >= tree->code_count) return -1;
+        vm->ip = table + option; // a GOTO; the next step follows it
+        return 0;
+    }
+    return -1;
+}
+
+// DISABLE/ENABLE: operand is (option << 16) | address of the CHOICE word.
+static void set_option(PetkaDialogueTree *tree, uint32_t operand, int on) {
+    uint32_t addr = operand & 0xFFFF, option = (operand >> 16) & 0xFF;
+    if (addr >= tree->code_count || op_of(tree->code[addr]) != PETKA_DLG_OP_CHOICE || option >= 16) return;
+    if (on) tree->code[addr] |= 1u << (8 + option);
+    else tree->code[addr] &= ~(1u << (8 + option));
 }
 
 int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
-    const PetkaDialogueTree *tree = vm->tree;
+    PetkaDialogueTree *tree = vm->tree;
     if (vm->done) return 0;
 
     while (vm->ip < tree->code_count) {
@@ -191,9 +255,15 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 *out_phrase_index = operand;
                 return 1;
             case PETKA_DLG_OP_DELIM:
-                // Reached a variant boundary during normal (non-skip)
-                // execution: the chosen line is done, stop here rather
-                // than falling into a sibling alternative.
+                // End of the SKIPN variant being played: carry on after the
+                // whole group rather than falling into a sibling variant.
+                // Almost every group is followed by STOP, a few by more
+                // dialogue. (Inferred from the data, not traced in the exe.)
+                if (vm->skip_end) {
+                    vm->ip = vm->skip_end;
+                    vm->skip_end = 0;
+                    break;
+                }
                 vm->done = 1;
                 return 0;
             case PETKA_DLG_OP_GOTO:
@@ -204,6 +274,7 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 if (n == 0) { vm->ip++; break; }
                 uint32_t pick = (uint32_t)rand() % n;
                 vm->ip++;
+                vm->skip_end = skip_delims(tree, vm->ip, n);
                 for (uint32_t skipped = 0; skipped < pick && vm->ip < tree->code_count; vm->ip++) {
                     if (((tree->code[vm->ip] >> 24) & 0xFF) == PETKA_DLG_OP_DELIM) skipped++;
                 }
@@ -213,10 +284,20 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 vm->ip++;
                 *out_phrase_index = operand;
                 return 2;
-            case PETKA_DLG_OP_CHOICE:
-                // Player dialogue menu: picking among options needs game
-                // state (which options are "available") we don't track
-                // yet. Simplified for now: take the first option.
+            case PETKA_DLG_OP_CHOICE: {
+                // Player dialogue menu. Stay on it until the caller picks.
+                uint32_t open = 0;
+                for (uint32_t option = 0; option < choice_count(word); option++)
+                    open += (uint32_t)choice_enabled(word, option);
+                if (!open) { vm->done = 1; return 0; } // nothing left to say
+                return 3;
+            }
+            case PETKA_DLG_OP_DISABLE:
+                set_option(tree, operand, 0);
+                vm->ip++;
+                break;
+            case PETKA_DLG_OP_ENABLE:
+                set_option(tree, operand, 1);
                 vm->ip++;
                 break;
             default:
