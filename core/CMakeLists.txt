@@ -3,6 +3,7 @@ add_library(petka_core STATIC
     src/bmp.c
     src/flic.c
     src/msk.c
+    src/dialogue.c
 )
 
 target_include_directories(petka_core PUBLIC
