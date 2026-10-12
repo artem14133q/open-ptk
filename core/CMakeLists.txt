@@ -5,6 +5,7 @@ add_library(petka_core STATIC
     src/msk.c
     src/dialogue.c
     src/topology.c
+    src/script.c
 )
 
 target_include_directories(petka_core PUBLIC

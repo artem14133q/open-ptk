@@ -293,30 +293,149 @@ Both are plain `cp1251` (not cp866!) INI text, trivial to parse:
   item localization, where many internal variants collapse to one display
   name, e.g. `IГолова Чапаева = Голова`, `IГолова с Усами = Голова`.
 
-## `BGDATA.DAT` / `BGEDIT.BG` / `BACKGRND.BG` / `SCRIPT.DAT` — level-editor debug artifacts, deprioritized
+## `SCRIPT.DAT` / `BACKGRND.BG` — SOLVED: this is the game script
 
-Found under `MAIN.STR`'s `PART_0` *and* `PART_1`/`PART_2`/`PART_3` entries
-(bigger for the real parts, e.g. `PART_1/SCRIPT.DAT` is 53KB vs `PART_0`'s
-1.9KB — scales with how many interactive objects that part has, but it's
-the same record family either way — initially mistaken for real per-part
-gameplay script logic given the size and promising name, until decoded).
-Content is overwhelmingly background-editor debug-panel UI strings
-(`"Панель опций - слайдер 1 min"`, `"STARTUP - New"`, `"SAVELOAD"`) plus
-character names — not per-background hotspot/trigger coordinates as
-originally suspected, and not related to the real dialogue/interaction
-data (that's `DIALOGUE.FIX`/`.LOD`, solved below). Record shape is roughly
-`u32 index/flag, u32 strlen, string bytes, then ~20 bytes of 0x00/0xFF
-padding` but exact padding semantics weren't worth fully nailing down —
-this is **`BGEDIT` = Background Editor**, i.e. leftover authoring-tool
-state, not something the shipped game needs at runtime for rendering or
-gameplay. **Deprioritized — skip unless something later turns out to
-depend on it.**
+Found in `MAIN.STR` under every `PART_N`. An earlier pass wrote these off as
+level-editor leftovers because `strings` only shows debug-panel labels and
+character names; those are simply object names. Both files parse **byte-exact
+to EOF** in all four parts, and the semantics below come from decompiling
+`Base.cpp` in `Petka.exe`. Implemented in `core/src/script.c`
+(`petka_script_open`, `petka_scriptvm_*`); `tools/scripttest` runs it.
 
-Actual per-screen interactivity is the combination of the already-solved
-`.FLC`+`.MSK` pairs (each interactive object = one animated clip + one
-clickable mask rect), the `.CVX` walk mesh, and — now solved — the
-`DIALOGUE.FIX`/`.LOD` topic/verb/bytecode system below for what happens on
-interaction.
+(`BGDATA.DAT` and `BGEDIT.BG` in the same folders are still unexamined.)
+
+### `SCRIPT.DAT`: objects, reactions, messages
+
+```
+u32 object_count
+u32 room_count
+(object_count + room_count) × object, plain objects first, then rooms:
+    u16 id
+    u32 name_len, name bytes (CP1251, no NUL)
+    u32 reaction_count
+    reaction_count × reaction:
+        u16 opcode        -- the message this reaction answers
+        u8  status        -- 0xFF = any, else the object's status must match
+        u16 sender        -- 0xFFFF = any, else the sender's id must match
+        u32 message_count
+        message_count × { u16 obj_id, u16 opcode, u16 arg1, u16 arg2, u16 arg3 }
+```
+
+`PART_1`: 507 objects + 55 rooms, 1127 reactions, 3039 messages. Ids 0 and 1
+are Petka and Chapayev in every part.
+
+### `BACKGRND.BG`: which objects live in which room
+
+```
+u32 room_count
+room_count × { u16 room_id, u32 n, n × { u16 obj_id, i32 x, i32 y, i32 z,
+                                         i32 walk_x, i32 walk_y } }
+```
+
+`walk_x`/`walk_y` is where a hero stands to interact with the object (`-1` =
+none); `z` is the draw order. In memory this is the list the engine draws
+from: `loadRoom` (`sub_413870`) puts the room and its attached objects on
+screen and removes the previous room's.
+
+### How a message is executed
+
+Everything goes through one queue in `QSystem`:
+
+- `sub_405060` appends a message for one object; `sub_405370` appends one for
+  **every** object (a broadcast).
+- `sub_405680` walks the queue front to back and calls the target's
+  `processMessage` (vtable slot 13) -- but only if the object's busy flag
+  (`+56`) is clear. A message for a busy object stays queued and later ones
+  overtake it. Messages posted during delivery are handled in the same pass.
+- `QMessageObject::processMessage` (`sub_403270`) runs every reaction whose
+  opcode, status and sender match, posting its messages in order, then
+  applies the message's own built-in effect.
+
+Three opcodes are conditions, evaluated **when the reaction is posted** (so a
+`STATUS` earlier in the same reaction has not taken effect yet): `CHECK` stops
+the reaction unless the target's status equals `arg1`; `IF` stops it unless
+its arguments match the incoming message's (`-1` = any); `RANDOM` replaces its
+own `arg1` with `rand() % arg2`.
+
+Four kinds of message park the rest of the reaction until something finishes:
+
+| message | rest is parked on | resumed by |
+|---|---|---|
+| `PLAY` | the target object (`+116`, waits for resource `+120`) | `END` naming that resource |
+| `DIALOG` | one global slot (`dword_4D4178`) | end of dialogue (`sub_4165A0`) |
+| `WALK`, `WALKTO` | Petka (`+172`) | `QM_WALKED` |
+| `WALKVICH` | Chapayev (`+172`) | `QM_WALKED` |
+
+`sub_404790` resumes a parked tail; it honours `CHECK` but not `IF`/`RANDOM`.
+For walks, `QM_WALKED` is queued right behind the walk message and waits
+there because starting a walk (`sub_408BB0`) sets the hero's busy flag; a walk
+shorter than 5 px, or by a hidden hero, never sets it, so the script goes
+straight on.
+
+If an object has no matching reaction but `DIALOGUE.FIX` has an entry for
+(object id, verb), that dialogue starts instead. For `OBJECTUSE` the verb key
+is `(item_id << 16) | 26` -- the "5th verb" described in the dialogue section.
+
+### Opcodes
+
+Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
+47-62 have no name in the exe; those marked * are ours.
+
+| op | name | effect |
+|---:|---|---|
+| 1, 4, 6, 10 | `USE`, `LOOK`, `TAKE`, `TALK` | player verbs; only trigger reactions |
+| 3 | `GOTO` | (room) make this room current, see below |
+| 5 / 28 | `SAY` / `SAID` | (hero) show costume+1 (talking) / costume (idle) |
+| 9 | `WALK` | click with no reaction: Petka walks to the object |
+| 11 | `END` | resume the tail parked by `PLAY` |
+| 14 | `SET` | change the object's resource id; `arg2`: 1 = rewind, 5 = clears `+72` |
+| 15 / 16 | `SHOW` / `HIDE` | visibility |
+| 17 | `DIALOG` | start the current dialogue |
+| 18 | `ZBUFFER` | `arg1` -> `+52`, `arg2` -> draw order |
+| 19 | `TOTALINIT` | every object's setup reaction |
+| 20 | `ANIMATE` | `+48` = `arg1` |
+| 21 | `STATUS` | object status = `arg1` |
+| 22 / 23 / 46 | `ADDINV` / `DELINV` / `SETINV` | inventory add / remove / replace the sender with this object |
+| 24 | (exe: `SYSTEM`) | show/hide cursor and enable/disable the interface |
+| 25 | `CURSOR` | cursor carries this item; `-1` = default cursor (5002) |
+| 26 | `OBJECTUSE` | an inventory item was used on this object |
+| 27 / 44 | `ACTIVE` / `PASSIVE` | `+60` |
+| 29 / 30 | `SETSEQ` / `ENDSEQ` | (room) start / end a cutscene sequence |
+| 31, 32 | `CHECK`, `IF` | conditions, see above |
+| 33 | `SHOWDESCRIPTION` | show the object's text from `INVNTR.TXT` |
+| 35 | `QM_WALKED` | (hero) resume the tail parked by a walk |
+| 36 / 37 | `WALKTO` / `WALKVICH` | Petka / Chapayev walks to (`arg1`,`arg2`) or the object's walk point |
+| 38 | `INITBG` | broadcast when a room is entered, sender = that room |
+| 40 | `SYSTEM` | 0/1 = interface off/on, 242 = quit |
+| 43 / 45 | `MAP` / `NOMAP` | (room) flag `+144` |
+| 47 / 48 | `BGSFX`* / `MUSIC`* | (room) ambience / music resource id |
+| 49 | `IMAGE`* | (hero) costume base id: +1 talking, +10..17 walking in 8 directions |
+| 50 | `STAND`* | (hero) same as `SAID` |
+| 51 / 52 | `ON`* / `OFF`* | active and visible / neither |
+| 53 | `PLAY`* | `SET`, then wait for the animation to end |
+| 54 | `LEAVEBG`* | broadcast when a room is left, sender = that room |
+| 57 | `RANDOM`* | see above |
+| 58 / 59 | `JUMP`* / `JUMPVICH`* | place Petka / Chapayev instantly |
+| 60 / 61 | `PART`* / `CHAPTER`* | switch part / chapter |
+| 62 | `AVI`* | play a video by resource id |
+
+`CHAPTER n` (`sub_411C00`) opens the store named by `[Part P Chapter n]` in
+`PARTS.INI` (`chap21.str`, `chap22.str`) and re-reads `NAMES.INI`/`CAST.INI`
+from it for every object -- which is why those two files live in the chapter
+stores.
+
+Not understood: opcode 55 (sets a flag on the screen object; used twice in
+`PART_3`), and `HALF`/`USERMSG`, which appear only as reaction triggers. Who
+sends `TOTALINIT` and `END` was not traced; the VM broadcasts the former at
+start-up and leaves the latter to the host's animation code.
+
+### Scene object state variants — solved by the script
+
+The "which FLC of a group is active" question (door/aquarium variants in
+`P-ROOM.BG`) is answered here, not by per-room code: each variant is its own
+script object, switched with `ON`/`OFF`/`SHOW`/`HIDE`/`SET`, and hidden ones
+turn themselves `OFF` in `TOTALINIT`. The overlap heuristic in the launcher
+can go once it draws from VM state.
 
 ## `DIALOGUE.FIX` / `DIALOGUE.LOD` bytecode VM — SOLVED (byte-exact, content-verified)
 
@@ -444,10 +563,9 @@ smarter") handing over a book, immediately followed by `GIVEITEM(242)`;
 word 1576-1577 is her giving seeds instead of a palm tree, followed by
 `GIVEITEM(243)`.
 
-None of this turned out to be the mechanism behind "Scene object state
-variants" below (door/aquarium visibility) — it's purely about the
-dialogue menu/inventory system. That problem remains unsolved; see that
-section.
+None of this is the mechanism behind scene object state variants
+(door/aquarium visibility) — it's purely about the dialogue menu/inventory
+system. Object state is driven by `SCRIPT.DAT`; see that section above.
 
 Content-verified end to end: bytecode word 2 is `SKIPN(8)` followed by
 `PHRASE(1), DELIM, PHRASE(2), DELIM, ..., PHRASE(8), DELIM` — decoding
@@ -458,67 +576,11 @@ self-introduction monologue variants ("Это я.", "Любимый!", "Непр
 system, which is exactly what `SKIPN` + `DELIM`-separated `PHRASE`s should
 produce.
 
-Not yet mapped: exactly how `TopicRecord.id` and `SubRecord.verb_id`
-connect to a specific clicked screen object and cursor action at runtime
-(i.e. the glue between `QObject`/`QM_*` messages and a topic/verb lookup) —
-needed to actually *drive* dialogue from gameplay, not just extract/replay
-it. The data format itself, however, is fully solved: all dialogue text,
-voice-clip filenames, and branching/random-variant logic can already be
-extracted and replayed from any `PART_N/DIALOGUE.FIX`+`.LOD` pair.
-
-### Scene object state variants — NOT SOLVED: which FLC of a group is "active" at a given time
-
-Some rooms' top-level FLC+MSK pairs aren't independent simultaneous props;
-they're mutually exclusive **state variants of the same physical object**.
-`PART_1/P-ROOM.BG` (Petka's room) is the clearest example: `CLOSEDOR` /
-`DOR-OPEN` / `D-OPEN1` / `OPEN-DOR` / `DOR-DOWN` / `D-CLOSE` / `DOORDOWN`
-are 7 states of one door, `AQUA-FSH` / `AQUAR-1` / `AQUAR-2a` / `AQUAR-5` /
-`AQUAR-6` / `FISH&KEY` / `RIBKA` are variants of the aquarium, `KEY-UP` /
-`KEY-DOWN` are a key's two positions. Rendering every one of them at once
-(what the engine does today, lacking real state data) produces visual
-garbage -- all variants stacked on the same screen position. Current
-engine behavior is a heuristic workaround, not a real fix: scene-object
-loading keeps only the first-loaded object in any group whose MSK rects
-overlap by ≥60% of the smaller rect's area, discarding the rest (see
-`build_object_list`'s caller in `launcher/src/main.c`).
-
-Investigated and ruled out as the "real" state-selection mechanism:
-- **IDA string search** for the specific FLC names (`AQUAR-1`, `KEY-UP`,
-  etc.) inside `Petka.exe` — no hits. The engine doesn't address these
-  resources by name at all.
-- **`RESOURCE.QRC`** (found under `MAIN.STR`'s `PART_N` entries, not
-  previously catalogued) — a plain-text `ID = PART_N\path` table (CRLF,
-  `id<tab/spaces>=<tab/spaces>path`), explaining the *lack* of string
-  literals: the engine references resources by this numeric ID instead.
-  Each room gets a contiguous ID block (P-ROOM is 1700-1762). This solves
-  the "where's the ID→path table" question but **is not itself a
-  state/visibility table** — every ID (including every door/aquarium
-  variant) is listed once, flatly, with no grouping or flag info. Some
-  note: a few entries use `==` instead of `=` (e.g. `1318 == MAIN\...`);
-  meaning not understood, doesn't correlate with the state-variant groups
-  seen in P-ROOM (those all use plain `=`).
-- **`DIALOGUE.FIX`'s `SubRecord.data` field** (documented as unused
-  padding above) — confirmed always `0` across all 285 topics in
-  `PART_1/DIALOGUE.FIX`. Not a hidden resource-ID reference.
-- **`BGDATA.DAT`/`SCRIPT.DAT`** — already established above to be editor
-  debug-panel strings, re-checked specifically for these object names via
-  `strings`, no hits.
-- The `0x04`/`0x05` bytecode opcodes (see the instruction set table above)
-  are now **fully decoded**: `MARKOPT`/`MARKOPT_OUTER`, which retire a
-  used dialogue-menu option so it isn't offered again. Ruled out as the
-  object-visibility mechanism — confirmed to be purely about the dialogue
-  `CHOICE` menu system, nothing to do with which FLC is drawn.
-- `0x09` is also decoded (`GIVEITEM`, grants an inventory item) — same
-  verdict, unrelated to scene rendering.
-
-Likely conclusion: this is real per-room game logic compiled into
-`Petka.exe` (e.g. a `CRoom`-style per-room message handler), not a generic
-data format — consistent with this being a Qt-based engine where business
-logic lives in C++ classes, not Qt's own (generic) plumbing. Finding it
-would mean locating each room's handler function in IDA without a string
-anchor to pivot from (e.g. via xrefs from the FLC-loading function
-filtered to the room's QRC ID range) -- not attempted; large effort for
-uncertain payoff relative to the overlap heuristic above.
+The glue to gameplay is the script: `TopicRecord.id` is the `SCRIPT.DAT`
+object id (topic 89 is object 89 "Аквариум", topic 95 is "Кровать Петьки")
+and `SubRecord.verb_id` is the message opcode (1 `USE`, 4 `LOOK`, 6 `TAKE`,
+10 `TALK`, 26 `OBJECTUSE`). `processMessage` looks the pair up with
+`sub_40BEB0` and the `DIALOG` message plays the entry it found.
 
 ## Room topology — SOLVED: `BGS.INI` is the room graph, plain text
 
@@ -543,6 +605,13 @@ StartRoom = Seq - INTRO0          ; or a room name directly
 ...                                 ; one [section] per room; every line is
                                      ; one exit to an adjacent room
 ```
+
+The value is not free text: it is the **name of a `SCRIPT.DAT` object**, the
+entry point. On `GOTO` (`sub_401F80`) the engine reads key = previous room in
+section = new room, finds that object and puts Petka on its walk point
+(Chapayev 2 px above), scrolling the camera to `walk_x - 320` clamped to
+`[0, background width - 640]`. All 135 exit lines of the three parts name an
+existing object.
 
 Implemented in `core/src/topology.c` (`petka_topology_parse`). Verified on
 `PART_1/BGS.INI`: 28 rooms, **zero dangling exit targets** (every exit's
@@ -591,3 +660,15 @@ dialogue tree and prints the resulting phrase text. `tools/topotest/main.c`
 — prints a part's room graph and flags any dangling exit target. All three
 take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
 `<store.str> <entry_name> <out_dir> [num_frames]` (flictest).
+
+`tools/scripttest/main.c` — parses a part's `SCRIPT.DAT` + `BACKGRND.BG` and
+runs the message VM headless (animations and dialogues end instantly):
+
+```
+scripttest <store.str> <part_prefix> [room_id [obj_id opcode]]
+```
+
+With no room it prints statistics and runs `TOTALINIT`; with a room it traces
+that room's `INITBG`; with an object and opcode it traces that message, e.g.
+`scripttest MAIN.STR PART_1 524 89 1` plays the aquarium cutscene (`USE` on
+object 89 in Petka's room).

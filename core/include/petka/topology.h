@@ -10,9 +10,11 @@
 //                                  room graph itself)
 //
 //   [<room name>]
-//   <target room name> = <human-readable exit description>
+//   <target room name> = <name of a SCRIPT.DAT object>
 //   ...                          -- one [section] per room, listing every
-//                                   exit to an adjacent room
+//                                   exit to an adjacent room; the object is
+//                                   where the heroes appear when arriving
+//                                   from that room (see petka/script.h)
 //
 // Room names here are the game's own display names (often Cyrillic, e.g.
 // "БОЛОТО"), NOT the .BG resource folder names (e.g. "BOLOTO.BG") -- no
