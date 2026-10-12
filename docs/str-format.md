@@ -290,16 +290,28 @@ per-part `RESOURCE.QRC` — the ID indirection seen above seems specific to
 the startup/menu UI (`MAIN\WALK\*`, `MAIN\CASE\*`, `MAIN\STAR\*`,
 `MAIN\INTRFACE.BG\*` — all menu-screen assets).
 
-## `CAST.INI` / `NAMES.INI` — SOLVED: plain text, found in `CHAP21/22.STR`
+## `CAST.INI` / `NAMES.INI` — SOLVED: plain text, keyed by object name
 
-Both are plain `cp1251` (not cp866!) INI text, trivial to parse:
+Both are plain `cp1251` (not cp866!) INI text with a single `[all]` section
+whose keys are `SCRIPT.DAT` object names. `PART_1` and `PART_3` keep them in
+`MAIN.STR`; `PART_2` keeps them in its chapter stores (`CHAP21.STR`,
+`CHAP22.STR`), one pair per chapter.
 
-- **`CAST.INI`**: `<character/animation-state name> = <R> <G> <B>` — a color
-  per character/state (likely name-tag or outline color), e.g.
-  `Петька = 255 255 0`, `Василий Иванович = 0 255 0`.
-- **`NAMES.INI`**: `I<internal item/object name> = <display name>` — inventory
-  item localization, where many internal variants collapse to one display
-  name, e.g. `IГолова Чапаева = Голова`, `IГолова с Усами = Голова`.
+- **`NAMES.INI`**: `<object name> = <name shown to the player>`. Many objects
+  share one shown name: the key on the floor ("Большой ключ") and the same
+  key in the inventory ("IБольшой ключ") are both "Ключ". About two thirds of
+  the objects have an entry (`PART_1`: 354 of 562); the rest are props and
+  helper objects the player is never told the name of.
+- **`CAST.INI`**: `<object name> = <R> <G> <B>`, the colour of that object's
+  lines in a dialogue, e.g. `Петька = 255 255 0`, `Василий Иванович = 0 255 0`.
+  Every object that speaks a phrase in `DIALOGUE.LOD` has one, in all three
+  parts.
+
+The exe reads both with `GetPrivateProfileString` when a chapter is loaded
+(`sub_411C00`) and stores the results on each object (`+84` name, `+88`
+colour as `R | G<<8 | B<<16`), so lookups are case-insensitive: the room
+"БАНЯ" finds the key "Баня". `core/src/ini.c` (`petka_ini_get`) follows the
+same rules.
 
 ## `SCRIPT.DAT` / `BACKGRND.BG` — SOLVED: this is the game script
 
@@ -712,11 +724,13 @@ take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
 draws the current room from the script VM's state, turns clicks into script
 messages and tells the VM when animations, walks and dialogues finish; heroes
 walk across the room's `.CVX` mesh, dialogue menus are shown for the player
-to pick a line, and whoever speaks plays his talking clip. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
+to pick a line, whoever speaks plays his talking clip and his lines are in
+his `CAST.INI` colour, and objects are called by their `NAMES.INI` names. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
 AVI playback, part switching, save/load. For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
 quit), `PETKA_POST=<frame>:<obj>:<opcode>,...`, `PETKA_FAST=1`,
-`PETKA_PICK=<n>|last` (answer dialogue menus without asking), `PETKA_TRACE=1`
+`PETKA_PICK=<n>|last` (answer dialogue menus without asking),
+`PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels), `PETKA_TRACE=1`
 and `PETKA_DEBUG=1` (start with the F1 overlay, which draws
 the walk mesh and the heroes' routes).
 

@@ -17,6 +17,7 @@
 #include "petka/bmp.h"
 #include "petka/dialogue.h"
 #include "petka/flic.h"
+#include "petka/ini.h"
 #include "petka/msk.h"
 #include "petka/script.h"
 #include "petka/store.h"
@@ -68,8 +69,12 @@ typedef struct {
     PetkaTopology *topo;
     PetkaPhraseTable *phrases;
     PetkaDialogueTree *dtree;
-    const char *bgs_ini; // raw BGS.INI text (CP1251), for the scale params
+    const uint8_t *bgs_ini; // raw BGS.INI text (CP1251), for the scale params
     size_t bgs_ini_len;
+
+    // Per object, parallel to script->objects, from NAMES.INI and CAST.INI.
+    char **names;  // what the player sees it called (CP1251), NULL = unnamed
+    Color *colors; // colour of its lines in a dialogue
     char speech_prefix[16];
 
     Visual *visuals; // parallel to script->objects
@@ -391,30 +396,41 @@ static float hero_scale(const Game *g, float y) {
 
 static void load_perspective(Game *g, const char *room_name) {
     g->persp_base = 1; g->persp_delta = 0; g->persp_y0 = 0; g->persp_y1 = GAME_H; g->persp_k = 1;
-    size_t pos = 0, name_len = strlen(room_name);
-    int in_settings = 0;
-    while (g->bgs_ini && pos < g->bgs_ini_len) {
-        size_t end = pos;
-        while (end < g->bgs_ini_len && g->bgs_ini[end] != '\n') end++;
-        const char *line = g->bgs_ini + pos;
-        size_t n = end - pos;
-        pos = end + 1;
-        if (n && line[0] == '[') { in_settings = n >= 10 && strncmp(line, "[Settings]", 10) == 0; continue; }
-        if (!in_settings || n <= name_len || strncmp(line, room_name, name_len) != 0) continue;
-        size_t i = name_len;
-        while (i < n && (line[i] == ' ' || line[i] == '\t')) i++;
-        if (i >= n || line[i] != '=') continue;
-        char buf[128];
-        size_t m = n - i - 1 < sizeof(buf) - 1 ? n - i - 1 : sizeof(buf) - 1;
-        memcpy(buf, line + i + 1, m);
-        buf[m] = 0;
-        float a, b, c, d, e;
-        if (sscanf(buf, "%f %f %f %f %f", &a, &b, &c, &d, &e) == 5) {
-            g->persp_base = a; g->persp_delta = b; g->persp_y0 = c; g->persp_y1 = d; g->persp_k = e;
-        }
-        return;
+    char value[128];
+    float a, b, c, d, e;
+    if (g->bgs_ini && petka_ini_get(g->bgs_ini, g->bgs_ini_len, "Settings", room_name, value, sizeof(value)) &&
+        sscanf(value, "%f %f %f %f %f", &a, &b, &c, &d, &e) == 5) {
+        g->persp_base = a; g->persp_delta = b; g->persp_y0 = c; g->persp_y1 = d; g->persp_k = e;
     }
 }
+
+// NAMES.INI maps an object's script name to the name shown to the player
+// (many objects share one: "Большой ключ" and "IБольшой ключ" are both
+// "Ключ"); CAST.INI gives a speaker's text colour as "R G B". Both have a
+// single [all] section. Objects with no NAMES.INI entry are props the
+// player is not told the name of.
+static void load_names(Game *g, const char *part) {
+    size_t names_len = 0, cast_len = 0;
+    const uint8_t *names = part_file(g, part, "NAMES.INI", &names_len);
+    const uint8_t *cast = part_file(g, part, "CAST.INI", &cast_len);
+    g->names = (char **)calloc(g->script->object_count, sizeof(char *));
+    g->colors = (Color *)calloc(g->script->object_count, sizeof(Color));
+    for (uint32_t i = 0; i < g->script->object_count; i++) {
+        const char *key = g->script->objects[i].name;
+        char value[256];
+        g->colors[i] = WHITE;
+        if (names && petka_ini_get(names, names_len, "all", key, value, sizeof(value)) && value[0]) {
+            g->names[i] = (char *)malloc(strlen(value) + 1);
+            strcpy(g->names[i], value);
+        }
+        int r, gr, b;
+        if (cast && petka_ini_get(cast, cast_len, "all", key, value, sizeof(value)) &&
+            sscanf(value, "%d %d %d", &r, &gr, &b) == 3)
+            g->colors[i] = (Color){(unsigned char)r, (unsigned char)gr, (unsigned char)b, 255};
+    }
+}
+
+static const char *display_name(const Game *g, const PetkaObject *obj);
 
 // Where a hero's clip goes on screen: the bottom centre of its MSK rect
 // sits on the hero's position (an assumption -- the .OFF/.LEG files next to
@@ -584,7 +600,7 @@ static void next_phrase(Game *g) {
     if (g->fast) {
         g->line_until = GetTime() + 0.1;
         const PetkaObject *who = petka_script_find(g->script, g->talker);
-        fprintf(stderr, "say [%s]: %s\n", who ? utf8_name(who->name) : "?", g->line);
+        fprintf(stderr, "say %.1fs [%s]: %s\n", GetTime(), who ? utf8_name(who->name) : "?", g->line);
     } else if (ph->wav_name[0]) {
         char wav[64];
         snprintf(wav, sizeof(wav), "%s\\%s", g->speech_prefix, ph->wav_name);
@@ -692,7 +708,7 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         set_status(g, TextFormat("(глава %u)", m->arg1));
         break;
     case PETKA_OP_SHOWDESCRIPTION:
-        set_status(g, utf8_name(obj->name));
+        set_status(g, display_name(g, obj));
         break;
     default:
         break;
@@ -765,9 +781,15 @@ static Rectangle menu_row(const Game *g, int row) {
     return (Rectangle){10, top + 34.0f * (float)row, (float)GetScreenWidth() - 20, 32};
 }
 
-static const char *display_name(const PetkaObject *obj) {
-    // Inventory objects are named "I<name>" in the script.
-    return utf8_name(obj->name[0] == 'I' && obj->name[1] ? obj->name + 1 : obj->name);
+// The name the player sees, "" for an object that has none. Inventory
+// items and rooms always get one: where NAMES.INI is silent, the script
+// name stands in (inventory objects are called "I<name>" there).
+static const char *display_name(const Game *g, const PetkaObject *obj) {
+    const char *name = g->names[obj - g->script->objects];
+    if (name) return utf8_name(name);
+    if (obj->is_room) return utf8_name(obj->name);
+    if (obj->name[0] == 'I' && obj->name[1]) return utf8_name(obj->name + 1);
+    return "";
 }
 
 // Returns 0 if the window was closed or "exit" picked.
@@ -809,14 +831,18 @@ int main(int argc, char **argv) {
     g->talker = PETKA_NONE;
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
+    // The last one is the store of the part's first chapter; only a part
+    // split into chapters has it (it carries that chapter's speech, names
+    // and colours). Switching chapters mid-game is not done yet.
     static const char *const kStoreNames[] = {"MAIN.STR", "BGS%s.STR", "FLC%s.STR", "WAV%s.STR",
-                                              "SFX%s.STR", "MUSIC%s.STR", "SPEECH%s.STR"};
-    for (size_t i = 0; i < sizeof(kStoreNames) / sizeof(kStoreNames[0]); i++) {
+                                              "SFX%s.STR", "MUSIC%s.STR", "SPEECH%s.STR", "CHAP%s1.STR"};
+    const size_t store_names = sizeof(kStoreNames) / sizeof(kStoreNames[0]);
+    for (size_t i = 0; i < store_names; i++) {
         char file[64];
         snprintf(file, sizeof(file), kStoreNames[i], digit);
         PetkaStore *store = open_store(game_dir, file);
         if (store) g->stores[g->store_count++] = store;
-        else fprintf(stderr, "store not found under %s: %s\n", game_dir, file);
+        else if (i + 1 < store_names) fprintf(stderr, "store not found under %s: %s\n", game_dir, file);
     }
 
     size_t script_len = 0, bg_len = 0, len = 0;
@@ -830,7 +856,7 @@ int main(int argc, char **argv) {
     bytes = part_file(g, part, "BGS.INI", &len);
     if (bytes) {
         g->topo = petka_topology_parse(bytes, len);
-        g->bgs_ini = (const char *)bytes;
+        g->bgs_ini = bytes;
         g->bgs_ini_len = len;
     }
     size_t lod_len = 0, fix_len = 0;
@@ -851,6 +877,7 @@ int main(int argc, char **argv) {
     host.room_changed = host_room_changed;
     host.message = host_message;
     g->vm = petka_scriptvm_open(g->script, &host);
+    load_names(g, part);
     g->visuals = (Visual *)calloc(g->script->object_count, sizeof(Visual));
     for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].resource = PETKA_NONE;
 
@@ -890,6 +917,11 @@ int main(int argc, char **argv) {
     while (!WindowShouldClose() && !g->quit) {
         float scale = (float)GetScreenWidth() / GAME_W;
         Vector2 mouse = GetMousePosition();
+        // dev: PETKA_MOUSE=<x>,<y> pins the pointer (game pixels) for
+        // unattended runs, so hovering can be screenshotted.
+        float pin_x, pin_y;
+        if (getenv("PETKA_MOUSE") && sscanf(getenv("PETKA_MOUSE"), "%f,%f", &pin_x, &pin_y) == 2)
+            mouse = (Vector2){pin_x * scale, pin_y * scale};
         float mx = mouse.x / scale, my = mouse.y / scale;
         PetkaScriptVM *vm = g->vm;
 
@@ -1033,14 +1065,16 @@ int main(int argc, char **argv) {
         if (!vm->interface_enabled) action = "...";
         else if (vm->cursor_object != PETKA_NONE) {
             const PetkaObject *item = petka_script_find(g->script, vm->cursor_object);
-            action = TextFormat("%s -> %s", item ? display_name(item) : "?", hover ? display_name(hover) : "...");
+            action = TextFormat("%s -> %s", item ? display_name(g, item) : "?",
+                                hover && display_name(g, hover)[0] ? display_name(g, hover) : "...");
         } else {
-            action = TextFormat("%s%s%s", kVerbs[g->verb].label, hover ? ": " : "", hover ? display_name(hover) : "");
+            const char *name = hover ? display_name(g, hover) : "";
+            action = TextFormat("%s%s%s", kVerbs[g->verb].label, name[0] ? ": " : "", name);
         }
         DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
         DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
         if (room) {
-            const char *name = utf8_name(room->name);
+            const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
             DrawTextEx(font, name, (Vector2){GetScreenWidth() - size.x - 10, 6}, 18, 1, SKYBLUE);
         }
@@ -1049,6 +1083,9 @@ int main(int argc, char **argv) {
             // Word-wrap the phrase into the box.
             float box_w = (float)GetScreenWidth() - 40, y = (float)GetScreenHeight() - 150;
             DrawRectangle(10, (int)y - 10, GetScreenWidth() - 20, 110, Fade(BLACK, 0.7f));
+            // Each speaker's lines are in his own colour.
+            const PetkaObject *talker = petka_script_find(g->script, g->talker);
+            Color ink = talker ? g->colors[obj_index(g, talker)] : WHITE;
             char row[512] = "";
             const char *p = g->line;
             while (*p) {
@@ -1057,7 +1094,7 @@ int main(int argc, char **argv) {
                 char trial[512];
                 snprintf(trial, sizeof(trial), "%s%.*s", row, (int)word, p);
                 if (row[0] && MeasureTextEx(font, trial, 24, 1).x > box_w) {
-                    DrawTextEx(font, row, (Vector2){20, y}, 24, 1, WHITE);
+                    DrawTextEx(font, row, (Vector2){20, y}, 24, 1, ink);
                     y += 28;
                     row[0] = 0;
                     continue;
@@ -1065,7 +1102,7 @@ int main(int argc, char **argv) {
                 snprintf(row, sizeof(row), "%s", trial);
                 p += word;
             }
-            DrawTextEx(font, row, (Vector2){20, y}, 24, 1, WHITE);
+            DrawTextEx(font, row, (Vector2){20, y}, 24, 1, ink);
         }
 
         for (int i = 0; i < g->menu_count; i++) {
@@ -1085,7 +1122,7 @@ int main(int argc, char **argv) {
             int picked = vm->cursor_object == vm->inventory[i];
             DrawRectangleRec(cell, Fade(picked ? ORANGE : BLACK, 0.7f));
             DrawRectangleLinesEx(cell, 1, (int)i == inv_hover ? ORANGE : GRAY);
-            if (item) DrawTextEx(font, display_name(item), (Vector2){cell.x + 4, cell.y + 4}, 16, 1, WHITE);
+            if (item) DrawTextEx(font, display_name(g, item), (Vector2){cell.x + 4, cell.y + 4}, 16, 1, WHITE);
         }
 
         if (g->status[0] && GetTime() < g->status_until)
@@ -1131,6 +1168,9 @@ int main(int argc, char **argv) {
 
     for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
     free(g->visuals);
+    for (uint32_t i = 0; i < g->script->object_count; i++) free(g->names[i]);
+    free(g->names);
+    free(g->colors);
     if (g->bg_tex.id) UnloadTexture(g->bg_tex);
     petka_walkmesh_close(g->mesh);
     if (g->voice.frameCount > 0) UnloadSound(g->voice);

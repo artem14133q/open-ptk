@@ -7,6 +7,7 @@ add_library(petka_core STATIC
     src/topology.c
     src/script.c
     src/walk.c
+    src/ini.c
 )
 
 target_include_directories(petka_core PUBLIC
