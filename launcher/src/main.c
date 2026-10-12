@@ -670,6 +670,54 @@ int main(int argc, char **argv) {
                 }
                 free(objs.items);
 
+                // Multiple top-level FLC+MSK pairs often turn out to be
+                // mutually exclusive STATE VARIANTS of the same physical
+                // prop (e.g. a door's open/closed/ajar frames, or an
+                // aquarium with/without a found key) rather than
+                // independent simultaneous objects -- the original engine
+                // picks one per some game-state flag we haven't
+                // reverse-engineered yet (see docs/str-format.md's
+                // DIALOGUE.FIX bytecode notes on opcodes 0x04/0x05).
+                // Approximate "pick one" by keeping only the first-loaded
+                // object in any group whose MSK rects overlap heavily;
+                // without this, a room with e.g. 7 door-state variants
+                // shows all 7 doors stacked on top of each other.
+                for (int i = 0; i < loaded_n; i++) {
+                    int keep = 1;
+                    for (int j = 0; j < i; j++) {
+                        if (!load_flic[j]) continue; // already discarded
+                        PetkaMskRect *a = &load_rect[i], *b = &load_rect[j];
+                        int ix0 = a->left > b->left ? a->left : b->left;
+                        int iy0 = a->top > b->top ? a->top : b->top;
+                        int ix1 = a->right < b->right ? a->right : b->right;
+                        int iy1 = a->bottom < b->bottom ? a->bottom : b->bottom;
+                        int iw = ix1 - ix0, ih = iy1 - iy0;
+                        if (iw <= 0 || ih <= 0) continue;
+                        int inter_area = iw * ih;
+                        int area_a = (a->right - a->left) * (a->bottom - a->top);
+                        int area_b = (b->right - b->left) * (b->bottom - b->top);
+                        int min_area = area_a < area_b ? area_a : area_b;
+                        if (min_area > 0 && inter_area * 100 >= min_area * 60) { keep = 0; break; }
+                    }
+                    if (!keep) {
+                        petka_flic_close(load_flic[i]);
+                        UnloadTexture(load_tex[i]);
+                        load_flic[i] = NULL;
+                    }
+                }
+                int compacted = 0;
+                for (int i = 0; i < loaded_n; i++) {
+                    if (!load_flic[i]) continue;
+                    if (compacted != i) {
+                        load_flic[compacted] = load_flic[i];
+                        load_tex[compacted] = load_tex[i];
+                        load_rect[compacted] = load_rect[i];
+                        snprintf(scene_name[compacted], sizeof(scene_name[0]), "%s", scene_name[i]);
+                    }
+                    compacted++;
+                }
+                loaded_n = compacted;
+
                 // Rooms are hand-painted with a fixed camera, so there's no
                 // real depth data to sort by -- approximate it with a
                 // painter's algorithm over each object's MSK rect bottom

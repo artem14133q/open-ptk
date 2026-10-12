@@ -378,6 +378,21 @@ instruction sequences start in the decoded word dump.
 | `0x07` | `PHRASE` | phrase index                               | speak/display phrase N (index into `DIALOGUE.LOD`'s phrase table — text + voice clip) |
 | `0x08` | `SKIPN`  | count                                      | randomly pick one of the next `count` `DELIM`-separated phrase blocks (variant/idle-line selection) |
 
+Also present but **not yet mapped**: `0x04` (62 occurrences in
+`PART_1/DIALOGUE.FIX`), `0x05` (4 occurrences), and `0x09` (23
+occurrences, previously mistaken for a `SKIPN` duplicate -- its operands
+are small distinct integers like 4/5/6/10/20-26/100/101/105/106/110/
+242-244, too varied to be a phrase/count field, more likely a flag or
+scene-event id). `0x04`'s 24-bit operand consistently decodes as `(k <<
+16) | target` for `k` = 0..3 across sibling instructions, where `target`
+is always a valid bytecode word-offset that also appears as a nearby
+`GOTO`'s target -- i.e. it looks like a **conditional jump gated by some
+flag `k`**, not a resource reference. Investigated as a candidate for the
+missing object-visibility-state mechanism (see "Scene object state
+variants" below) but not confirmed; flag semantics not decoded. Worth
+revisiting if the per-object state problem needs a real fix instead of the
+current overlap heuristic.
+
 Content-verified end to end: bytecode word 2 is `SKIPN(8)` followed by
 `PHRASE(1), DELIM, PHRASE(2), DELIM, ..., PHRASE(8), DELIM` — decoding
 phrases 1-8 against `DIALOGUE.LOD`'s text blob gives exactly Petka's
@@ -394,6 +409,57 @@ needed to actually *drive* dialogue from gameplay, not just extract/replay
 it. The data format itself, however, is fully solved: all dialogue text,
 voice-clip filenames, and branching/random-variant logic can already be
 extracted and replayed from any `PART_N/DIALOGUE.FIX`+`.LOD` pair.
+
+### Scene object state variants — NOT SOLVED: which FLC of a group is "active" at a given time
+
+Some rooms' top-level FLC+MSK pairs aren't independent simultaneous props;
+they're mutually exclusive **state variants of the same physical object**.
+`PART_1/P-ROOM.BG` (Petka's room) is the clearest example: `CLOSEDOR` /
+`DOR-OPEN` / `D-OPEN1` / `OPEN-DOR` / `DOR-DOWN` / `D-CLOSE` / `DOORDOWN`
+are 7 states of one door, `AQUA-FSH` / `AQUAR-1` / `AQUAR-2a` / `AQUAR-5` /
+`AQUAR-6` / `FISH&KEY` / `RIBKA` are variants of the aquarium, `KEY-UP` /
+`KEY-DOWN` are a key's two positions. Rendering every one of them at once
+(what the engine does today, lacking real state data) produces visual
+garbage -- all variants stacked on the same screen position. Current
+engine behavior is a heuristic workaround, not a real fix: scene-object
+loading keeps only the first-loaded object in any group whose MSK rects
+overlap by ≥60% of the smaller rect's area, discarding the rest (see
+`build_object_list`'s caller in `launcher/src/main.c`).
+
+Investigated and ruled out as the "real" state-selection mechanism:
+- **IDA string search** for the specific FLC names (`AQUAR-1`, `KEY-UP`,
+  etc.) inside `Petka.exe` — no hits. The engine doesn't address these
+  resources by name at all.
+- **`RESOURCE.QRC`** (found under `MAIN.STR`'s `PART_N` entries, not
+  previously catalogued) — a plain-text `ID = PART_N\path` table (CRLF,
+  `id<tab/spaces>=<tab/spaces>path`), explaining the *lack* of string
+  literals: the engine references resources by this numeric ID instead.
+  Each room gets a contiguous ID block (P-ROOM is 1700-1762). This solves
+  the "where's the ID→path table" question but **is not itself a
+  state/visibility table** — every ID (including every door/aquarium
+  variant) is listed once, flatly, with no grouping or flag info. Some
+  note: a few entries use `==` instead of `=` (e.g. `1318 == MAIN\...`);
+  meaning not understood, doesn't correlate with the state-variant groups
+  seen in P-ROOM (those all use plain `=`).
+- **`DIALOGUE.FIX`'s `SubRecord.data` field** (documented as unused
+  padding above) — confirmed always `0` across all 285 topics in
+  `PART_1/DIALOGUE.FIX`. Not a hidden resource-ID reference.
+- **`BGDATA.DAT`/`SCRIPT.DAT`** — already established above to be editor
+  debug-panel strings, re-checked specifically for these object names via
+  `strings`, no hits.
+- The `0x04`/`0x05` bytecode opcodes discussed above are a plausible
+  *mechanism* (conditional branch gated by a flag) but were found in the
+  **dialogue** bytecode, which decides what's said, not confirmed to be
+  the same flag space that decides what's drawn. Not followed further.
+
+Likely conclusion: this is real per-room game logic compiled into
+`Petka.exe` (e.g. a `CRoom`-style per-room message handler), not a generic
+data format — consistent with this being a Qt-based engine where business
+logic lives in C++ classes, not Qt's own (generic) plumbing. Finding it
+would mean locating each room's handler function in IDA without a string
+anchor to pivot from (e.g. via xrefs from the FLC-loading function
+filtered to the room's QRC ID range) -- not attempted; large effort for
+uncertain payoff relative to the overlap heuristic above.
 
 ## Room topology — SOLVED: `BGS.INI` is the room graph, plain text
 
