@@ -11,16 +11,17 @@ static uint32_t read_u32le(const uint8_t *p) {
 // ---- DIALOGUE.LOD ----
 
 PetkaPhraseTable *petka_phrasetable_open(const uint8_t *data, size_t len) {
-    if (len < 4) return NULL;
+    if (len < 8) return NULL;
     uint32_t count = read_u32le(data);
+    // offset 4..7 is a second header field, always 0 in samples seen -- skip it.
     size_t table_bytes = (size_t)count * 24;
-    if (4 + table_bytes > len) return NULL;
+    if (8 + table_bytes > len) return NULL;
 
     PetkaPhraseTable *table = (PetkaPhraseTable *)calloc(1, sizeof(PetkaPhraseTable));
     table->count = count;
     table->phrases = (PetkaPhrase *)calloc(count, sizeof(PetkaPhrase));
 
-    size_t pos = 4;
+    size_t pos = 8;
     for (uint32_t i = 0; i < count; i++) {
         memcpy(table->phrases[i].wav_name, data + pos, 16);
         table->phrases[i].wav_name[16] = 0;

@@ -311,8 +311,11 @@ a plausible guess.
 
 ```
 u32 phrase_count N
+u32 _unused        (always 0 in samples seen)
 N × 24-byte phrase records:
-    char filename[16]   "11_01701.wav" style voice-clip filename (NUL-padded)
+    char filename[16]   "11_01701.wav" style voice-clip filename (NUL-padded,
+                         and legitimately EMPTY for ~58% of entries -- not
+                         every phrase has its own voice clip)
     u32  _unused1        (on-disk garbage, overwritten at load time)
     u32  _unused2
 immediately followed by:

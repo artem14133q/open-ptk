@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
     const char *sound_store_path = argc > 3 ? argv[3] : "MUSIC1.STR";
     const char *main_store_path = argc > 4 ? argv[4] : "data1_out/Main/MAIN.STR";
     const char *part = argc > 5 ? argv[5] : "PART_1";
+    const char *speech_store_path = argc > 6 ? argv[6] : "SPEECH1.STR";
 
     PetkaStore *bg_store = petka_store_open(bg_store_path);
     if (!bg_store) { fprintf(stderr, "failed to open store: %s\n", bg_store_path); return 1; }
@@ -198,6 +199,18 @@ int main(int argc, char **argv) {
         }
         if (!phrases || !dtree) fprintf(stderr, "dialogue data unavailable for %s (interaction disabled)\n", part);
     }
+
+    PetkaStore *speech_store = petka_store_open(speech_store_path);
+    if (!speech_store) fprintf(stderr, "failed to open speech store: %s (voice playback disabled)\n", speech_store_path);
+    // Phrase wav_name is a bare filename ("11_01701.wav"); the store holds
+    // it as "SPEECHn\11_01701.WAV". n matches the part's trailing digit.
+    char speech_prefix[32] = "SPEECH1";
+    {
+        const char *digits = part;
+        while (*digits && (*digits < '0' || *digits > '9')) digits++;
+        if (*digits) snprintf(speech_prefix, sizeof(speech_prefix), "SPEECH%s", digits);
+    }
+    Sound voice_sound = {0};
 
     // QM_* message IDs (see docs/str-format.md) used as verb IDs.
     static const struct { uint32_t id; const char *label; } kVerbs[] = {
@@ -271,10 +284,29 @@ int main(int argc, char **argv) {
                     PetkaDialogueVM vm;
                     petka_dialoguevm_start(&vm, dtree, verb->entries[0].bytecode_offset);
                     uint32_t phrase_idx;
+                    int first_phrase = -1;
                     while (dialogue_line_count < 4 && petka_dialoguevm_next(&vm, &phrase_idx)) {
                         const char *text = phrase_idx < phrases->count ? phrases->phrases[phrase_idx].text : "<?>";
                         snprintf(dialogue_lines[dialogue_line_count], sizeof(dialogue_lines[0]), "%s", text);
                         dialogue_line_count++;
+                        if (first_phrase < 0) first_phrase = (int)phrase_idx;
+                    }
+
+                    if (voice_sound.frameCount > 0) { StopSound(voice_sound); UnloadSound(voice_sound); voice_sound = (Sound){0}; }
+                    if (speech_store && first_phrase >= 0 && (uint32_t)first_phrase < phrases->count) {
+                        char wav_name[64];
+                        snprintf(wav_name, sizeof(wav_name), "%s\\%s", speech_prefix, phrases->phrases[first_phrase].wav_name);
+                        for (char *p = wav_name; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+                        const PetkaEntry *voice_e = petka_store_find(speech_store, wav_name);
+                        if (voice_e) {
+                            size_t vlen = 0;
+                            const uint8_t *vbytes = petka_store_entry_data(speech_store, voice_e, &vlen);
+                            Wave wave = LoadWaveFromMemory(".wav", vbytes, (int)vlen);
+                            if (wave.frameCount > 0) { voice_sound = LoadSoundFromWave(wave); PlaySound(voice_sound); }
+                            UnloadWave(wave);
+                        } else {
+                            fprintf(stderr, "voice clip not found: %s\n", wav_name);
+                        }
                     }
                 }
             }
@@ -399,6 +431,7 @@ int main(int argc, char **argv) {
     if (bg_tex.id) UnloadTexture(bg_tex);
     if (flic_tex.id) UnloadTexture(flic_tex);
     if (current_sound.frameCount > 0) UnloadSound(current_sound);
+    if (voice_sound.frameCount > 0) UnloadSound(voice_sound);
     if (cyrillicFont.texture.id != GetFontDefault().texture.id) UnloadFont(cyrillicFont);
     CloseAudioDevice();
     CloseWindow();
@@ -411,6 +444,7 @@ int main(int argc, char **argv) {
     if (main_store) petka_store_close(main_store);
     if (flic_store) petka_store_close(flic_store);
     if (sound_store) petka_store_close(sound_store);
+    if (speech_store) petka_store_close(speech_store);
     petka_store_close(bg_store);
     return 0;
 }
