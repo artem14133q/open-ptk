@@ -9,12 +9,16 @@
 // background and has a matching .MSK) via a heuristic topic mapping into
 // PART_N/DIALOGUE.FIX+.LOD -- see build_object_list()'s comment and
 // docs/str-format.md for why this numbering is an approximation, not the
-// recovered original scheme.
+// recovered original scheme. TAB cycles the current room's exits (per
+// PART_N/BGS.INI's room graph, right-hand panel); G walks through the
+// highlighted exit if its target room has a known .BG mapping (see
+// kRoomFolders -- deliberately incomplete, many rooms show "(?)").
 #include "petka/bmp.h"
 #include "petka/dialogue.h"
 #include "petka/flic.h"
 #include "petka/msk.h"
 #include "petka/store.h"
+#include "petka/topology.h"
 
 #include "raylib.h"
 
@@ -69,6 +73,69 @@ static void folder_prefix(const char *name, char *out, size_t out_sz) {
         }
     }
     out[i] = 0;
+}
+
+// Extracts just the "XXXX" folder name (no "PART_N\" prefix, no ".BG\"
+// suffix) from an on-disk resource name like "PART_1\BOLOTO.BG\BOLOTO.BMP".
+static void bg_folder_only(const char *entry_name, char *out, size_t out_sz) {
+    char prefix[512];
+    folder_prefix(entry_name, prefix, sizeof(prefix));
+    const char *p = strchr(prefix, '\\');
+    out[0] = 0;
+    if (!p) return;
+    p++;
+    const char *dot = strstr(p, ".BG");
+    size_t n = dot ? (size_t)(dot - p) : strlen(p);
+    if (n >= out_sz) n = out_sz - 1;
+    memcpy(out, p, n);
+    out[n] = 0;
+}
+
+// BGS.INI room names (Cyrillic, the game's own display names) <-> .BG
+// resource folder names. NOT a recovered mapping -- no such table was
+// found anywhere in the data (checked RESOURCE.QRC, BGDATA.DAT's "KARTA"
+// map-screen text). Built by hand from transliteration + content
+// inspection (e.g. DEREVO.BG's "/POD-TOK/" subfolder is full of
+// electrical-hazard objects -- ELEKTRO1-6, TOK-L/S/P -- matching
+// "ТРАНСФОРМАТОР"/transformer). Deliberately incomplete: entries left out
+// here just show as "no mapped background" rather than guessing wrong.
+// Written as UTF-8 and compared against topology room names (CP1251) via
+// cp1251_to_utf8() below.
+typedef struct {
+    const char *room_utf8;
+    const char *folder;
+} RoomFolderMap;
+static const RoomFolderMap kRoomFolders[] = {
+    {"БАНЯ", "BANIA"},
+    {"БОЛОТО", "BOLOTO"},
+    {"ВРЕМЯНКА", "VREMYNKA"},
+    {"ХУТОР", "HUTOR"},
+    {"ОКНО", "OKNO"},
+    {"ПАЛЬМА", "PALMA"},
+    {"ПАСЕКА", "PASEKA"},
+    {"САРАЙ", "SARAY"},
+    {"МОСТИК У ДОМА ФУРМАНОВА", "MOSTIK"},
+    {"ПЕНЕК В ЛЕСУ", "PENEK"},
+    {"ДОРОГА ВОКРУГ ХЛЕВА", "HLEV"},
+    {"ПЕРЕКРЕСТОК В ЛЕСУ", "FOUR-WAY"},
+    {"КОМНАТА АНКИ", "ANKAROOM"},
+    {"ДОМ АНКИ", "ANHUTOR"},
+    {"ТРАНСФОРМАТОР", "DEREVO"},
+    {"КЛУБ", "DK"},
+    {"АКТОВЫЙ ЗАЛ В КЛУБЕ", "ZAL-DK"},
+};
+static const int kRoomFolderCount = sizeof(kRoomFolders) / sizeof(kRoomFolders[0]);
+
+static const char *room_to_folder(const char *room_utf8) {
+    for (int i = 0; i < kRoomFolderCount; i++)
+        if (strcmp(kRoomFolders[i].room_utf8, room_utf8) == 0) return kRoomFolders[i].folder;
+    return NULL;
+}
+
+static const char *folder_to_room(const char *folder) {
+    for (int i = 0; i < kRoomFolderCount; i++)
+        if (strcmp(kRoomFolders[i].folder, folder) == 0) return kRoomFolders[i].room_utf8;
+    return NULL;
 }
 
 // Heuristic object numbering (NOT the original engine's scheme -- that
@@ -200,6 +267,20 @@ int main(int argc, char **argv) {
         if (!phrases || !dtree) fprintf(stderr, "dialogue data unavailable for %s (interaction disabled)\n", part);
     }
 
+    PetkaTopology *topo = NULL;
+    if (main_store) {
+        char bgsini_name[256];
+        snprintf(bgsini_name, sizeof(bgsini_name), "%s\\BGS.INI", part);
+        const PetkaEntry *bgsini_e = petka_store_find(main_store, bgsini_name);
+        if (bgsini_e) {
+            size_t bgsini_len = 0;
+            const uint8_t *bgsini_bytes = petka_store_entry_data(main_store, bgsini_e, &bgsini_len);
+            topo = petka_topology_parse(bgsini_bytes, bgsini_len);
+        }
+        if (!topo) fprintf(stderr, "topology unavailable for %s (navigation disabled)\n", part);
+    }
+    int exit_choice = 0;
+
     PetkaStore *speech_store = petka_store_open(speech_store_path);
     if (!speech_store) fprintf(stderr, "failed to open speech store: %s (voice playback disabled)\n", speech_store_path);
     // Phrase wav_name is a bare filename ("11_01701.wav"); the store holds
@@ -240,9 +321,53 @@ int main(int argc, char **argv) {
     Sound current_sound = {0};
     int loaded_sound = -2;
 
+    char nav_status[256] = "";
+
     while (!WindowShouldClose()) {
         if (IsKeyPressed(KEY_RIGHT)) bg_index = (bg_index + 1) % bgs.count;
         if (IsKeyPressed(KEY_LEFT)) bg_index = (bg_index - 1 + bgs.count) % bgs.count;
+
+        // Room-graph navigation: TAB cycles the current room's exits, G
+        // walks through the highlighted one (if its target has a known
+        // .BG mapping -- see kRoomFolders).
+        const PetkaRoom *current_room = NULL;
+        if (topo) {
+            char folder[64];
+            bg_folder_only(bgs.items[bg_index]->name, folder, sizeof(folder));
+            const char *room_utf8 = folder_to_room(folder);
+            if (room_utf8) {
+                for (uint32_t i = 0; i < topo->room_count && !current_room; i++) {
+                    char conv[256];
+                    cp1251_to_utf8(topo->rooms[i].name, conv, sizeof(conv));
+                    if (strcmp(conv, room_utf8) == 0) current_room = &topo->rooms[i];
+                }
+            }
+        }
+        if (current_room && current_room->exit_count > 0) {
+            if (IsKeyPressed(KEY_TAB)) exit_choice = (exit_choice + 1) % (int)current_room->exit_count;
+            if (IsKeyPressed(KEY_G)) {
+                const PetkaExit *ex = &current_room->exits[exit_choice];
+                char target_utf8[256];
+                cp1251_to_utf8(ex->target, target_utf8, sizeof(target_utf8));
+                const char *target_folder = room_to_folder(target_utf8);
+                int found = -1;
+                if (target_folder) {
+                    for (int i = 0; i < bgs.count && found < 0; i++) {
+                        char f[64];
+                        bg_folder_only(bgs.items[i]->name, f, sizeof(f));
+                        if (strcmp(f, target_folder) == 0) found = i;
+                    }
+                }
+                if (found >= 0) {
+                    bg_index = found;
+                    nav_status[0] = 0;
+                } else {
+                    snprintf(nav_status, sizeof(nav_status), "no mapped background for \"%s\" yet", target_utf8);
+                }
+            }
+        } else {
+            exit_choice = 0;
+        }
         if (flics.count > 0) {
             if (IsKeyPressed(KEY_UP)) flic_index = flic_index + 1 >= flics.count ? -1 : flic_index + 1;
             if (IsKeyPressed(KEY_DOWN)) flic_index = flic_index - 1 < -1 ? flics.count - 1 : flic_index - 1;
@@ -415,6 +540,31 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (topo) {
+            int panel_w = 360;
+            char room_utf8[256] = "(unknown room)";
+            if (current_room) cp1251_to_utf8(current_room->name, room_utf8, sizeof(room_utf8));
+            int lines = current_room ? 1 + (int)current_room->exit_count : 1;
+            int panel_h = 24 * lines + (nav_status[0] ? 24 : 0) + 34 + 10;
+            DrawRectangle(GetScreenWidth() - panel_w, 0, panel_w, panel_h, Fade(BLACK, 0.6f));
+            DrawTextEx(cyrillicFont, TextFormat("Room: %s  (TAB next exit, G go)", room_utf8),
+                       (Vector2){(float)(GetScreenWidth() - panel_w + 10), 8}, 18, 1, SKYBLUE);
+            if (current_room) {
+                for (uint32_t i = 0; i < current_room->exit_count; i++) {
+                    char target_utf8[256];
+                    cp1251_to_utf8(current_room->exits[i].target, target_utf8, sizeof(target_utf8));
+                    Color c = ((int)i == exit_choice) ? ORANGE : WHITE;
+                    const char *marker = ((int)i == exit_choice) ? "> " : "  ";
+                    DrawTextEx(cyrillicFont, TextFormat("%s%s %s", marker, target_utf8, room_to_folder(target_utf8) ? "" : "(?)"),
+                               (Vector2){(float)(GetScreenWidth() - panel_w + 10), (float)(34 + 24 * i)}, 18, 1, c);
+                }
+            }
+            if (nav_status[0]) {
+                DrawTextEx(cyrillicFont, nav_status,
+                           (Vector2){(float)(GetScreenWidth() - panel_w + 10), (float)(34 + 24 * lines)}, 16, 1, RED);
+            }
+        }
+
         DrawRectangle(0, GetScreenHeight() - 84, GetScreenWidth(), 84, Fade(BLACK, 0.6f));
         DrawText(TextFormat("[%d/%d] %s", bg_index + 1, bgs.count, bgs.items[bg_index]->name), 10, GetScreenHeight() - 74, 18, LIME);
         DrawText(flic_index >= 0 ? TextFormat("[%d/%d] %s", flic_index + 1, flics.count, flics.items[flic_index]->name) : "(no overlay)",
@@ -440,6 +590,7 @@ int main(int argc, char **argv) {
     free(flics.items);
     free(sounds.items);
     if (dtree) petka_dialoguetree_close(dtree);
+    if (topo) petka_topology_close(topo);
     if (phrases) petka_phrasetable_close(phrases);
     if (main_store) petka_store_close(main_store);
     if (flic_store) petka_store_close(flic_store);
