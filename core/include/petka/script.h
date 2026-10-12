@@ -157,7 +157,7 @@ typedef struct {
     int visible;         // +44
     int active;          // +60, reacts to the cursor
     int animate;         // +48
-    int loop;            // +72
+    int repeat_sound;    // +72, the clip's sound restarts on every loop
     int busy;            // +56, queued messages wait while set
     int32_t zbuffer;     // +52
     int32_t z;           // +8
@@ -268,6 +268,8 @@ int petka_scriptvm_init(PetkaScriptVM *vm);
 void petka_scriptvm_enter_room(PetkaScriptVM *vm, uint16_t room, int silent);
 
 // Host notifications.
+// A clip reached its last frame: posts END (resource, 0, 0) from nobody, as
+// the exe's object update does on every loop of the clip.
 void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t resource);
 void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id);
 // talker is the object that spoke last, or PETKA_NONE.

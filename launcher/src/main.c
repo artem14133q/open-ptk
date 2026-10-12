@@ -48,9 +48,8 @@ typedef struct {
     Texture2D tex;
     PetkaMskRect rect; // bounding rect of the clip inside its frame
     double next_frame;
-    int once;    // PLAY: stop on the last frame instead of looping
-    int ended;   // END already reported for the current run
-    int restart; // rewind before the next frame
+    int sound_pending; // play the clip's sound when its first frame is up
+    int restart;       // rewind before the next frame
     int live;    // drawn this frame
 } Visual;
 
@@ -335,10 +334,9 @@ static void visual_free(Visual *v) {
 }
 
 static void visual_load(Game *g, Visual *v, uint16_t resource) {
-    int once = v->once;
     visual_free(v);
     v->resource = resource;
-    v->once = once;
+    v->sound_pending = 1;
     const char *path = g->qrc[resource];
     if (!path || !has_ext(path, ".FLC")) return;
     size_t len = 0;
@@ -368,8 +366,14 @@ static int obj_index(const Game *g, const PetkaObject *obj) {
 static int is_hero(uint16_t id) { return id == PETKA_ID_PETKA || id == PETKA_ID_CHAPAYEV; }
 
 // Brings one object's visual in line with its VM state and advances its
-// animation. Reaching the last frame is what the script waits for after
-// PLAY, so it is reported to the VM as END.
+// animation, following the exe's object update (sub_4015E0):
+//   - a clip of a single frame is never updated: no END, no sound;
+//   - the clip's sound starts while its first frame is up;
+//   - when the last frame comes up END is posted, on every loop, and the
+//     sound is armed again if the object repeats it;
+//   - when the middle frame comes up HALF is posted;
+//   - the clip then simply goes round again.
+// A clip's sound is the same path with a .WAV extension.
 static void visual_update(Game *g, const PetkaObject *obj) {
     Visual *v = &g->visuals[obj_index(g, obj)];
     PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
@@ -380,20 +384,35 @@ static void visual_update(Game *g, const PetkaObject *obj) {
     }
     if (!v->flic) return;
     v->live = 1;
-    if (!st->animate || GetTime() < v->next_frame) return;
+    if (!st->animate) return;
+    if (v->flic->frame_count <= 1) {
+        // Ours, not the exe's: a script waiting on a one-frame clip would
+        // wait forever, so that wait alone is ended.
+        if (st->play_tail.present && st->play_wait == v->resource)
+            petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
+        return;
+    }
+    if (GetTime() < v->next_frame) return;
     v->next_frame = GetTime() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
 
-    if (v->flic->frame_index >= v->flic->frame_count - 1) {
-        int hold = v->once || !st->loop || v->flic->frame_count <= 1;
-        if (hold && v->ended) return;
-        v->ended = 1;
-        petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
-        if (hold) return;
+    if (v->sound_pending && v->flic->frame_index == 0) {
+        char wav[512];
+        swap_ext(g->qrc[v->resource], "WAV", wav, sizeof(wav));
+        play_sound(g, wav);
+        v->sound_pending = 0;
     }
     petka_flic_advance(v->flic);
     uint8_t *rgba = flic_to_rgba(v->flic);
     UpdateTexture(v->tex, rgba);
     free(rgba);
+
+    int frame = v->flic->frame_index + 1; // the exe counts frames from 1
+    if (frame == v->flic->frame_count) {
+        if (st->repeat_sound) v->sound_pending = 1;
+        petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
+    }
+    if (frame == v->flic->frame_count / 2)
+        petka_scriptvm_post(g->vm, obj->id, PETKA_OP_HALF, v->resource, 0, 0, -1);
 }
 
 // ---- heroes ----
@@ -728,30 +747,18 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
     const PetkaMessage *m = &q->msg;
     // A broadcast reaches every object; only the reactions are worth logging.
     int noise = !reacted && (m->opcode == PETKA_OP_INITBG || m->opcode == PETKA_OP_LEAVEBG ||
-                             m->opcode == PETKA_OP_TOTALINIT || m->opcode == PETKA_OP_END);
+                             m->opcode == PETKA_OP_TOTALINIT || m->opcode == PETKA_OP_END ||
+                             m->opcode == PETKA_OP_HALF);
     if (g->trace && !noise)
         fprintf(stderr, "%-10s -> %u[%s] %d %d %d%s\n", petka_opcode_name(m->opcode), obj->id,
                 utf8_name(obj->name), (int16_t)m->arg1, (int16_t)m->arg2, (int16_t)m->arg3,
                 reacted ? "  (reaction)" : "");
     switch (m->opcode) {
     case PETKA_OP_SET:
-    case PETKA_OP_PLAY: {
-        Visual *v = &g->visuals[obj_index(g, obj)];
-        v->once = m->opcode == PETKA_OP_PLAY;
-        v->ended = 0;
-        if (m->opcode == PETKA_OP_PLAY || m->arg2 == 1) v->restart = 1;
-        // A clip's sound effect is the same path with a .WAV extension.
-        const PetkaObjectState *st = &vm->state[obj_index(g, obj)];
-        const char *path = g->qrc[m->arg1];
-        // No room yet means TOTALINIT is still setting every object up.
-        if (path && has_ext(path, ".FLC") && (st->room == screen_room(g) || is_hero(obj->id)) &&
-            vm->room != PETKA_NONE) {
-            char wav[512];
-            swap_ext(path, "WAV", wav, sizeof(wav));
-            play_sound(g, wav);
-        }
+    case PETKA_OP_PLAY:
+        // PLAY starts the clip over; so does SET with 1 as its second argument.
+        if (m->opcode == PETKA_OP_PLAY || m->arg2 == 1) g->visuals[obj_index(g, obj)].restart = 1;
         break;
-    }
     case PETKA_OP_SETSEQ:
         g->seq_room = obj->id;
         break;

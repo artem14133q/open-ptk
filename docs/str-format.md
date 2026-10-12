@@ -430,11 +430,31 @@ Action 5 is "send Chapayev": with no reaction to it, the built-in
 message switches the cursor to. The arguments matter because a reaction's
 `IF` compares them.
 
-Where the other engine-sent messages come from, read off the constants at
-the call sites (the functions themselves were not all decompiled): `END`
-from the object update at `0x4015E0`, `TOTALINIT` from `sub_405D00` at
-load, `SAY`/`SAID` from the dialogue step at `0x4160E0`, `USERMSG` from
-`sub_409610`. No call site sends `HALF` as a constant.
+Where the other engine-sent messages come from: `END` and `HALF` from the
+object update (below), `TOTALINIT` from `sub_405D00` at load; and, read off
+the constants at the call sites without decompiling the functions,
+`SAY`/`SAID` from the dialogue step at `0x4160E0` and `USERMSG` from
+`sub_409610`.
+
+### Object update: `END`, `HALF` and clip sounds
+
+Every frame each object's update method runs (vtable slot 6; `sub_4015E0`
+for ordinary scene objects, `0x407BF0` for the heroes, a stub for rooms). It
+does nothing unless the object is animated (`+48`) and visible (`+44`), and
+nothing for a clip of a single frame. Otherwise it adds the elapsed time and,
+once a frame's delay has passed (at most one frame per call):
+
+1. if the object has a sound armed (`+68`) and frame 1 is up, starts it;
+2. steps to the next frame;
+3. if that is the last frame, posts `END` (arg1 = the clip's resource id, no
+   sender) and, if the object repeats its sound (`+72`), arms it again;
+4. if that is frame `count / 2`, posts `HALF` (same argument).
+
+The clip then goes round again: nothing stops on the last frame, and `END`
+comes on every loop. `PLAY` relies on exactly this -- the script's next
+message normally replaces the clip. A clip's sound is the file of the same
+path with a `.WAV` extension; `SET` arms it, and `SET` with 5 as its second
+argument clears `+72`, i.e. "play the sound once".
 
 ### Opcodes
 
@@ -447,8 +467,8 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 3 | `GOTO` | (room) make this room current, see below |
 | 5 / 28 | `SAY` / `SAID` | (hero) show costume+1 (talking) / costume (idle) |
 | 9 | `WALK` | click with no reaction: Petka walks to the object |
-| 11 | `END` | resume the tail parked by `PLAY` |
-| 14 | `SET` | change the object's resource id; `arg2`: 1 = rewind, 5 = clears `+72` |
+| 11 | `END` | a clip reached its last frame; resumes the tail parked by `PLAY` |
+| 14 | `SET` | change the object's resource id; `arg2`: 1 = rewind, 5 = play the clip's sound once instead of on every loop |
 | 15 / 16 | `SHOW` / `HIDE` | visibility |
 | 17 | `DIALOG` | start the current dialogue |
 | 18 | `ZBUFFER` | `arg1` -> `+52`, `arg2` -> draw order |
@@ -462,6 +482,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 27 / 44 | `ACTIVE` / `PASSIVE` | `+60` |
 | 29 / 30 | `SETSEQ` / `ENDSEQ` | (room) put this room on screen as a cutscene sequence / go back to the game, see below |
 | 31, 32 | `CHECK`, `IF` | conditions, see above |
+| 34 | `HALF` | a clip reached its middle frame (a reaction trigger; used once) |
 | 33 | `SHOWDESCRIPTION` | show the object's text from `INVNTR.TXT` |
 | 35 | `QM_WALKED` | (hero) resume the tail parked by a walk |
 | 36 / 37 | `WALKTO` / `WALKVICH` | Petka / Chapayev walks to (`arg1`,`arg2`) or the object's walk point |
@@ -518,10 +539,7 @@ from it for every object -- which is why those two files live in the chapter
 stores.
 
 Not understood: opcode 55 (sets a flag on the screen object; used twice in
-`PART_3`) and `HALF`, a reaction trigger used once that no call site sends
-as a constant. `END` is sent by the object update at `0x4015E0`, which was
-not decompiled, so exactly when (every loop of a clip, or once) is the
-launcher's guess.
+`PART_3`).
 
 ### Scene object state variants — solved by the script
 

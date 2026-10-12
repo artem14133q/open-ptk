@@ -225,7 +225,7 @@ PetkaScriptVM *petka_scriptvm_open(PetkaScript *script, const PetkaScriptHost *h
         // themselves OFF in their TOTALINIT reaction.
         st->visible = 1;
         st->active = 1;
-        st->loop = 1;
+        st->repeat_sound = 1;
         // The script only ever freezes objects (ANIMATE 0 is 5x as common
         // as ANIMATE 1), so they start out animated.
         st->animate = 1;
@@ -434,7 +434,7 @@ static void apply_builtin(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued
     case PETKA_OP_SET:
     case PETKA_OP_PLAY:
         st->resource = m->arg1;
-        if (!obj->is_room) st->loop = m->arg2 != 5;
+        if (!obj->is_room) st->repeat_sound = m->arg2 != 5;
         break;
     case PETKA_OP_SHOW:
         st->visible = m->arg1 != 0;
@@ -703,7 +703,7 @@ int petka_scriptvm_init(PetkaScriptVM *vm) {
 }
 
 void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t resource) {
-    petka_scriptvm_post(vm, obj_id, PETKA_OP_END, resource, 0, 0, obj_id);
+    petka_scriptvm_post(vm, obj_id, PETKA_OP_END, resource, 0, 0, -1);
 }
 
 void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id) {
