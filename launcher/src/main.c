@@ -1,8 +1,10 @@
 // Cross-platform (desktop raylib+OpenGL today, Switch later) resource
-// browser: cycles through every background BMP in a store (Left/Right) and
-// every FLIC clip in another store, composited on top with MSK
+// browser: cycles through every background BMP in a store (Left/Right),
+// every FLIC clip in another store composited on top with MSK
 // positioning/clipping and palette-index-0 color-key transparency
-// (Up/Down; None is one of the cycle positions).
+// (Up/Down; None is one of the cycle positions), and every WAV in a third
+// store (PageUp/PageDown to select -- auto-plays on selection; Space to
+// stop/replay).
 #include "petka/bmp.h"
 #include "petka/flic.h"
 #include "petka/msk.h"
@@ -64,18 +66,23 @@ static uint8_t *flic_to_rgba(const PetkaFlic *flic) {
 int main(int argc, char **argv) {
     const char *bg_store_path = argc > 1 ? argv[1] : "BGS1.STR";
     const char *flic_store_path = argc > 2 ? argv[2] : "data1_out/Flics/FLC1.STR";
+    const char *sound_store_path = argc > 3 ? argv[3] : "MUSIC1.STR";
 
     PetkaStore *bg_store = petka_store_open(bg_store_path);
     if (!bg_store) { fprintf(stderr, "failed to open store: %s\n", bg_store_path); return 1; }
     PetkaStore *flic_store = petka_store_open(flic_store_path);
     if (!flic_store) fprintf(stderr, "failed to open flic store: %s (overlays disabled)\n", flic_store_path);
+    PetkaStore *sound_store = petka_store_open(sound_store_path);
+    if (!sound_store) fprintf(stderr, "failed to open sound store: %s (audio disabled)\n", sound_store_path);
 
     EntryList bgs = filter_entries(bg_store, ".BMP");
     EntryList flics = filter_entries(flic_store, ".FLC");
+    EntryList sounds = filter_entries(sound_store, ".WAV");
     if (bgs.count == 0) { fprintf(stderr, "no .BMP entries in %s\n", bg_store_path); return 1; }
 
     InitWindow(1280, 960, "petka-ptk1 browser");
     SetTargetFPS(60);
+    InitAudioDevice();
 
     int bg_index = 0;
     int flic_index = -1; // -1 = no overlay
@@ -88,12 +95,24 @@ int main(int argc, char **argv) {
 
     int loaded_bg = -1, loaded_flic = -2; // force initial load
 
+    int sound_index = -1; // -1 = none selected
+    Sound current_sound = {0};
+    int loaded_sound = -2;
+
     while (!WindowShouldClose()) {
         if (IsKeyPressed(KEY_RIGHT)) bg_index = (bg_index + 1) % bgs.count;
         if (IsKeyPressed(KEY_LEFT)) bg_index = (bg_index - 1 + bgs.count) % bgs.count;
         if (flics.count > 0) {
             if (IsKeyPressed(KEY_UP)) flic_index = flic_index + 1 >= flics.count ? -1 : flic_index + 1;
             if (IsKeyPressed(KEY_DOWN)) flic_index = flic_index - 1 < -1 ? flics.count - 1 : flic_index - 1;
+        }
+        if (sounds.count > 0) {
+            if (IsKeyPressed(KEY_PAGE_UP)) sound_index = sound_index + 1 >= sounds.count ? -1 : sound_index + 1;
+            if (IsKeyPressed(KEY_PAGE_DOWN)) sound_index = sound_index - 1 < -1 ? sounds.count - 1 : sound_index - 1;
+            if (IsKeyPressed(KEY_SPACE) && sound_index >= 0 && current_sound.frameCount > 0) {
+                if (IsSoundPlaying(current_sound)) StopSound(current_sound);
+                else PlaySound(current_sound);
+            }
         }
 
         if (bg_index != loaded_bg) {
@@ -145,6 +164,24 @@ int main(int argc, char **argv) {
             loaded_flic = flic_index;
         }
 
+        if (sound_index != loaded_sound) {
+            if (current_sound.frameCount > 0) { UnloadSound(current_sound); current_sound = (Sound){0}; }
+            if (sound_index >= 0) {
+                const PetkaEntry *e = sounds.items[sound_index];
+                size_t len = 0;
+                const uint8_t *bytes = petka_store_entry_data(sound_store, e, &len);
+                Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
+                if (wave.frameCount > 0) {
+                    current_sound = LoadSoundFromWave(wave);
+                    PlaySound(current_sound);
+                } else {
+                    fprintf(stderr, "LoadWaveFromMemory failed for %s\n", e->name);
+                }
+                UnloadWave(wave);
+            }
+            loaded_sound = sound_index;
+        }
+
         if (flic && GetTime() >= next_frame_time) {
             petka_flic_advance(flic);
             uint8_t *rgba = flic_to_rgba(flic);
@@ -166,21 +203,30 @@ int main(int argc, char **argv) {
             DrawTexturePro(flic_tex, src, clip, (Vector2){0, 0}, 0, WHITE);
         }
 
-        DrawRectangle(0, GetScreenHeight() - 60, GetScreenWidth(), 60, Fade(BLACK, 0.6f));
-        DrawText(TextFormat("[%d/%d] %s", bg_index + 1, bgs.count, bgs.items[bg_index]->name), 10, GetScreenHeight() - 50, 18, LIME);
+        DrawRectangle(0, GetScreenHeight() - 84, GetScreenWidth(), 84, Fade(BLACK, 0.6f));
+        DrawText(TextFormat("[%d/%d] %s", bg_index + 1, bgs.count, bgs.items[bg_index]->name), 10, GetScreenHeight() - 74, 18, LIME);
         DrawText(flic_index >= 0 ? TextFormat("[%d/%d] %s", flic_index + 1, flics.count, flics.items[flic_index]->name) : "(no overlay)",
-                  10, GetScreenHeight() - 26, 18, YELLOW);
+                  10, GetScreenHeight() - 50, 18, YELLOW);
+        DrawText(sound_index >= 0
+                      ? TextFormat("[%d/%d] %s %s", sound_index + 1, sounds.count, sounds.items[sound_index]->name,
+                                   current_sound.frameCount > 0 && IsSoundPlaying(current_sound) ? "(playing)" : "(stopped)")
+                      : "(no sound)",
+                  10, GetScreenHeight() - 26, 18, SKYBLUE);
         EndDrawing();
     }
 
     if (flic) petka_flic_close(flic);
     if (bg_tex.id) UnloadTexture(bg_tex);
     if (flic_tex.id) UnloadTexture(flic_tex);
+    if (current_sound.frameCount > 0) UnloadSound(current_sound);
+    CloseAudioDevice();
     CloseWindow();
 
     free(bgs.items);
     free(flics.items);
+    free(sounds.items);
     if (flic_store) petka_store_close(flic_store);
+    if (sound_store) petka_store_close(sound_store);
     petka_store_close(bg_store);
     return 0;
 }
