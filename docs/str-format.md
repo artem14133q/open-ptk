@@ -166,6 +166,19 @@ well-known FLI/FLC format used by countless public decoders (e.g. ffmpeg's
 `COLOR_256`, etc.) can reuse any existing public-domain implementation
 instead of reversing `sub_410820`.
 
+**Known decoder bug, not yet fixed:** `core/src/flic.c`'s frame decode
+produces visibly corrupted output (horizontal smearing/tearing) for at
+least `PART_1/P-ROOM.BG/KROVATI.FLC` (a single-frame, i.e. no inter-frame
+delta involved) — confirmed it's a decode bug and not a launcher
+scaling/draw issue by dumping the raw decoded frame directly via
+`flictest` (`tools/flictest`) and seeing the same smearing in the `.ppm`
+output. Likely a bug in one of the chunk-type decoders (`BYTE_RUN`/`SS2`)
+for this file's specific chunk layout, not yet isolated. Other FLCs
+(campfire, pond ripple, birds, signposts, etc.) decode and animate
+correctly, so this isn't a wholesale format misunderstanding — probably an
+edge case (chunk size, packet count, or line-count field) the simpler
+test files never exercised.
+
 ## `.MSK` mask files — rect confirmed, no real per-pixel data found
 
 Reverse-engineered from `QFlic::Init`: the **last 16 bytes** of a `.MSK`
