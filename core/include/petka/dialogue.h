@@ -76,6 +76,7 @@ typedef enum {
     PETKA_DLG_OP_STOP = 6,
     PETKA_DLG_OP_PHRASE = 7,
     PETKA_DLG_OP_SKIPN = 8,
+    PETKA_DLG_OP_USERMSG = 9,
 } PetkaDialogueOp;
 
 typedef struct {
@@ -91,6 +92,11 @@ void petka_dialoguevm_start(PetkaDialogueVM *vm, const PetkaDialogueTree *tree, 
 // the next call) or STOP (returns 0 with *out_phrase_index unset). SKIPN
 // picks a pseudo-random alternative each time it's encountered. Returns 1
 // if a phrase was produced, 0 on STOP/end, -1 on malformed bytecode.
+//
+// Returns 2 on USERMSG, with its argument in *out_phrase_index: the
+// dialogue pauses here and the caller posts a USERMSG script message with
+// that argument to Chapayev (see petka/script.h); the script answers with
+// CONTINUE, and the next call carries on from after the USERMSG.
 int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index);
 
 #ifdef __cplusplus

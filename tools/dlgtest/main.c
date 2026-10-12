@@ -49,8 +49,11 @@ int main(int argc, char **argv) {
                 petka_dialoguevm_start(&vm, tree, off);
                 uint32_t phrase_idx;
                 int steps = 0;
-                while (petka_dialoguevm_next(&vm, &phrase_idx) && steps < 10) {
-                    if (phrase_idx < phrases->count)
+                int step;
+                while ((step = petka_dialoguevm_next(&vm, &phrase_idx)) > 0 && steps < 10) {
+                    if (step == 2)
+                        printf("    USERMSG %u\n", phrase_idx);
+                    else if (phrase_idx < phrases->count)
                         printf("    [%u] %s\n", phrase_idx, phrases->phrases[phrase_idx].text);
                     else
                         printf("    [%u] <out of range>\n", phrase_idx);

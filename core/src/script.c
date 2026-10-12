@@ -226,6 +226,9 @@ PetkaScriptVM *petka_scriptvm_open(PetkaScript *script, const PetkaScriptHost *h
         st->visible = 1;
         st->active = 1;
         st->loop = 1;
+        // The script only ever freezes objects (ANIMATE 0 is 5x as common
+        // as ANIMATE 1), so they start out animated.
+        st->animate = 1;
         st->resource = PETKA_NONE;
         st->play_wait = PETKA_NONE;
         st->z = -1;

@@ -209,6 +209,10 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 }
                 break;
             }
+            case PETKA_DLG_OP_USERMSG:
+                vm->ip++;
+                *out_phrase_index = operand;
+                return 2;
             case PETKA_DLG_OP_CHOICE:
                 // Player dialogue menu: picking among options needs game
                 // state (which options are "available") we don't track
@@ -216,7 +220,7 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 vm->ip++;
                 break;
             default:
-                // Unknown opcode (e.g. the still-unmapped 0x04/0x05/0x09
+                // Not acted on here (e.g. the 0x04/0x05 menu-option
                 // bookkeeping instructions) -- skip over it, best effort.
                 vm->ip++;
                 break;

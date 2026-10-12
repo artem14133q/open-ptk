@@ -536,9 +536,9 @@ content matching a specific item.
 | `0x08` | `SKIPN`  | count                                      | randomly pick one of the next `count` `DELIM`-separated phrase blocks (variant/idle-line selection) |
 | `0x04` | `MARKOPT` | `(option_index << 16) \| choice_addr`      | mark option `option_index` of the `CHOICE` block at word offset `choice_addr` as used, so it won't be offered again |
 | `0x05` | `MARKOPT_OUTER` | `(option_index << 16) \| choice_addr`| same as `MARKOPT`, but for a `CHOICE` *other than* the nearest enclosing one (see below) |
-| `0x09` | `GIVEITEM` | item id                                  | grant inventory item N to the player |
+| `0x09` | `USERMSG` | message number                           | pause the dialogue and post script message `USERMSG` N to Chapayev (object 1); the script resumes it with `CONTINUE` |
 
-`MARKOPT`/`MARKOPT_OUTER`/`GIVEITEM` fully decoded by tracing real
+`MARKOPT`/`MARKOPT_OUTER` fully decoded by tracing real
 conversations byte-by-byte (not guessed from isolated operand patterns —
 see `PART_1/DIALOGUE.FIX` topic 173, the Petka/Anka/Vasily banya
 conversation, and topic 220, the shopkeeper). Confirms and completes
@@ -554,14 +554,17 @@ fully resolves a question that was also a top-level menu option, so both
 get retired together (topic 173: finishing the inner "баня" chat, reached
 through menu-option 2 of `CHOICE(1058)`, also marks option 4 of the outer
 `CHOICE(951)` — the standalone "Как там насчет баньки?" question — as
-answered). `GIVEITEM`'s operand is a small item id (4-244 in
-`PART_1/DIALOGUE.FIX`); confirmed by context, not a lookup table (no
-numeric item-id table exists in `CAST.INI`/`NAMES.INI`/`INVNTR.TXT` — item
-names there are plain strings with no ids) — e.g. word 1533-1534 in topic
-220 is the shopkeeper saying "На, может поумнеешь!" ("Here, might make you
-smarter") handing over a book, immediately followed by `GIVEITEM(242)`;
-word 1576-1577 is her giving seeds instead of a palm tree, followed by
-`GIVEITEM(243)`.
+answered).
+
+`0x09` was first read as "give inventory item N" because the two samples
+looked at both hand something over (topic 220, the shopkeeper: "На, может
+поумнеешь!" then `0x09(242)`). It is the dialogue's hook back into the
+script: object 1 (Chapayev) has one `USERMSG` reaction per number, each
+starting with `IF N`. Most just `CONTINUE`; the others run a cutscene first
+(number 13 on the bridge makes Anka walk off, 242 switches the shopkeeper to
+her hand-over animation). All 20 distinct operands in `PART_1` are numbers Chapayev reacts
+to. Not traced in the exe; verified by running it -- the intro plays from
+Petka's room to the bridge and back only when `0x09` is handled this way.
 
 None of this is the mechanism behind scene object state variants
 (door/aquarium visibility) — it's purely about the dialogue menu/inventory
@@ -660,6 +663,16 @@ dialogue tree and prints the resulting phrase text. `tools/topotest/main.c`
 — prints a part's room graph and flags any dangling exit target. All three
 take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
 `<store.str> <entry_name> <out_dir> [num_frames]` (flictest).
+
+`launcher/` — the game front end: `petka_launcher <game_dir> [PART_N]`. It
+draws the current room from the script VM's state, turns clicks into script
+messages and tells the VM when animations, walks and dialogues finish. Not
+done yet: `.CVX` pathfinding (heroes walk in a straight line), per-frame hero
+offsets (`.OFF`/`.LEG`), dialogue menus (`CHOICE` takes the first option),
+AVI playback, part switching, save/load. For unattended runs it reads
+`PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
+quit), `PETKA_POST=<frame>:<obj>:<opcode>,...`, `PETKA_FAST=1` and
+`PETKA_TRACE=1`.
 
 `tools/scripttest/main.c` — parses a part's `SCRIPT.DAT` + `BACKGRND.BG` and
 runs the message VM headless (animations and dialogues end instantly):

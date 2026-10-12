@@ -1,211 +1,108 @@
-// Cross-platform (desktop raylib+OpenGL today, Switch later) viewer: cycles
-// through every background BMP in a store (Left/Right), renders every
-// standing object in the current room simultaneously (see
-// build_object_list()'s comment), and plays every WAV in a third store
-// (PageUp/PageDown to select -- auto-plays on selection; Space to
-// stop/replay). 1-4 picks a verb (LOOK/TAKE/USE/TALK). An object can be
-// selected either with the mouse (hover highlights it, left-click
-// interacts) or the keyboard (Up/Down to select, Enter to interact); both
-// drive the same heuristic topic mapping into PART_N/DIALOGUE.FIX+.LOD --
-// see build_object_list()'s comment and docs/str-format.md for why this
-// numbering is an approximation, not the recovered original scheme.
-// Likewise, room-graph navigation (per PART_N/BGS.INI, right-hand panel)
-// works by mouse (click an exit's line) or keyboard (TAB to highlight an
-// exit, G to walk through it) -- only if its target room has a known .BG
-// mapping (see kRoomFolders -- deliberately incomplete, many rooms show
-// "(?)").
+// Cross-platform (desktop raylib+OpenGL today, Switch later) game front end.
+// The scene is whatever the script VM (petka/script.h) says it is: each
+// object of the current room is drawn from its VM state (resource, visible,
+// z), a click becomes a script message, and animations, walks and dialogues
+// report back to the VM when they finish. See docs/str-format.md.
+//
+// Controls: left click = act on the object under the cursor (or walk when
+// there is none), right click / 1-5 = pick a verb, click an inventory item
+// to use it on something, F1 = debug overlay.
+//
+// Known gaps (not in the script, still to be reversed): heroes walk in a
+// straight line (no .CVX pathfinding), nobody's mouth moves in dialogues,
+// AVI playback and part switching are only reported, backgrounds wider than
+// the screen do not scroll.
 #include "petka/bmp.h"
 #include "petka/dialogue.h"
 #include "petka/flic.h"
 #include "petka/msk.h"
+#include "petka/script.h"
 #include "petka/store.h"
 #include "petka/topology.h"
 
 #include "raylib.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#define GAME_W 640
+#define GAME_H 480
+#define MAX_STORES 8
+#define MAX_SOUNDS 8
+#define HERO_SPEED 160.0f // px/s at full scale; a guess, not measured
+
+// What is on screen for one script object.
 typedef struct {
-    const PetkaEntry **items;
-    int count;
-} EntryList;
+    uint16_t resource; // resource currently loaded, PETKA_NONE = none
+    PetkaFlic *flic;
+    Texture2D tex;
+    PetkaMskRect rect; // bounding rect of the clip inside its frame
+    double next_frame;
+    int once;    // PLAY: stop on the last frame instead of looping
+    int ended;   // END already reported for the current run
+    int restart; // rewind before the next frame
+    int live;    // drawn this frame
+} Visual;
 
-static int ends_with_ci(const char *s, const char *suf) {
-    size_t ls = strlen(s), lf = strlen(suf);
-    if (lf > ls) return 0;
-    const char *tail = s + (ls - lf);
-    for (size_t i = 0; i < lf; i++) {
-        char a = tail[i], b = suf[i];
-        if (a >= 'a' && a <= 'z') a -= 32;
-        if (b >= 'a' && b <= 'z') b -= 32;
-        if (a != b) return 0;
-    }
-    return 1;
-}
-
-static EntryList filter_entries(const PetkaStore *store, const char *suffix) {
-    EntryList list = {0};
-    if (!store) return list;
-    list.items = (const PetkaEntry **)malloc(sizeof(*list.items) * store->entry_count);
-    for (uint32_t i = 0; i < store->entry_count; i++) {
-        if (ends_with_ci(store->entries[i].name, suffix)) list.items[list.count++] = &store->entries[i];
-    }
-    return list;
-}
-
-static void make_msk_name(const char *flic_name, char *out, size_t out_sz) {
-    snprintf(out, out_sz, "%s", flic_name);
-    size_t n = strlen(out);
-    if (n >= 3) { out[n - 3] = 'M'; out[n - 2] = 'S'; out[n - 1] = 'K'; }
-}
-
-// Extracts "PART_N\XXXX.BG\" (everything up to and including the 2nd
-// backslash) from an on-disk resource name.
-static void folder_prefix(const char *name, char *out, size_t out_sz) {
-    int backslashes = 0;
-    size_t i = 0;
-    for (; name[i] && i + 1 < out_sz; i++) {
-        out[i] = name[i];
-        if (name[i] == '\\') {
-            backslashes++;
-            if (backslashes == 2) { i++; break; }
-        }
-    }
-    out[i] = 0;
-}
-
-// Extracts just the "XXXX" folder name (no "PART_N\" prefix, no ".BG\"
-// suffix) from an on-disk resource name like "PART_1\BOLOTO.BG\BOLOTO.BMP".
-static void bg_folder_only(const char *entry_name, char *out, size_t out_sz) {
-    char prefix[512];
-    folder_prefix(entry_name, prefix, sizeof(prefix));
-    const char *p = strchr(prefix, '\\');
-    out[0] = 0;
-    if (!p) return;
-    p++;
-    const char *dot = strstr(p, ".BG");
-    size_t n = dot ? (size_t)(dot - p) : strlen(p);
-    if (n >= out_sz) n = out_sz - 1;
-    memcpy(out, p, n);
-    out[n] = 0;
-}
-
-// BGS.INI room names (Cyrillic, the game's own display names) <-> .BG
-// resource folder names. NOT a recovered mapping -- no such table was
-// found anywhere in the data (checked RESOURCE.QRC, BGDATA.DAT's "KARTA"
-// map-screen text). Built by hand from transliteration + content
-// inspection of each folder's FLC object names in FLC1.STR. All 28 of
-// PART_1's rooms are covered; most are high-confidence (direct
-// transliteration, or an unambiguous object name), a few are best-effort
-// guesses noted inline. Written as UTF-8 and compared against topology
-// room names (CP1251) via cp1251_to_utf8() below.
 typedef struct {
-    const char *room_utf8;
-    const char *folder;
-} RoomFolderMap;
-static const RoomFolderMap kRoomFolders[] = {
-    // High confidence: direct transliteration.
-    {"БАНЯ", "BANIA"},
-    {"БОЛОТО", "BOLOTO"},
-    {"ВРЕМЯНКА", "VREMYNKA"},
-    {"ХУТОР", "HUTOR"},
-    {"ОКНО", "OKNO"},
-    {"ПАЛЬМА", "PALMA"},
-    {"ПАСЕКА", "PASEKA"},
-    {"САРАЙ", "SARAY"},
-    {"МОСТИК У ДОМА ФУРМАНОВА", "MOSTIK"},       // мостик = little bridge
-    {"ПЕНЕК В ЛЕСУ", "PENEK"},                    // пенек = stump
-    {"ДОРОГА ВОКРУГ ХЛЕВА", "HLEV"},              // хлев = cowshed
-    {"ПЕРЕКРЕСТОК В ЛЕСУ", "FOUR-WAY"},           // crossroads = four-way
-    // High confidence: constructed English name or unambiguous object match.
-    {"КОМНАТА АНКИ", "ANKAROOM"},                 // "Anka's Room"
-    {"ДОМ АНКИ", "ANHUTOR"},                      // "An(ka)" + "Hutor"
-    {"ТРАНСФОРМАТОР", "DEREVO"},                  // DEREVO.BG/POD-TOK has
-                                                   // ELEKTRO1-6/TOK-L/S/P
-                                                   // (ток=electric current)
-    {"КЛУБ", "DK"},                               // Дом Культуры = the "club"
-    {"АКТОВЫЙ ЗАЛ В КЛУБЕ", "ZAL-DK"},            // "Зал" (hall) + "ДК"
-    {"КОМНАТА ФУРМАНОВА", "SHWARC"},              // SHWARC.BG/FURMANOF/*.FLC
-    {"ДОМ ПЕТЬКИ", "LENIN"},                      // LENIN.BG has VHOD-B
-                                                   // (entrance-to-bathhouse)
-                                                   // + OUTBANIA, matching
-                                                   // DOM PETKI's БАНЯ exit
-    {"КОМНАТА ПЕТЬКИ", "P-ROOM"},                 // "Petka's Room"; has the
-                                                   // aquarium/fish/key props
-                                                   // from the dialogue text
-    {"ПОЛЕ", "POKOSHEN"},                         // покос = haymaking; has
-                                                   // STOG (haystack) objects
-    {"СВАЛКА", "WZRIV"},                          // has MAGNIT (scrapyard
-                                                   // magnet) + a PASEK
-                                                   // object, matching
-                                                   // SVALKA's ПАСЕКА exit
-    {"МОСТ", "SVOLOCHI"},                         // has MOST.FLC/AN-MOST
-                                                   // (bridge to Anka)
-    {"ПЕРЕД МАГАЗИНОМ", "SHOP"},                  // SHOP.BG/ALKISHI =
-                                                   // drunkards outside
-    {"МАГАЗИН ВНУТРИ", "SHOPPING"},               // SHOPPING.BG/TETKA =
-                                                   // shopkeeper lady inside
-    {"ДОМ ФУРМАНОВА", "DROVA"},                   // well+woodpile yard;
-                                                   // placed by elimination
-                                                   // next to SHWARC/MOSTIK
-    // Low confidence -- genuine coin flip, no distinguishing evidence found:
-    {"ЛЕСНАЯ ДОРОГА", "ROAD-L"},
-    {"ЛЕСНАЯ ДОРОГА - 2", "ROAD-R"},
+    int active;
+    float tx, ty;
+} Walk;
+
+typedef struct {
+    PetkaStore *stores[MAX_STORES];
+    int store_count;
+    char *qrc[65536]; // resource id -> store path, from RESOURCE.QRC
+
+    PetkaScript *script;
+    PetkaScriptVM *vm;
+    PetkaTopology *topo;
+    PetkaPhraseTable *phrases;
+    PetkaDialogueTree *dtree;
+    const char *bgs_ini; // raw BGS.INI text (CP1251), for the scale params
+    size_t bgs_ini_len;
+    char speech_prefix[16];
+
+    Visual *visuals; // parallel to script->objects
+    Texture2D bg_tex;
+    uint16_t bg_resource;
+    uint16_t shown_room;
+
+    // Hero scale by screen y, from BGS.INI: base + delta over [y0, y1], * k.
+    float persp_base, persp_delta, persp_y0, persp_y1, persp_k;
+    Walk walk[2];
+
+    const PetkaDialogueVerb *dialogue; // picked by the script, played by DIALOG
+    PetkaDialogueVM dvm;
+    int talking;
+    int paused;        // dialogue waits for the script's CONTINUE
+    int dialogue_done; // tell the VM on the next frame
+    char line[512];    // current phrase, UTF-8
+    double line_until;
+    Sound voice;
+
+    Music music, ambience;
+    uint16_t music_id, ambience_id;
+    Sound sounds[MAX_SOUNDS];
+
+    int verb;
+    int quit;
+    int fast;  // dev: no voice, phrases flash by
+    int trace; // dev: log delivered script messages
+    char status[256];
+    double status_until;
+} Game;
+
+static const struct { uint16_t op; const char *label; } kVerbs[] = {
+    {PETKA_OP_WALK, "ИДТИ"}, {PETKA_OP_LOOK, "СМОТРЕТЬ"}, {PETKA_OP_TAKE, "ВЗЯТЬ"},
+    {PETKA_OP_USE, "ПРИМЕНИТЬ"}, {PETKA_OP_TALK, "ГОВОРИТЬ"},
 };
-static const int kRoomFolderCount = sizeof(kRoomFolders) / sizeof(kRoomFolders[0]);
+#define VERB_COUNT ((int)(sizeof(kVerbs) / sizeof(kVerbs[0])))
 
-static const char *room_to_folder(const char *room_utf8) {
-    for (int i = 0; i < kRoomFolderCount; i++)
-        if (strcmp(kRoomFolders[i].room_utf8, room_utf8) == 0) return kRoomFolders[i].folder;
-    return NULL;
-}
-
-static const char *folder_to_room(const char *folder) {
-    for (int i = 0; i < kRoomFolderCount; i++)
-        if (strcmp(kRoomFolders[i].folder, folder) == 0) return kRoomFolders[i].room_utf8;
-    return NULL;
-}
-
-// Heuristic object numbering (NOT the original engine's scheme -- that
-// wasn't recovered, see docs/str-format.md): within one background folder,
-// every FLC that (a) sits directly in the "XXXX.BG\" folder -- not in a
-// nested subfolder -- and (b) has a matching MSK, is treated as one of the
-// scene's standing/idle objects, numbered 0,1,2... in on-disk order and
-// used as both the PetkaDialogueTopic index and the thing we render
-// automatically when a background loads.
-//
-// The "no nested subfolder" rule matters: those subfolders (ACTIV-XX.YYY,
-// POD-TOK, KOLODEC, RAZGOVOR, ...) hold cutscene/reaction animation
-// fragments (e.g. a conversation broken into PET-ANK0..PET-ANK5 clips)
-// meant to play one at a time when triggered, not simultaneously -- lumping
-// them in with the always-visible props would turn busy rooms into visual
-// noise instead of a recognizable scene.
-typedef struct {
-    const PetkaEntry **items;
-    int count;
-} ObjectList;
-
-static ObjectList build_object_list(const PetkaStore *flic_store, const EntryList *flics, const char *prefix) {
-    ObjectList list = {0};
-    if (!flic_store) return list;
-    list.items = (const PetkaEntry **)malloc(sizeof(*list.items) * (size_t)flics->count);
-    size_t prefix_len = strlen(prefix);
-    for (int i = 0; i < flics->count; i++) {
-        const PetkaEntry *e = flics->items[i];
-        if (strncmp(e->name, prefix, prefix_len) != 0) continue;
-        if (strchr(e->name + prefix_len, '\\') != NULL) continue; // nested subfolder: skip
-        char msk_name[512];
-        make_msk_name(e->name, msk_name, sizeof(msk_name));
-        if (petka_store_find(flic_store, msk_name)) list.items[list.count++] = e;
-    }
-    return list;
-}
-
-// Dialogue text is CP1251; raylib/DrawText expects UTF-8. Covers ASCII and
-// the main Cyrillic letter block (U+0410-U+044F) plus Ё/ё -- good enough
-// for dialogue content, which is overwhelmingly plain letters/punctuation.
+// Dialogue and object names are CP1251; raylib expects UTF-8. Covers ASCII
+// and the main Cyrillic block plus Ё/ё -- enough for the game's text.
 static void cp1251_to_utf8(const char *in, char *out, size_t out_sz) {
     size_t oi = 0;
     for (const unsigned char *p = (const unsigned char *)in; *p && oi + 4 < out_sz; p++) {
@@ -218,16 +115,20 @@ static void cp1251_to_utf8(const char *in, char *out, size_t out_sz) {
         else cp = '?';
         if (cp < 0x80) {
             out[oi++] = (char)cp;
-        } else if (cp < 0x800) {
-            out[oi++] = (char)(0xC0 | (cp >> 6));
-            out[oi++] = (char)(0x80 | (cp & 0x3F));
         } else {
-            out[oi++] = (char)(0xE0 | (cp >> 12));
-            out[oi++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[oi++] = (char)(0xC0 | (cp >> 6));
             out[oi++] = (char)(0x80 | (cp & 0x3F));
         }
     }
     out[oi] = 0;
+}
+
+static const char *utf8_name(const char *cp1251) {
+    static char buf[4][256];
+    static int next;
+    char *out = buf[next++ & 3];
+    cp1251_to_utf8(cp1251, out, sizeof(buf[0]));
+    return out;
 }
 
 // Default raylib font only has ASCII glyphs. Try a few common system fonts
@@ -251,8 +152,89 @@ static Font load_cyrillic_font(void) {
         Font f = LoadFontEx(candidates[i], 32, codepoints, n);
         if (f.glyphCount > 0) return f;
     }
-    fprintf(stderr, "no Cyrillic-capable font found -- dialogue text will render as '?'\n");
+    fprintf(stderr, "no Cyrillic-capable font found -- text will render as '?'\n");
     return GetFontDefault();
+}
+
+static void set_status(Game *g, const char *text) {
+    snprintf(g->status, sizeof(g->status), "%s", text);
+    g->status_until = GetTime() + 4.0;
+}
+
+// ---- resources ----
+
+// The stores of a part live in different places depending on whether the
+// game was copied from the CDs or installed; look in all of them.
+static PetkaStore *open_store(const char *game_dir, const char *file) {
+    static const char *dirs[] = {
+        "", "data1_out/Main/", "data1_out/Flics/", "data1_out/Sfxs/", "Main/", "Flics/", "Sfxs/",
+    };
+    char path[1024];
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+        snprintf(path, sizeof(path), "%s/%s%s", game_dir, dirs[i], file);
+        if (FileExists(path)) return petka_store_open(path);
+    }
+    return NULL;
+}
+
+// Like the exe's MultiOpen: a path is looked up in every open store.
+static const uint8_t *res_find(const Game *g, const char *path, size_t *len) {
+    for (int i = 0; i < g->store_count; i++) {
+        const PetkaEntry *e = petka_store_find(g->stores[i], path);
+        if (e) return petka_store_entry_data(g->stores[i], e, len);
+    }
+    return NULL;
+}
+
+static const uint8_t *part_file(const Game *g, const char *part, const char *file, size_t *len) {
+    char name[256];
+    snprintf(name, sizeof(name), "%s\\%s", part, file);
+    return res_find(g, name, len);
+}
+
+// RESOURCE.QRC is text: "<id>  =  <path>" (some lines use "==").
+static void load_qrc(Game *g, const uint8_t *data, size_t len) {
+    size_t pos = 0;
+    while (pos < len) {
+        size_t end = pos;
+        while (end < len && data[end] != '\n') end++;
+        char line[512];
+        size_t n = end - pos < sizeof(line) - 1 ? end - pos : sizeof(line) - 1;
+        memcpy(line, data + pos, n);
+        line[n] = 0;
+        pos = end + 1;
+
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        long id = strtol(line, NULL, 10);
+        if (id <= 0 || id > 0xFFFF) continue;
+        char *path = eq;
+        while (*path == '=' || *path == ' ' || *path == '\t') path++;
+        size_t plen = strlen(path);
+        while (plen && (path[plen - 1] == '\r' || path[plen - 1] == ' ' || path[plen - 1] == '\t')) path[--plen] = 0;
+        if (!plen) continue;
+        free(g->qrc[id]);
+        g->qrc[id] = (char *)malloc(plen + 1);
+        memcpy(g->qrc[id], path, plen + 1);
+    }
+}
+
+static int has_ext(const char *path, const char *ext) {
+    size_t lp = strlen(path), le = strlen(ext);
+    if (le > lp) return 0;
+    for (size_t i = 0; i < le; i++) {
+        char a = path[lp - le + i];
+        if (a >= 'a' && a <= 'z') a -= 32;
+        if (a != ext[i]) return 0;
+    }
+    return 1;
+}
+
+// Same path with another 3-letter extension (X.FLC -> X.MSK / X.WAV).
+static void swap_ext(const char *path, const char *ext, char *out, size_t out_sz) {
+    snprintf(out, out_sz, "%s", path);
+    size_t n = strlen(out);
+    if (n >= 3) memcpy(out + n - 3, ext, 3);
 }
 
 static uint8_t *flic_to_rgba(const PetkaFlic *flic) {
@@ -263,615 +245,772 @@ static uint8_t *flic_to_rgba(const PetkaFlic *flic) {
         rgba[i * 4 + 0] = flic->rgb[i * 3 + 0];
         rgba[i * 4 + 1] = flic->rgb[i * 3 + 1];
         rgba[i * 4 + 2] = flic->rgb[i * 3 + 2];
-        rgba[i * 4 + 3] = (idx == 0) ? 0 : 255;
+        rgba[i * 4 + 3] = (idx == 0) ? 0 : 255; // palette index 0 is the color key
     }
     return rgba;
 }
 
+static Texture2D load_bmp_texture(const Game *g, const char *path) {
+    Texture2D tex = {0};
+    size_t len = 0;
+    const uint8_t *bytes = res_find(g, path, &len);
+    int w = 0, h = 0;
+    uint8_t *rgb = bytes ? petka_bmp_decode(bytes, len, &w, &h) : NULL;
+    if (!rgb) { fprintf(stderr, "background not found: %s\n", path); return tex; }
+    Image img = {.data = rgb, .width = w, .height = h, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8};
+    tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    return tex;
+}
+
+static void play_sound(Game *g, const char *path) {
+    size_t len = 0;
+    const uint8_t *bytes = res_find(g, path, &len);
+    if (!bytes) return;
+    for (int i = 0; i < MAX_SOUNDS; i++) {
+        if (g->sounds[i].frameCount > 0 && IsSoundPlaying(g->sounds[i])) continue;
+        if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
+        Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
+        g->sounds[i] = LoadSoundFromWave(wave);
+        UnloadWave(wave);
+        PlaySound(g->sounds[i]);
+        return;
+    }
+}
+
+// Room music and ambience keep playing across rooms that share a track.
+static void set_stream(Game *g, Music *stream, uint16_t *current, uint16_t id) {
+    if (*current == id) return;
+    if (stream->frameCount > 0) { StopMusicStream(*stream); UnloadMusicStream(*stream); *stream = (Music){0}; }
+    *current = id;
+    const char *path = id != PETKA_NONE ? g->qrc[id] : NULL;
+    size_t len = 0;
+    const uint8_t *bytes = path ? res_find(g, path, &len) : NULL;
+    if (!bytes) return;
+    *stream = LoadMusicStreamFromMemory(".wav", bytes, (int)len);
+    stream->looping = true;
+    PlayMusicStream(*stream);
+}
+
+// ---- visuals ----
+
+static void visual_free(Visual *v) {
+    if (v->flic) petka_flic_close(v->flic);
+    if (v->tex.id) UnloadTexture(v->tex);
+    memset(v, 0, sizeof(*v));
+    v->resource = PETKA_NONE;
+}
+
+static void visual_load(Game *g, Visual *v, uint16_t resource) {
+    int once = v->once;
+    visual_free(v);
+    v->resource = resource;
+    v->once = once;
+    const char *path = g->qrc[resource];
+    if (!path || !has_ext(path, ".FLC")) return;
+    size_t len = 0;
+    const uint8_t *bytes = res_find(g, path, &len);
+    v->flic = bytes ? petka_flic_open(bytes, len) : NULL;
+    if (!v->flic) { fprintf(stderr, "clip not found: %s\n", path); return; }
+
+    v->rect = (PetkaMskRect){0, 0, v->flic->width, v->flic->height};
+    char msk[512];
+    swap_ext(path, "MSK", msk, sizeof(msk));
+    size_t mlen = 0;
+    const uint8_t *mbytes = res_find(g, msk, &mlen);
+    if (mbytes) petka_msk_rect(mbytes, mlen, &v->rect);
+
+    uint8_t *rgba = flic_to_rgba(v->flic);
+    Image img = {.data = rgba, .width = v->flic->width, .height = v->flic->height, .mipmaps = 1,
+                 .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    v->tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    v->next_frame = GetTime() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+}
+
+static int obj_index(const Game *g, const PetkaObject *obj) {
+    return (int)(obj - g->script->objects);
+}
+
+static int is_hero(uint16_t id) { return id == PETKA_ID_PETKA || id == PETKA_ID_CHAPAYEV; }
+
+// Brings one object's visual in line with its VM state and advances its
+// animation. Reaching the last frame is what the script waits for after
+// PLAY, so it is reported to the VM as END.
+static void visual_update(Game *g, const PetkaObject *obj) {
+    Visual *v = &g->visuals[obj_index(g, obj)];
+    PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+    if (!st->visible || st->resource == PETKA_NONE) return;
+    if (v->resource != st->resource || v->restart) {
+        visual_load(g, v, st->resource);
+        v->restart = 0;
+    }
+    if (!v->flic) return;
+    v->live = 1;
+    if (!st->animate || GetTime() < v->next_frame) return;
+    v->next_frame = GetTime() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+
+    if (v->flic->frame_index >= v->flic->frame_count - 1) {
+        int hold = v->once || !st->loop || v->flic->frame_count <= 1;
+        if (hold && v->ended) return;
+        v->ended = 1;
+        petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
+        if (hold) return;
+    }
+    petka_flic_advance(v->flic);
+    uint8_t *rgba = flic_to_rgba(v->flic);
+    UpdateTexture(v->tex, rgba);
+    free(rgba);
+}
+
+// ---- heroes ----
+
+// Scale of a hero standing at screen row y. The five numbers per room in
+// BGS.INI's [Settings] read naturally as "base + delta across [y0, y1],
+// times k" (base + delta is 1.0 almost everywhere); not confirmed in the exe.
+static float hero_scale(const Game *g, float y) {
+    float t = g->persp_y1 > g->persp_y0 ? (y - g->persp_y0) / (g->persp_y1 - g->persp_y0) : 1.0f;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    float s = (g->persp_base + g->persp_delta * t) * g->persp_k;
+    return s > 0.05f ? s : 0.05f;
+}
+
+static void load_perspective(Game *g, const char *room_name) {
+    g->persp_base = 1; g->persp_delta = 0; g->persp_y0 = 0; g->persp_y1 = GAME_H; g->persp_k = 1;
+    size_t pos = 0, name_len = strlen(room_name);
+    int in_settings = 0;
+    while (g->bgs_ini && pos < g->bgs_ini_len) {
+        size_t end = pos;
+        while (end < g->bgs_ini_len && g->bgs_ini[end] != '\n') end++;
+        const char *line = g->bgs_ini + pos;
+        size_t n = end - pos;
+        pos = end + 1;
+        if (n && line[0] == '[') { in_settings = n >= 10 && strncmp(line, "[Settings]", 10) == 0; continue; }
+        if (!in_settings || n <= name_len || strncmp(line, room_name, name_len) != 0) continue;
+        size_t i = name_len;
+        while (i < n && (line[i] == ' ' || line[i] == '\t')) i++;
+        if (i >= n || line[i] != '=') continue;
+        char buf[128];
+        size_t m = n - i - 1 < sizeof(buf) - 1 ? n - i - 1 : sizeof(buf) - 1;
+        memcpy(buf, line + i + 1, m);
+        buf[m] = 0;
+        float a, b, c, d, e;
+        if (sscanf(buf, "%f %f %f %f %f", &a, &b, &c, &d, &e) == 5) {
+            g->persp_base = a; g->persp_delta = b; g->persp_y0 = c; g->persp_y1 = d; g->persp_k = e;
+        }
+        return;
+    }
+}
+
+// Where a hero's clip goes on screen: the bottom centre of its MSK rect
+// sits on the hero's position (an assumption -- the .OFF/.LEG files next to
+// the walk clips probably refine this per frame and are not decoded yet).
+static Rectangle hero_dest(const Game *g, const PetkaObjectState *st, const Visual *v) {
+    float s = hero_scale(g, (float)st->y);
+    float ax = (v->rect.left + v->rect.right) / 2.0f, ay = (float)v->rect.bottom;
+    return (Rectangle){st->x - ax * s, st->y - ay * s, v->flic->width * s, v->flic->height * s};
+}
+
+static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
+    Game *g = (Game *)user;
+    PetkaObjectState *st = petka_scriptvm_state(g->vm, hero_id);
+    if (!st || !st->visible || hero_id > 1) return 0;
+    float dx = (float)(x - st->x), dy = (float)(y - st->y);
+    if (dx * dx + dy * dy < 25) return 0; // the exe's own "already there" threshold
+    g->walk[hero_id].active = 1;
+    g->walk[hero_id].tx = (float)x;
+    g->walk[hero_id].ty = (float)y;
+    return 1;
+}
+
+static void walk_update(Game *g, uint16_t hero_id, float dt) {
+    Walk *w = &g->walk[hero_id];
+    PetkaObjectState *st = petka_scriptvm_state(g->vm, hero_id);
+    if (!w->active || !st) return;
+    float dx = w->tx - st->x, dy = w->ty - st->y;
+    float dist = sqrtf(dx * dx + dy * dy);
+    float step = HERO_SPEED * hero_scale(g, (float)st->y) * dt;
+    if (dist <= step || dist < 1.0f) {
+        st->x = (int32_t)w->tx;
+        st->y = (int32_t)w->ty;
+        w->active = 0;
+        if (st->costume != PETKA_NONE) st->resource = st->costume;
+        petka_scriptvm_walk_ended(g->vm, hero_id);
+        return;
+    }
+    // Sub-pixel steps would be lost in the integer position; walk at least
+    // one pixel per frame along the dominant axis.
+    float mx = dx / dist * step, my = dy / dist * step;
+    if (fabsf(mx) < 1 && fabsf(my) < 1) {
+        if (fabsf(dx) >= fabsf(dy)) mx = dx > 0 ? 1 : -1;
+        else my = dy > 0 ? 1 : -1;
+    }
+    st->x += (int32_t)lroundf(mx);
+    st->y += (int32_t)lroundf(my);
+    // Walk clips are costume+10 .. costume+17: N, NE, E, SE, S, SW, W, NW.
+    if (st->costume != PETKA_NONE) {
+        float angle = atan2f(dx, -dy); // 0 = north, clockwise
+        int dir = (int)lroundf(angle / (float)(M_PI / 4));
+        st->resource = (uint16_t)(st->costume + 10 + ((dir % 8) + 8) % 8);
+    }
+}
+
+// ---- dialogue ----
+
+static const PetkaDialogueVerb *find_dialogue(const Game *g, uint16_t obj_id, uint32_t key) {
+    if (!g->dtree) return NULL;
+    for (uint32_t t = 0; t < g->dtree->topic_count; t++) {
+        const PetkaDialogueTopic *topic = &g->dtree->topics[t];
+        if (topic->topic_id != obj_id) continue;
+        const PetkaDialogueVerb *generic = NULL;
+        for (uint32_t v = 0; v < topic->verb_count; v++) {
+            if (!topic->verbs[v].entry_count) continue;
+            if (topic->verbs[v].verb_id == key) return &topic->verbs[v];
+            if (topic->verbs[v].verb_id == 0xFFFE) generic = &topic->verbs[v];
+        }
+        // 0xFFFE is the reply to any item with no line of its own.
+        return (key & 0xFFFF) == PETKA_OP_OBJECTUSE && key > 0xFFFF ? generic : NULL;
+    }
+    return NULL;
+}
+
+static int host_has_dialogue(void *user, uint16_t obj_id, uint32_t key) {
+    return find_dialogue((Game *)user, obj_id, key) != NULL;
+}
+
+static void host_select_dialogue(void *user, uint16_t obj_id, uint32_t key) {
+    Game *g = (Game *)user;
+    g->dialogue = find_dialogue(g, obj_id, key);
+}
+
+static void next_phrase(Game *g) {
+    if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
+    uint32_t idx;
+    int step = petka_dialoguevm_next(&g->dvm, &idx);
+    if (step == 2) {
+        // The dialogue hands control to the script and waits for CONTINUE.
+        g->talking = 0;
+        g->paused = 1;
+        g->line[0] = 0;
+        petka_scriptvm_post(g->vm, PETKA_ID_CHAPAYEV, PETKA_OP_USERMSG, (uint16_t)idx, PETKA_NONE,
+                            PETKA_NONE, PETKA_ID_CHAPAYEV);
+        return;
+    }
+    if (step != 1 || idx >= g->phrases->count) {
+        g->talking = 0;
+        g->dialogue_done = 1;
+        g->line[0] = 0;
+        return;
+    }
+    const PetkaPhrase *ph = &g->phrases->phrases[idx];
+    cp1251_to_utf8(ph->text, g->line, sizeof(g->line));
+    // Without a voice clip the line stays up for a reading-speed guess.
+    g->line_until = GetTime() + 1.2 + 0.05 * (double)strlen(ph->text);
+    if (g->fast) {
+        g->line_until = GetTime() + 0.1;
+        fprintf(stderr, "say: %s\n", g->line);
+    } else if (ph->wav_name[0]) {
+        char wav[64];
+        snprintf(wav, sizeof(wav), "%s\\%s", g->speech_prefix, ph->wav_name);
+        size_t len = 0;
+        const uint8_t *bytes = res_find(g, wav, &len);
+        if (bytes) {
+            Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
+            if (wave.frameCount > 0) { g->voice = LoadSoundFromWave(wave); PlaySound(g->voice); }
+            UnloadWave(wave);
+        }
+    }
+}
+
+static void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
+    Game *g = (Game *)user;
+    (void)obj_id; (void)arg;
+    if (!g->dialogue || !g->phrases) { g->dialogue_done = 1; return; }
+    petka_dialoguevm_start(&g->dvm, g->dtree, g->dialogue->entries[0].bytecode_offset);
+    g->dialogue = NULL;
+    g->talking = 1;
+    g->paused = 0;
+    next_phrase(g);
+}
+
+// ---- script host ----
+
+// BGS.INI: in the new room's section, the key is the room we came from and
+// the value names the object whose walk point is the entry spot.
+static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
+    Game *g = (Game *)user;
+    const PetkaObject *room = petka_script_find(g->script, room_id);
+    const PetkaObject *prev = prev_id != PETKA_NONE ? petka_script_find(g->script, prev_id) : NULL;
+    if (!room) return;
+    load_perspective(g, room->name);
+    g->walk[0].active = g->walk[1].active = 0;
+
+    const PetkaRoom *section = g->topo ? petka_topology_find_room(g->topo, room->name) : NULL;
+    const PetkaObject *entry = NULL;
+    for (uint32_t i = 0; section && i < section->exit_count && !entry; i++)
+        if (prev && strcmp(section->exits[i].target, prev->name) == 0)
+            entry = petka_script_find_name(g->script, section->exits[i].description);
+    // Arriving from somewhere with no exit of its own (the map, a cutscene):
+    // the exe falls back to the first entry point it finds.
+    for (uint32_t i = 0; section && i < section->exit_count && !entry; i++)
+        entry = petka_script_find_name(g->script, section->exits[i].description);
+    if (!entry) return;
+
+    const PetkaObjectState *spot = petka_scriptvm_state(g->vm, entry->id);
+    PetkaObjectState *petka = petka_scriptvm_state(g->vm, PETKA_ID_PETKA);
+    PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
+    if (!spot || spot->walk_x == -1) return;
+    if (petka) { petka->x = spot->walk_x; petka->y = spot->walk_y; petka->busy = 0; }
+    if (chapayev) { chapayev->x = spot->walk_x; chapayev->y = spot->walk_y - 2; chapayev->busy = 0; }
+}
+
+static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
+                         const PetkaQueued *q, int reacted) {
+    Game *g = (Game *)user;
+    const PetkaMessage *m = &q->msg;
+    // A broadcast reaches every object; only the reactions are worth logging.
+    int noise = !reacted && (m->opcode == PETKA_OP_INITBG || m->opcode == PETKA_OP_LEAVEBG ||
+                             m->opcode == PETKA_OP_TOTALINIT || m->opcode == PETKA_OP_END);
+    if (g->trace && !noise)
+        fprintf(stderr, "%-10s -> %u[%s] %d %d %d%s\n", petka_opcode_name(m->opcode), obj->id,
+                utf8_name(obj->name), (int16_t)m->arg1, (int16_t)m->arg2, (int16_t)m->arg3,
+                reacted ? "  (reaction)" : "");
+    switch (m->opcode) {
+    case PETKA_OP_SET:
+    case PETKA_OP_PLAY: {
+        Visual *v = &g->visuals[obj_index(g, obj)];
+        v->once = m->opcode == PETKA_OP_PLAY;
+        v->ended = 0;
+        if (m->opcode == PETKA_OP_PLAY || m->arg2 == 1) v->restart = 1;
+        // A clip's sound effect is the same path with a .WAV extension.
+        const PetkaObjectState *st = &vm->state[obj_index(g, obj)];
+        const char *path = g->qrc[m->arg1];
+        // No room yet means TOTALINIT is still setting every object up.
+        if (path && has_ext(path, ".FLC") && (st->room == vm->room || is_hero(obj->id)) &&
+            vm->room != PETKA_NONE) {
+            char wav[512];
+            swap_ext(path, "WAV", wav, sizeof(wav));
+            play_sound(g, wav);
+        }
+        break;
+    }
+    case PETKA_OP_CONTINUE:
+        if (g->paused) {
+            g->paused = 0;
+            g->talking = 1;
+            next_phrase(g);
+        }
+        break;
+    case PETKA_OP_SYSTEM:
+        if (m->arg1 == 242) g->quit = 1;
+        break;
+    case PETKA_OP_AVI:
+        set_status(g, TextFormat("(видео %s пропущено)", g->qrc[m->arg1] ? g->qrc[m->arg1] : "?"));
+        break;
+    case PETKA_OP_PART:
+        set_status(g, TextFormat("(переход к части %u не реализован)", m->arg1));
+        break;
+    case PETKA_OP_CHAPTER:
+        set_status(g, TextFormat("(глава %u)", m->arg1));
+        break;
+    case PETKA_OP_SHOWDESCRIPTION:
+        set_status(g, utf8_name(obj->name));
+        break;
+    default:
+        break;
+    }
+}
+
+// ---- scene ----
+
+typedef struct {
+    const PetkaObject *obj;
+    int z;
+} Drawable;
+
+static int by_z(const void *a, const void *b) {
+    return ((const Drawable *)a)->z - ((const Drawable *)b)->z;
+}
+
+// Collects what is visible right now, back to front. Draw order is the
+// object's z; where the script leaves it unset, the bottom edge of its MSK
+// rect stands in (the two agree wherever z is given).
+static int build_scene(Game *g, Drawable *out, int max) {
+    int n = 0;
+    const PetkaObject *room = petka_script_find(g->script, g->vm->room);
+    for (uint32_t i = 0; room && i <= room->attached_count + 1 && n < max; i++) {
+        const PetkaObject *obj = i < room->attached_count
+            ? petka_script_find(g->script, room->attached[i].obj_id)
+            : petka_script_find(g->script, (uint16_t)(i - room->attached_count)); // then the two heroes
+        if (!obj) continue;
+        const Visual *v = &g->visuals[obj_index(g, obj)];
+        const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+        if (!v->live) continue;
+        int hero_here = is_hero(obj->id);
+        // A hero attached to this room explicitly was already listed.
+        if (i >= room->attached_count && st->room == room->id) continue;
+        out[n].obj = obj;
+        out[n].z = hero_here ? st->y : (st->z != -1 ? st->z : v->rect.bottom);
+        n++;
+    }
+    qsort(out, (size_t)n, sizeof(Drawable), by_z);
+    return n;
+}
+
+static Rectangle visual_dest(const Game *g, const PetkaObject *obj) {
+    const Visual *v = &g->visuals[obj_index(g, obj)];
+    const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+    // Room clips are full-frame and already in place; hero clips are sprites.
+    if (is_hero(obj->id)) return hero_dest(g, st, v);
+    return (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height};
+}
+
+// Topmost active object whose clip has an opaque pixel under (x, y).
+static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float x, float y) {
+    for (int i = n - 1; i >= 0; i--) {
+        const PetkaObject *obj = scene[i].obj;
+        const Visual *v = &g->visuals[obj_index(g, obj)];
+        if (!g->vm->state[obj_index(g, obj)].active) continue;
+        Rectangle d = visual_dest(g, obj);
+        if (d.width <= 0 || x < d.x || y < d.y || x >= d.x + d.width || y >= d.y + d.height) continue;
+        int px = (int)((x - d.x) * v->flic->width / d.width);
+        int py = (int)((y - d.y) * v->flic->height / d.height);
+        if (px < 0 || py < 0 || px >= v->flic->width || py >= v->flic->height) continue;
+        if (v->flic->indices[py * v->flic->width + px] != 0) return obj;
+    }
+    return NULL;
+}
+
+static const char *display_name(const PetkaObject *obj) {
+    // Inventory objects are named "I<name>" in the script.
+    return utf8_name(obj->name[0] == 'I' && obj->name[1] ? obj->name + 1 : obj->name);
+}
+
+// Returns 0 if the window was closed or "exit" picked.
+static int run_menu(const Game *g, Font font) {
+    static const char *items[] = {"Новая игра", "Выход"};
+    Texture2D bg = load_bmp_texture(g, "MAIN\\INTRFACE.BG\\INTRFASE.BMP");
+    int selected = 0, start = 0;
+    while (!WindowShouldClose() && !start) {
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_UP)) selected ^= 1;
+        if (IsKeyPressed(KEY_ENTER)) {
+            if (selected == 1) break;
+            start = 1;
+        }
+        BeginDrawing();
+        ClearBackground(BLACK);
+        Rectangle dst = {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()};
+        if (bg.id) DrawTexturePro(bg, (Rectangle){0, 0, (float)bg.width, (float)bg.height}, dst, (Vector2){0, 0}, 0, WHITE);
+        int px = GetScreenWidth() / 2 - 160, py = GetScreenHeight() / 2 - 54;
+        DrawRectangle(px, py, 320, 108, Fade(BLACK, 0.65f));
+        for (int i = 0; i < 2; i++)
+            DrawTextEx(font, TextFormat("%s%s", i == selected ? "> " : "  ", items[i]),
+                       (Vector2){(float)(px + 16), (float)(py + 10 + i * 44)}, 28, 1, i == selected ? ORANGE : WHITE);
+        EndDrawing();
+    }
+    if (bg.id) UnloadTexture(bg);
+    return start;
+}
+
 int main(int argc, char **argv) {
-    const char *bg_store_path = argc > 1 ? argv[1] : "BGS1.STR";
-    const char *flic_store_path = argc > 2 ? argv[2] : "data1_out/Flics/FLC1.STR";
-    const char *sound_store_path = argc > 3 ? argv[3] : "MUSIC1.STR";
-    const char *main_store_path = argc > 4 ? argv[4] : "data1_out/Main/MAIN.STR";
-    const char *part = argc > 5 ? argv[5] : "PART_1";
-    const char *speech_store_path = argc > 6 ? argv[6] : "SPEECH1.STR";
+    const char *game_dir = argc > 1 ? argv[1] : ".";
+    const char *part = argc > 2 ? argv[2] : "PART_1";
+    const char *digit = part;
+    while (*digit && (*digit < '0' || *digit > '9')) digit++;
+    if (!*digit) { fprintf(stderr, "usage: %s [game_dir] [PART_N]\n", argv[0]); return 1; }
 
-    PetkaStore *bg_store = petka_store_open(bg_store_path);
-    if (!bg_store) { fprintf(stderr, "failed to open store: %s\n", bg_store_path); return 1; }
-    PetkaStore *flic_store = petka_store_open(flic_store_path);
-    if (!flic_store) fprintf(stderr, "failed to open flic store: %s (overlays disabled)\n", flic_store_path);
-    PetkaStore *sound_store = petka_store_open(sound_store_path);
-    if (!sound_store) fprintf(stderr, "failed to open sound store: %s (audio disabled)\n", sound_store_path);
+    static Game game;
+    Game *g = &game;
+    g->bg_resource = g->shown_room = g->music_id = g->ambience_id = PETKA_NONE;
+    snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
-    EntryList bgs = filter_entries(bg_store, ".BMP");
-    EntryList flics = filter_entries(flic_store, ".FLC");
-    EntryList sounds = filter_entries(sound_store, ".WAV");
-    if (bgs.count == 0) { fprintf(stderr, "no .BMP entries in %s\n", bg_store_path); return 1; }
-
-    PetkaStore *main_store = petka_store_open(main_store_path);
-    PetkaPhraseTable *phrases = NULL;
-    PetkaDialogueTree *dtree = NULL;
-    if (main_store) {
-        char lod_name[256], fix_name[256];
-        snprintf(lod_name, sizeof(lod_name), "%s\\DIALOGUE.LOD", part);
-        snprintf(fix_name, sizeof(fix_name), "%s\\DIALOGUE.FIX", part);
-        const PetkaEntry *lod_e = petka_store_find(main_store, lod_name);
-        const PetkaEntry *fix_e = petka_store_find(main_store, fix_name);
-        if (lod_e && fix_e) {
-            size_t lod_len = 0, fix_len = 0;
-            const uint8_t *lod_bytes = petka_store_entry_data(main_store, lod_e, &lod_len);
-            const uint8_t *fix_bytes = petka_store_entry_data(main_store, fix_e, &fix_len);
-            phrases = petka_phrasetable_open(lod_bytes, lod_len);
-            dtree = petka_dialoguetree_open(fix_bytes, fix_len);
-        }
-        if (!phrases || !dtree) fprintf(stderr, "dialogue data unavailable for %s (interaction disabled)\n", part);
+    static const char *const kStoreNames[] = {"MAIN.STR", "BGS%s.STR", "FLC%s.STR", "WAV%s.STR",
+                                              "SFX%s.STR", "MUSIC%s.STR", "SPEECH%s.STR"};
+    for (size_t i = 0; i < sizeof(kStoreNames) / sizeof(kStoreNames[0]); i++) {
+        char file[64];
+        snprintf(file, sizeof(file), kStoreNames[i], digit);
+        PetkaStore *store = open_store(game_dir, file);
+        if (store) g->stores[g->store_count++] = store;
+        else fprintf(stderr, "store not found under %s: %s\n", game_dir, file);
     }
 
-    PetkaTopology *topo = NULL;
-    if (main_store) {
-        char bgsini_name[256];
-        snprintf(bgsini_name, sizeof(bgsini_name), "%s\\BGS.INI", part);
-        const PetkaEntry *bgsini_e = petka_store_find(main_store, bgsini_name);
-        if (bgsini_e) {
-            size_t bgsini_len = 0;
-            const uint8_t *bgsini_bytes = petka_store_entry_data(main_store, bgsini_e, &bgsini_len);
-            topo = petka_topology_parse(bgsini_bytes, bgsini_len);
-        }
-        if (!topo) fprintf(stderr, "topology unavailable for %s (navigation disabled)\n", part);
+    size_t script_len = 0, bg_len = 0, len = 0;
+    const uint8_t *script_data = part_file(g, part, "SCRIPT.DAT", &script_len);
+    const uint8_t *bg_data = part_file(g, part, "BACKGRND.BG", &bg_len);
+    g->script = script_data && bg_data ? petka_script_open(script_data, script_len, bg_data, bg_len) : NULL;
+    if (!g->script) { fprintf(stderr, "no script for %s under %s\n", part, game_dir); return 1; }
+
+    const uint8_t *bytes = part_file(g, part, "RESOURCE.QRC", &len);
+    if (bytes) load_qrc(g, bytes, len);
+    bytes = part_file(g, part, "BGS.INI", &len);
+    if (bytes) {
+        g->topo = petka_topology_parse(bytes, len);
+        g->bgs_ini = (const char *)bytes;
+        g->bgs_ini_len = len;
     }
-    int exit_choice = 0;
-
-    PetkaStore *speech_store = petka_store_open(speech_store_path);
-    if (!speech_store) fprintf(stderr, "failed to open speech store: %s (voice playback disabled)\n", speech_store_path);
-    // Phrase wav_name is a bare filename ("11_01701.wav"); the store holds
-    // it as "SPEECHn\11_01701.WAV". n matches the part's trailing digit.
-    char speech_prefix[32] = "SPEECH1";
-    {
-        const char *digits = part;
-        while (*digits && (*digits < '0' || *digits > '9')) digits++;
-        if (*digits) snprintf(speech_prefix, sizeof(speech_prefix), "SPEECH%s", digits);
+    size_t lod_len = 0, fix_len = 0;
+    const uint8_t *lod = part_file(g, part, "DIALOGUE.LOD", &lod_len);
+    const uint8_t *fix = part_file(g, part, "DIALOGUE.FIX", &fix_len);
+    if (lod && fix) {
+        g->phrases = petka_phrasetable_open(lod, lod_len);
+        g->dtree = petka_dialoguetree_open(fix, fix_len);
     }
-    Sound voice_sound = {0};
+    if (!g->phrases || !g->dtree) fprintf(stderr, "dialogue data unavailable for %s\n", part);
 
-    // QM_* message IDs (see docs/str-format.md) used as verb IDs.
-    static const struct { uint32_t id; const char *label; } kVerbs[] = {
-        {4, "LOOK"}, {6, "TAKE"}, {7, "USE"}, {10, "TALK"},
-    };
-    int verb_choice = 0;
-    char dialogue_lines[4][256];
-    int dialogue_line_count = 0;
+    PetkaScriptHost host = {0};
+    host.user = g;
+    host.has_dialogue = host_has_dialogue;
+    host.select_dialogue = host_select_dialogue;
+    host.start_dialogue = host_start_dialogue;
+    host.walk = host_walk;
+    host.room_changed = host_room_changed;
+    host.message = host_message;
+    g->vm = petka_scriptvm_open(g->script, &host);
+    g->visuals = (Visual *)calloc(g->script->object_count, sizeof(Visual));
+    for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].resource = PETKA_NONE;
 
-    InitWindow(1280, 960, "petka-ptk1 browser");
+    InitWindow(GAME_W * 2, GAME_H * 2, "Петька и Василий Иванович");
     SetTargetFPS(60);
     InitAudioDevice();
-    Font cyrillicFont = load_cyrillic_font();
+    Font font = load_cyrillic_font();
+    // Dev hooks for unattended runs:
+    //   PETKA_SHOT=<file.png>  skip the menu, save a screenshot and quit
+    //   PETKA_SHOT_FRAME=<n>   ...after this many frames (default 120)
+    //   PETKA_POST=<frame>:<obj_id>:<opcode>[,...]  post script messages
+    //   PETKA_FAST=1           no voice-over, phrases flash by
+    //   PETKA_TRACE=1          log delivered script messages to stderr
+    g->fast = getenv("PETKA_FAST") != NULL;
+    g->trace = getenv("PETKA_TRACE") != NULL;
+    const char *shot_path = getenv("PETKA_SHOT");
+    const char *post_plan = getenv("PETKA_POST");
+    long shot_frame = getenv("PETKA_SHOT_FRAME") ? atol(getenv("PETKA_SHOT_FRAME")) : 120;
+    long frame = 0;
+    if (!shot_path && !run_menu(g, font)) { CloseWindow(); return 0; }
 
-    // Title/start menu. Background is the game's own MAIN\INTRFACE.BG\
-    // INTRFASE.BMP (found in MAIN.STR). NOT using that folder's button
-    // FLC/MSK pairs for the buttons themselves, though: their MSK rects
-    // turn out to be calibrated for a different composite screen (this one
-    // background is shared across main menu/options/save-load, all
-    // overlaid in the raw asset), so drawing them at face value produces
-    // an unreadable overlapping mess. Simpler and more honest to lay out
-    // our own plain-text menu over the backdrop than fake a pixel-perfect
-    // reconstruction we don't actually have the data for. Up/Down selects,
-    // Enter confirms. CONTINUE/LOAD are real entries but there's no save
-    // system yet, so they just report that rather than doing nothing.
-    if (main_store) {
-        typedef struct {
-            const char *label_utf8;
-            int is_stub;
-        } MenuItem;
-        MenuItem items[] = {
-            {"Новая игра", 0},
-            {"Продолжить", 1},
-            {"Загрузить", 1},
-            {"Выход", 0},
-        };
-        const int item_count = (int)(sizeof(items) / sizeof(items[0]));
-
-        const PetkaEntry *menu_bg_e = petka_store_find(main_store, "MAIN\\INTRFACE.BG\\INTRFASE.BMP");
-        Texture2D menu_bg_tex = {0};
-        if (menu_bg_e) {
-            size_t blen = 0;
-            const uint8_t *bbytes = petka_store_entry_data(main_store, menu_bg_e, &blen);
-            int mw = 0, mh = 0;
-            uint8_t *rgb = petka_bmp_decode(bbytes, blen, &mw, &mh);
-            if (rgb) {
-                Image img = {.data = rgb, .width = mw, .height = mh, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8};
-                menu_bg_tex = LoadTextureFromImage(img);
-                UnloadImage(img);
-            }
-        }
-
-        int selected = 0;
-        char menu_status[256] = "";
-        int entered_game = 0;
-        while (!WindowShouldClose() && !entered_game) {
-            if (IsKeyPressed(KEY_DOWN)) { selected = (selected + 1) % item_count; menu_status[0] = 0; }
-            if (IsKeyPressed(KEY_UP)) { selected = (selected - 1 + item_count) % item_count; menu_status[0] = 0; }
-            if (IsKeyPressed(KEY_ENTER)) {
-                if (items[selected].is_stub) {
-                    snprintf(menu_status, sizeof(menu_status), "%s: not implemented yet (no save system)", items[selected].label_utf8);
-                } else if (selected == item_count - 1) { // "Выход"
-                    CloseWindow();
-                    return 0;
-                } else {
-                    entered_game = 1;
-                }
-            }
-
-            BeginDrawing();
-            ClearBackground(BLACK);
-            Rectangle dst = {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()};
-            if (menu_bg_tex.id) DrawTexturePro(menu_bg_tex, (Rectangle){0, 0, (float)menu_bg_tex.width, (float)menu_bg_tex.height}, dst, (Vector2){0, 0}, 0, WHITE);
-
-            int panel_w = 320, panel_h = item_count * 44 + 20;
-            int px = GetScreenWidth() / 2 - panel_w / 2, py = GetScreenHeight() / 2 - panel_h / 2;
-            DrawRectangle(px, py, panel_w, panel_h, Fade(BLACK, 0.65f));
-            for (int i = 0; i < item_count; i++) {
-                Color c = (i == selected) ? ORANGE : WHITE;
-                const char *prefix = (i == selected) ? "> " : "  ";
-                DrawTextEx(cyrillicFont, TextFormat("%s%s", prefix, items[i].label_utf8),
-                           (Vector2){(float)(px + 16), (float)(py + 10 + i * 44)}, 28, 1, c);
-            }
-            if (menu_status[0]) DrawTextEx(cyrillicFont, menu_status, (Vector2){10, (float)(GetScreenHeight() - 30)}, 16, 1, RED);
-            EndDrawing();
-        }
-
-        if (menu_bg_tex.id) UnloadTexture(menu_bg_tex);
-        if (!entered_game) { CloseWindow(); return 0; } // window closed mid-menu
+    g->vm->rng = (uint32_t)(GetTime() * 1e6) | 1u;
+    petka_scriptvm_init(g->vm);
+    const PetkaObject *start = g->topo && g->topo->start_room
+        ? petka_script_find_name(g->script, g->topo->start_room) : NULL;
+    if (!start) {
+        for (uint32_t i = 0; i < g->script->object_count && !start; i++)
+            if (g->script->objects[i].is_room) start = &g->script->objects[i];
     }
+    if (start) petka_scriptvm_enter_room(g->vm, start->id, 0);
 
-    // BGS.INI's StartRoom= is "Seq - INTRO0", an intro cutscene sequence
-    // (not a room) that we don't play; the first real interactive room is
-    // КОМНАТА ПЕТЬКИ ("Petka's room", the one with the aquarium) -- see its
-    // P-ROOM entry in kRoomFolders. Default to it instead of whatever .BMP
-    // happens to sort first in the store.
-    int bg_index = 0;
-    for (int i = 0; i < bgs.count; i++) {
-        char folder[64];
-        bg_folder_only(bgs.items[i]->name, folder, sizeof(folder));
-        if (strcmp(folder, "P-ROOM") == 0) { bg_index = i; break; }
-    }
-    Texture2D bg_tex = {0};
-    int bg_width = 0, bg_height = 0;
+    int debug = 0;
+    Drawable scene[256];
+    while (!WindowShouldClose() && !g->quit) {
+        float scale = (float)GetScreenWidth() / GAME_W;
+        Vector2 mouse = GetMousePosition();
+        float mx = mouse.x / scale, my = mouse.y / scale;
+        PetkaScriptVM *vm = g->vm;
 
-    // All of the current room's standing/idle objects (see
-    // build_object_list's comment), rendered simultaneously -- not just one
-    // picked by hand -- so the assembled scene actually looks like the
-    // room, not a background with everything but the background missing.
-#define MAX_SCENE_OBJECTS 32
-    PetkaFlic *scene_flic[MAX_SCENE_OBJECTS] = {0};
-    Texture2D scene_tex[MAX_SCENE_OBJECTS] = {0};
-    PetkaMskRect scene_rect[MAX_SCENE_OBJECTS] = {0};
-    double scene_next_frame[MAX_SCENE_OBJECTS] = {0};
-    char scene_name[MAX_SCENE_OBJECTS][128] = {{0}};
-    int scene_count = 0;
-    int selected_object = -1; // index into the scene objects above, for ENTER
+        if (IsKeyPressed(KEY_F1)) debug = !debug;
+        for (int k = 0; k < VERB_COUNT; k++) if (IsKeyPressed(KEY_ONE + k)) g->verb = k;
 
-    int loaded_bg = -1; // force initial load (also rebuilds scene objects)
-
-    int sound_index = -1; // -1 = none selected
-    Sound current_sound = {0};
-    int loaded_sound = -2;
-
-    char nav_status[256] = "";
-
-    while (!WindowShouldClose()) {
-        if (IsKeyPressed(KEY_RIGHT)) bg_index = (bg_index + 1) % bgs.count;
-        if (IsKeyPressed(KEY_LEFT)) bg_index = (bg_index - 1 + bgs.count) % bgs.count;
-
-        // Room-graph navigation: TAB cycles the current room's exits, G
-        // walks through the highlighted one (if its target has a known
-        // .BG mapping -- see kRoomFolders).
-        const PetkaRoom *current_room = NULL;
-        if (topo) {
-            char folder[64];
-            bg_folder_only(bgs.items[bg_index]->name, folder, sizeof(folder));
-            const char *room_utf8 = folder_to_room(folder);
-            if (room_utf8) {
-                for (uint32_t i = 0; i < topo->room_count && !current_room; i++) {
-                    char conv[256];
-                    cp1251_to_utf8(topo->rooms[i].name, conv, sizeof(conv));
-                    if (strcmp(conv, room_utf8) == 0) current_room = &topo->rooms[i];
-                }
-            }
+        frame++;
+        for (const char *p = post_plan; p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : "") {
+            long at = 0;
+            unsigned obj_id = 0, opcode = 0;
+            if (sscanf(p, "%ld:%u:%u", &at, &obj_id, &opcode) == 3 && at == frame)
+                petka_scriptvm_post(vm, (uint16_t)obj_id, (uint16_t)opcode, PETKA_NONE, PETKA_NONE, PETKA_NONE, -1);
         }
-        if (current_room && current_room->exit_count > 0) {
-            if (IsKeyPressed(KEY_TAB)) exit_choice = (exit_choice + 1) % (int)current_room->exit_count;
 
-            // Mouse: clicking an exit's line in the room panel (same layout
-            // as the panel drawing code below) selects it and goes, in one
-            // click -- no need for TAB first.
-            int go_requested = IsKeyPressed(KEY_G);
+        if (g->dialogue_done) {
+            g->dialogue_done = 0;
+            petka_scriptvm_dialogue_ended(vm, PETKA_NONE);
+        }
+        if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
+
+        // The room the VM is in may have changed: drop the old room's clips.
+        if (g->shown_room != vm->room) {
+            for (uint32_t i = 0; i < g->script->object_count; i++)
+                if (!is_hero(g->script->objects[i].id)) visual_free(&g->visuals[i]);
+            g->shown_room = vm->room;
+        }
+        const PetkaObject *room = petka_script_find(g->script, vm->room);
+        const PetkaObjectState *room_st = room ? &vm->state[obj_index(g, room)] : NULL;
+        if (room_st && room_st->resource != g->bg_resource) {
+            if (g->bg_tex.id) UnloadTexture(g->bg_tex);
+            g->bg_tex = (Texture2D){0};
+            g->bg_resource = room_st->resource;
+            const char *path = g->bg_resource != PETKA_NONE ? g->qrc[g->bg_resource] : NULL;
+            if (path && has_ext(path, ".BMP")) g->bg_tex = load_bmp_texture(g, path);
+        }
+        if (room_st) {
+            set_stream(g, &g->music, &g->music_id, room_st->music);
+            set_stream(g, &g->ambience, &g->ambience_id, room_st->bgsfx);
+        }
+        if (g->music.frameCount > 0) UpdateMusicStream(g->music);
+        if (g->ambience.frameCount > 0) UpdateMusicStream(g->ambience);
+
+        walk_update(g, PETKA_ID_PETKA, GetFrameTime());
+        walk_update(g, PETKA_ID_CHAPAYEV, GetFrameTime());
+
+        for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].live = 0;
+        for (uint32_t i = 0; room && i < room->attached_count; i++) {
+            const PetkaObject *obj = petka_script_find(g->script, room->attached[i].obj_id);
+            if (obj) visual_update(g, obj);
+        }
+        for (uint16_t id = 0; id < 2; id++) {
+            const PetkaObject *hero = petka_script_find(g->script, id);
+            if (hero && !g->visuals[obj_index(g, hero)].live) visual_update(g, hero);
+        }
+        // A PLAY aimed at something that is not on screen (hidden, another
+        // room, missing clip) would never end; end it at once instead.
+        for (uint32_t i = 0; i < g->script->object_count; i++) {
+            const PetkaObjectState *st = &vm->state[i];
+            if (st->play_tail.present && !g->visuals[i].live)
+                petka_scriptvm_animation_ended(vm, g->script->objects[i].id, st->play_wait);
+        }
+        if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
+
+        int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
+        int can_act = vm->interface_enabled && !g->talking;
+        const PetkaObject *hover = can_act ? object_at(g, scene, scene_count, mx, my) : NULL;
+
+        // Inventory strip along the bottom edge.
+        int inv_hover = -1;
+        float inv_y = (float)GetScreenHeight() - 30;
+        for (uint32_t i = 0; can_act && i < vm->inventory_count; i++) {
+            Rectangle cell = {8 + 150.0f * i, inv_y, 146, 24};
+            if (CheckCollisionPointRec(mouse, cell)) inv_hover = (int)i;
+        }
+
+        if (g->talking) {
+            int voiced = g->voice.frameCount > 0;
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_SPACE) ||
+                (voiced ? !IsSoundPlaying(g->voice) : GetTime() >= g->line_until))
+                next_phrase(g);
+        } else if (can_act) {
+            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                if (vm->cursor_object != PETKA_NONE) vm->cursor_object = PETKA_NONE;
+                else g->verb = (g->verb + 1) % VERB_COUNT;
+            }
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                int panel_w = 360;
-                int px = GetScreenWidth() - panel_w;
-                Vector2 m = GetMousePosition();
-                for (uint32_t i = 0; i < current_room->exit_count; i++) {
-                    Rectangle row = {(float)px, (float)(34 + 24 * i), (float)panel_w, 22};
-                    if (CheckCollisionPointRec(m, row)) {
-                        exit_choice = (int)i;
-                        go_requested = 1;
-                        break;
-                    }
+                if (inv_hover >= 0) {
+                    vm->cursor_object = vm->inventory[inv_hover];
+                } else if (hover && vm->cursor_object != PETKA_NONE) {
+                    petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, (uint16_t)mx, (uint16_t)my,
+                                        PETKA_NONE, vm->cursor_object);
+                    vm->cursor_object = PETKA_NONE;
+                } else if (hover) {
+                    petka_scriptvm_post(vm, hover->id, kVerbs[g->verb].op, (uint16_t)mx, (uint16_t)my,
+                                        PETKA_NONE, -1);
+                } else if (my < inv_y / scale) {
+                    PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+                    if (petka && host_walk(g, PETKA_ID_PETKA, (int32_t)mx, (int32_t)my)) petka->busy = 1;
                 }
             }
-            if (go_requested) {
-                const PetkaExit *ex = &current_room->exits[exit_choice];
-                char target_utf8[256];
-                cp1251_to_utf8(ex->target, target_utf8, sizeof(target_utf8));
-                const char *target_folder = room_to_folder(target_utf8);
-                int found = -1;
-                if (target_folder) {
-                    for (int i = 0; i < bgs.count && found < 0; i++) {
-                        char f[64];
-                        bg_folder_only(bgs.items[i]->name, f, sizeof(f));
-                        if (strcmp(f, target_folder) == 0) found = i;
-                    }
-                }
-                if (found >= 0) {
-                    bg_index = found;
-                    nav_status[0] = 0;
-                } else {
-                    snprintf(nav_status, sizeof(nav_status), "no mapped background for \"%s\" yet", target_utf8);
-                }
-            }
-        } else {
-            exit_choice = 0;
-        }
-        if (scene_count > 0) {
-            if (IsKeyPressed(KEY_UP)) selected_object = selected_object + 1 >= scene_count ? -1 : selected_object + 1;
-            if (IsKeyPressed(KEY_DOWN)) selected_object = selected_object - 1 < -1 ? scene_count - 1 : selected_object - 1;
-        }
-
-        // Mouse: hovering a scene object's MSK rect selects it (same
-        // highlight Up/Down gives); left-click interacts with it using the
-        // current verb, same as Enter.
-        int hovered_object = -1;
-        if (bg_width > 0 && scene_count > 0) {
-            float sx = (float)GetScreenWidth() / (float)bg_width;
-            float sy = (float)GetScreenHeight() / (float)bg_height;
-            Vector2 m = GetMousePosition();
-            for (int i = 0; i < scene_count; i++) {
-                if (!scene_flic[i]) continue;
-                Rectangle clip = {scene_rect[i].left * sx, scene_rect[i].top * sy,
-                                   (scene_rect[i].right - scene_rect[i].left) * sx,
-                                   (scene_rect[i].bottom - scene_rect[i].top) * sy};
-                if (CheckCollisionPointRec(m, clip)) { hovered_object = i; break; }
-            }
-        }
-        if (hovered_object >= 0) selected_object = hovered_object;
-        int interact_requested = IsKeyPressed(KEY_ENTER) ||
-                                  (hovered_object >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT));
-        if (sounds.count > 0) {
-            if (IsKeyPressed(KEY_PAGE_UP)) sound_index = sound_index + 1 >= sounds.count ? -1 : sound_index + 1;
-            if (IsKeyPressed(KEY_PAGE_DOWN)) sound_index = sound_index - 1 < -1 ? sounds.count - 1 : sound_index - 1;
-            if (IsKeyPressed(KEY_SPACE) && sound_index >= 0 && current_sound.frameCount > 0) {
-                if (IsSoundPlaying(current_sound)) StopSound(current_sound);
-                else PlaySound(current_sound);
-            }
-        }
-        for (int k = 0; k < 4; k++) if (IsKeyPressed(KEY_ONE + k)) verb_choice = k;
-        if (interact_requested && dtree && phrases && selected_object >= 0) {
-            int topic_idx = selected_object; // same ordering build_object_list produced below
-
-            dialogue_line_count = 0;
-            if (topic_idx < 0) {
-                snprintf(dialogue_lines[0], sizeof(dialogue_lines[0]), "(select an object from this background first)");
-                dialogue_line_count = 1;
-            } else if ((uint32_t)topic_idx >= dtree->topic_count) {
-                snprintf(dialogue_lines[0], sizeof(dialogue_lines[0]), "(topic %d out of range, only %u topics)", topic_idx, dtree->topic_count);
-                dialogue_line_count = 1;
-            } else {
-                PetkaDialogueTopic *topic = &dtree->topics[topic_idx];
-                uint32_t verb_id = kVerbs[verb_choice].id;
-                PetkaDialogueVerb *verb = NULL;
-                for (uint32_t v = 0; v < topic->verb_count; v++)
-                    if (topic->verbs[v].verb_id == verb_id) { verb = &topic->verbs[v]; break; }
-                if (!verb || verb->entry_count == 0) {
-                    snprintf(dialogue_lines[0], sizeof(dialogue_lines[0]), "(no %s reaction for topic %d)", kVerbs[verb_choice].label, topic_idx);
-                    dialogue_line_count = 1;
-                } else {
-                    PetkaDialogueVM vm;
-                    petka_dialoguevm_start(&vm, dtree, verb->entries[0].bytecode_offset);
-                    uint32_t phrase_idx;
-                    int first_phrase = -1;
-                    while (dialogue_line_count < 4 && petka_dialoguevm_next(&vm, &phrase_idx)) {
-                        const char *text = phrase_idx < phrases->count ? phrases->phrases[phrase_idx].text : "<?>";
-                        snprintf(dialogue_lines[dialogue_line_count], sizeof(dialogue_lines[0]), "%s", text);
-                        dialogue_line_count++;
-                        if (first_phrase < 0) first_phrase = (int)phrase_idx;
-                    }
-
-                    if (voice_sound.frameCount > 0) { StopSound(voice_sound); UnloadSound(voice_sound); voice_sound = (Sound){0}; }
-                    if (speech_store && first_phrase >= 0 && (uint32_t)first_phrase < phrases->count) {
-                        char wav_name[64];
-                        snprintf(wav_name, sizeof(wav_name), "%s\\%s", speech_prefix, phrases->phrases[first_phrase].wav_name);
-                        for (char *p = wav_name; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
-                        const PetkaEntry *voice_e = petka_store_find(speech_store, wav_name);
-                        if (voice_e) {
-                            size_t vlen = 0;
-                            const uint8_t *vbytes = petka_store_entry_data(speech_store, voice_e, &vlen);
-                            Wave wave = LoadWaveFromMemory(".wav", vbytes, (int)vlen);
-                            if (wave.frameCount > 0) { voice_sound = LoadSoundFromWave(wave); PlaySound(voice_sound); }
-                            UnloadWave(wave);
-                        } else {
-                            fprintf(stderr, "voice clip not found: %s\n", wav_name);
-                        }
-                    }
-                }
-            }
-        }
-
-        if (bg_index != loaded_bg) {
-            const PetkaEntry *e = bgs.items[bg_index];
-            size_t len = 0;
-            const uint8_t *bytes = petka_store_entry_data(bg_store, e, &len);
-            int w = 0, h = 0;
-            uint8_t *rgb = petka_bmp_decode(bytes, len, &w, &h);
-            if (rgb) {
-                if (bg_tex.id) UnloadTexture(bg_tex);
-                Image img = {.data = rgb, .width = w, .height = h, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8};
-                bg_tex = LoadTextureFromImage(img);
-                UnloadImage(img);
-                bg_width = w;
-                bg_height = h;
-            } else {
-                fprintf(stderr, "petka_bmp_decode failed for %s\n", e->name);
-            }
-            // Rebuild the scene's standing objects for the new background
-            // (see build_object_list's comment: top-level FLC+MSK pairs in
-            // this room's folder, all rendered at once).
-            for (int i = 0; i < scene_count; i++) {
-                if (scene_flic[i]) petka_flic_close(scene_flic[i]);
-                if (scene_tex[i].id) UnloadTexture(scene_tex[i]);
-                scene_flic[i] = NULL;
-                scene_tex[i] = (Texture2D){0};
-            }
-            scene_count = 0;
-            selected_object = -1;
-            if (flic_store) {
-                char prefix[512];
-                folder_prefix(e->name, prefix, sizeof(prefix));
-                ObjectList objs = build_object_list(flic_store, &flics, prefix);
-                int n = objs.count < MAX_SCENE_OBJECTS ? objs.count : MAX_SCENE_OBJECTS;
-
-                // Load every object first, indexed by STR entry order (which
-                // is arbitrary -- not a paint order).
-                PetkaFlic *load_flic[MAX_SCENE_OBJECTS] = {0};
-                Texture2D load_tex[MAX_SCENE_OBJECTS] = {0};
-                PetkaMskRect load_rect[MAX_SCENE_OBJECTS] = {0};
-                int loaded_n = 0;
-                for (int i = 0; i < n; i++) {
-                    const PetkaEntry *oe = objs.items[i];
-                    size_t olen = 0;
-                    const uint8_t *obytes = petka_store_entry_data(flic_store, oe, &olen);
-                    PetkaFlic *flic = petka_flic_open(obytes, olen);
-                    if (!flic) { fprintf(stderr, "petka_flic_open failed for %s\n", oe->name); continue; }
-                    PetkaMskRect rect = {0, 0, flic->width, flic->height};
-                    char msk_name[512];
-                    make_msk_name(oe->name, msk_name, sizeof(msk_name));
-                    const PetkaEntry *msk_entry = petka_store_find(flic_store, msk_name);
-                    if (msk_entry) {
-                        size_t mlen = 0;
-                        const uint8_t *mbytes = petka_store_entry_data(flic_store, msk_entry, &mlen);
-                        petka_msk_rect(mbytes, mlen, &rect);
-                    }
-                    uint8_t *rgba = flic_to_rgba(flic);
-                    Image img = {.data = rgba, .width = flic->width, .height = flic->height, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
-                    load_flic[loaded_n] = flic;
-                    load_tex[loaded_n] = LoadTextureFromImage(img);
-                    load_rect[loaded_n] = rect;
-                    snprintf(scene_name[loaded_n], sizeof(scene_name[0]), "%s", oe->name);
-                    UnloadImage(img);
-                    loaded_n++;
-                }
-                free(objs.items);
-
-                // Multiple top-level FLC+MSK pairs often turn out to be
-                // mutually exclusive STATE VARIANTS of the same physical
-                // prop (e.g. a door's open/closed/ajar frames, or an
-                // aquarium with/without a found key) rather than
-                // independent simultaneous objects -- the original engine
-                // picks one per some game-state flag we haven't
-                // reverse-engineered yet (see docs/str-format.md's
-                // DIALOGUE.FIX bytecode notes on opcodes 0x04/0x05).
-                // Approximate "pick one" by keeping only the first-loaded
-                // object in any group whose MSK rects overlap heavily;
-                // without this, a room with e.g. 7 door-state variants
-                // shows all 7 doors stacked on top of each other.
-                for (int i = 0; i < loaded_n; i++) {
-                    int keep = 1;
-                    for (int j = 0; j < i; j++) {
-                        if (!load_flic[j]) continue; // already discarded
-                        PetkaMskRect *a = &load_rect[i], *b = &load_rect[j];
-                        int ix0 = a->left > b->left ? a->left : b->left;
-                        int iy0 = a->top > b->top ? a->top : b->top;
-                        int ix1 = a->right < b->right ? a->right : b->right;
-                        int iy1 = a->bottom < b->bottom ? a->bottom : b->bottom;
-                        int iw = ix1 - ix0, ih = iy1 - iy0;
-                        if (iw <= 0 || ih <= 0) continue;
-                        int inter_area = iw * ih;
-                        int area_a = (a->right - a->left) * (a->bottom - a->top);
-                        int area_b = (b->right - b->left) * (b->bottom - b->top);
-                        int min_area = area_a < area_b ? area_a : area_b;
-                        if (min_area > 0 && inter_area * 100 >= min_area * 60) { keep = 0; break; }
-                    }
-                    if (!keep) {
-                        petka_flic_close(load_flic[i]);
-                        UnloadTexture(load_tex[i]);
-                        load_flic[i] = NULL;
-                    }
-                }
-                int compacted = 0;
-                for (int i = 0; i < loaded_n; i++) {
-                    if (!load_flic[i]) continue;
-                    if (compacted != i) {
-                        load_flic[compacted] = load_flic[i];
-                        load_tex[compacted] = load_tex[i];
-                        load_rect[compacted] = load_rect[i];
-                        snprintf(scene_name[compacted], sizeof(scene_name[0]), "%s", scene_name[i]);
-                    }
-                    compacted++;
-                }
-                loaded_n = compacted;
-
-                // Rooms are hand-painted with a fixed camera, so there's no
-                // real depth data to sort by -- approximate it with a
-                // painter's algorithm over each object's MSK rect bottom
-                // edge (lower on screen == closer to the camera == drawn
-                // later, on top). Without this, e.g. a pond that happens to
-                // sit earlier in the STR than a birch trunk in front of it
-                // would paint over the trunk instead of behind it.
-                int order[MAX_SCENE_OBJECTS];
-                for (int i = 0; i < loaded_n; i++) order[i] = i;
-                for (int i = 1; i < loaded_n; i++) {
-                    int key = order[i];
-                    int key_bottom = load_rect[key].bottom;
-                    int j = i - 1;
-                    while (j >= 0 && load_rect[order[j]].bottom > key_bottom) {
-                        order[j + 1] = order[j];
-                        j--;
-                    }
-                    order[j + 1] = key;
-                }
-                char sorted_name[MAX_SCENE_OBJECTS][128];
-                for (int i = 0; i < loaded_n; i++) {
-                    int src = order[i];
-                    scene_flic[i] = load_flic[src];
-                    scene_tex[i] = load_tex[src];
-                    scene_rect[i] = load_rect[src];
-                    scene_next_frame[i] = GetTime();
-                    snprintf(sorted_name[i], sizeof(sorted_name[0]), "%s", scene_name[src]);
-                }
-                for (int i = 0; i < loaded_n; i++) snprintf(scene_name[i], sizeof(scene_name[0]), "%s", sorted_name[i]);
-                scene_count = loaded_n;
-            }
-            if (scene_count > 0) selected_object = 0;
-
-            loaded_bg = bg_index;
-        }
-
-        if (sound_index != loaded_sound) {
-            if (current_sound.frameCount > 0) { UnloadSound(current_sound); current_sound = (Sound){0}; }
-            if (sound_index >= 0) {
-                const PetkaEntry *e = sounds.items[sound_index];
-                size_t len = 0;
-                const uint8_t *bytes = petka_store_entry_data(sound_store, e, &len);
-                Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
-                if (wave.frameCount > 0) {
-                    current_sound = LoadSoundFromWave(wave);
-                    PlaySound(current_sound);
-                } else {
-                    fprintf(stderr, "LoadWaveFromMemory failed for %s\n", e->name);
-                }
-                UnloadWave(wave);
-            }
-            loaded_sound = sound_index;
-        }
-
-        for (int i = 0; i < scene_count; i++) {
-            if (!scene_flic[i] || GetTime() < scene_next_frame[i]) continue;
-            petka_flic_advance(scene_flic[i]);
-            uint8_t *rgba = flic_to_rgba(scene_flic[i]);
-            UpdateTexture(scene_tex[i], rgba);
-            free(rgba);
-            scene_next_frame[i] = GetTime() + scene_flic[i]->speed_ms / 1000.0;
         }
 
         BeginDrawing();
         ClearBackground(BLACK);
-        Rectangle dst = {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()};
-        if (bg_tex.id) DrawTexturePro(bg_tex, (Rectangle){0, 0, (float)bg_tex.width, (float)bg_tex.height}, dst, (Vector2){0, 0}, 0, WHITE);
-        if (bg_width > 0) {
-            float sx = (float)GetScreenWidth() / (float)bg_width;
-            float sy = (float)GetScreenHeight() / (float)bg_height;
-            for (int i = 0; i < scene_count; i++) {
-                if (!scene_flic[i]) continue;
-                Rectangle src = {(float)scene_rect[i].left, (float)scene_rect[i].top,
-                                  (float)(scene_rect[i].right - scene_rect[i].left), (float)(scene_rect[i].bottom - scene_rect[i].top)};
-                Rectangle clip = {src.x * sx, src.y * sy, src.width * sx, src.height * sy};
-                DrawTexturePro(scene_tex[i], src, clip, (Vector2){0, 0}, 0, WHITE);
-                if (i == selected_object) DrawRectangleLinesEx(clip, 2, ORANGE);
+        if (g->bg_tex.id)
+            DrawTexturePro(g->bg_tex, (Rectangle){0, 0, (float)g->bg_tex.width, (float)g->bg_tex.height},
+                           (Rectangle){0, 0, g->bg_tex.width * scale, g->bg_tex.height * scale}, (Vector2){0, 0}, 0, WHITE);
+        for (int i = 0; i < scene_count; i++) {
+            const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
+            Rectangle d = visual_dest(g, scene[i].obj);
+            DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
+                           (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale},
+                           (Vector2){0, 0}, 0, WHITE);
+            if (debug && !is_hero(scene[i].obj->id)) {
+                Rectangle r = {v->rect.left * scale, v->rect.top * scale,
+                               (v->rect.right - v->rect.left) * scale, (v->rect.bottom - v->rect.top) * scale};
+                DrawRectangleLinesEx(r, 1, scene[i].obj == hover ? ORANGE : Fade(LIME, 0.6f));
+                DrawTextEx(font, TextFormat("%u %s", scene[i].obj->id, utf8_name(scene[i].obj->name)),
+                           (Vector2){r.x + 2, r.y + 2}, 14, 1, YELLOW);
             }
         }
 
-        if (dtree) {
-            DrawRectangle(0, 0, GetScreenWidth(), 34, Fade(BLACK, 0.6f));
-            DrawText(TextFormat("verb [%s]  (1=LOOK 2=TAKE 3=USE 4=TALK, click/ENTER=interact)", kVerbs[verb_choice].label),
-                      10, 8, 18, ORANGE);
-            if (dialogue_line_count > 0) {
-                DrawRectangle(0, 34, GetScreenWidth(), 18 * dialogue_line_count + 10, Fade(BLACK, 0.6f));
-                char utf8[1024];
-                for (int i = 0; i < dialogue_line_count; i++) {
-                    cp1251_to_utf8(dialogue_lines[i], utf8, sizeof(utf8));
-                    DrawTextEx(cyrillicFont, utf8, (Vector2){10, (float)(38 + 18 * i)}, 20, 1, WHITE);
+        // Top bar: what a click would do.
+        const char *action;
+        if (!vm->interface_enabled) action = "...";
+        else if (vm->cursor_object != PETKA_NONE) {
+            const PetkaObject *item = petka_script_find(g->script, vm->cursor_object);
+            action = TextFormat("%s -> %s", item ? display_name(item) : "?", hover ? display_name(hover) : "...");
+        } else {
+            action = TextFormat("%s%s%s", kVerbs[g->verb].label, hover ? ": " : "", hover ? display_name(hover) : "");
+        }
+        DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
+        DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
+        if (room) {
+            const char *name = utf8_name(room->name);
+            Vector2 size = MeasureTextEx(font, name, 18, 1);
+            DrawTextEx(font, name, (Vector2){GetScreenWidth() - size.x - 10, 6}, 18, 1, SKYBLUE);
+        }
+
+        if (g->talking && g->line[0]) {
+            // Word-wrap the phrase into the box.
+            float box_w = (float)GetScreenWidth() - 40, y = (float)GetScreenHeight() - 150;
+            DrawRectangle(10, (int)y - 10, GetScreenWidth() - 20, 110, Fade(BLACK, 0.7f));
+            char row[512] = "";
+            const char *p = g->line;
+            while (*p) {
+                const char *space = strchr(p, ' ');
+                size_t word = space ? (size_t)(space - p) + 1 : strlen(p);
+                char trial[512];
+                snprintf(trial, sizeof(trial), "%s%.*s", row, (int)word, p);
+                if (row[0] && MeasureTextEx(font, trial, 24, 1).x > box_w) {
+                    DrawTextEx(font, row, (Vector2){20, y}, 24, 1, WHITE);
+                    y += 28;
+                    row[0] = 0;
+                    continue;
                 }
+                snprintf(row, sizeof(row), "%s", trial);
+                p += word;
             }
+            DrawTextEx(font, row, (Vector2){20, y}, 24, 1, WHITE);
         }
 
-        if (topo) {
-            int panel_w = 360;
-            char room_utf8[256] = "(unknown room)";
-            if (current_room) cp1251_to_utf8(current_room->name, room_utf8, sizeof(room_utf8));
-            int lines = current_room ? 1 + (int)current_room->exit_count : 1;
-            int panel_h = 24 * lines + (nav_status[0] ? 24 : 0) + 34 + 10;
-            DrawRectangle(GetScreenWidth() - panel_w, 0, panel_w, panel_h, Fade(BLACK, 0.6f));
-            DrawTextEx(cyrillicFont, TextFormat("Room: %s  (click or TAB+G to use an exit)", room_utf8),
-                       (Vector2){(float)(GetScreenWidth() - panel_w + 10), 8}, 18, 1, SKYBLUE);
-            if (current_room) {
-                for (uint32_t i = 0; i < current_room->exit_count; i++) {
-                    char target_utf8[256];
-                    cp1251_to_utf8(current_room->exits[i].target, target_utf8, sizeof(target_utf8));
-                    Color c = ((int)i == exit_choice) ? ORANGE : WHITE;
-                    const char *marker = ((int)i == exit_choice) ? "> " : "  ";
-                    DrawTextEx(cyrillicFont, TextFormat("%s%s %s", marker, target_utf8, room_to_folder(target_utf8) ? "" : "(?)"),
-                               (Vector2){(float)(GetScreenWidth() - panel_w + 10), (float)(34 + 24 * i)}, 18, 1, c);
-                }
-            }
-            if (nav_status[0]) {
-                DrawTextEx(cyrillicFont, nav_status,
-                           (Vector2){(float)(GetScreenWidth() - panel_w + 10), (float)(34 + 24 * lines)}, 16, 1, RED);
-            }
+        for (uint32_t i = 0; i < vm->inventory_count; i++) {
+            const PetkaObject *item = petka_script_find(g->script, vm->inventory[i]);
+            Rectangle cell = {8 + 150.0f * i, inv_y, 146, 24};
+            int picked = vm->cursor_object == vm->inventory[i];
+            DrawRectangleRec(cell, Fade(picked ? ORANGE : BLACK, 0.7f));
+            DrawRectangleLinesEx(cell, 1, (int)i == inv_hover ? ORANGE : GRAY);
+            if (item) DrawTextEx(font, display_name(item), (Vector2){cell.x + 4, cell.y + 4}, 16, 1, WHITE);
         }
 
-        DrawRectangle(0, GetScreenHeight() - 84, GetScreenWidth(), 84, Fade(BLACK, 0.6f));
-        DrawText(TextFormat("[%d/%d] %s", bg_index + 1, bgs.count, bgs.items[bg_index]->name), 10, GetScreenHeight() - 74, 18, LIME);
-        DrawText(selected_object >= 0
-                      ? TextFormat("[%d/%d objects] selected: %s", selected_object + 1, scene_count, scene_name[selected_object])
-                      : (scene_count > 0 ? TextFormat("[%d objects in room, none selected]", scene_count) : "(no objects in this room)"),
-                  10, GetScreenHeight() - 50, 18, YELLOW);
-        DrawText(sound_index >= 0
-                      ? TextFormat("[%d/%d] %s %s", sound_index + 1, sounds.count, sounds.items[sound_index]->name,
-                                   current_sound.frameCount > 0 && IsSoundPlaying(current_sound) ? "(playing)" : "(stopped)")
-                      : "(no sound)",
-                  10, GetScreenHeight() - 26, 18, SKYBLUE);
+        if (g->status[0] && GetTime() < g->status_until)
+            DrawTextEx(font, g->status, (Vector2){10, 36}, 18, 1, YELLOW);
+        if (debug) {
+            const PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+            DrawTextEx(font, TextFormat("room %u  objects %d  queue %u  mouse %d,%d  petka %d,%d %s",
+                                        vm->room, scene_count, vm->queue_count, (int)mx, (int)my,
+                                        petka ? petka->x : 0, petka ? petka->y : 0,
+                                        petka && petka->visible ? "" : "(hidden)"),
+                       (Vector2){10, 58}, 16, 1, LIME);
+        }
         EndDrawing();
+        if (shot_path && frame >= shot_frame) {
+            // Not TakeScreenshot(): it only writes below the working directory.
+            Image shot = LoadImageFromScreen();
+            ExportImage(shot, shot_path);
+            UnloadImage(shot);
+            break;
+        }
     }
 
-    for (int i = 0; i < scene_count; i++) {
-        if (scene_flic[i]) petka_flic_close(scene_flic[i]);
-        if (scene_tex[i].id) UnloadTexture(scene_tex[i]);
-    }
-    if (bg_tex.id) UnloadTexture(bg_tex);
-    if (current_sound.frameCount > 0) UnloadSound(current_sound);
-    if (voice_sound.frameCount > 0) UnloadSound(voice_sound);
-    if (cyrillicFont.texture.id != GetFontDefault().texture.id) UnloadFont(cyrillicFont);
+    for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
+    free(g->visuals);
+    if (g->bg_tex.id) UnloadTexture(g->bg_tex);
+    if (g->voice.frameCount > 0) UnloadSound(g->voice);
+    for (int i = 0; i < MAX_SOUNDS; i++) if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
+    if (g->music.frameCount > 0) UnloadMusicStream(g->music);
+    if (g->ambience.frameCount > 0) UnloadMusicStream(g->ambience);
+    if (font.texture.id != GetFontDefault().texture.id) UnloadFont(font);
     CloseAudioDevice();
     CloseWindow();
 
-    free(bgs.items);
-    free(flics.items);
-    free(sounds.items);
-    if (dtree) petka_dialoguetree_close(dtree);
-    if (topo) petka_topology_close(topo);
-    if (phrases) petka_phrasetable_close(phrases);
-    if (main_store) petka_store_close(main_store);
-    if (flic_store) petka_store_close(flic_store);
-    if (sound_store) petka_store_close(sound_store);
-    if (speech_store) petka_store_close(speech_store);
-    petka_store_close(bg_store);
+    petka_scriptvm_close(g->vm);
+    petka_script_close(g->script);
+    if (g->dtree) petka_dialoguetree_close(g->dtree);
+    if (g->phrases) petka_phrasetable_close(g->phrases);
+    if (g->topo) petka_topology_close(g->topo);
+    for (int i = 0; i < 65536; i++) free(g->qrc[i]);
+    for (int i = 0; i < g->store_count; i++) petka_store_close(g->stores[i]);
     return 0;
 }
