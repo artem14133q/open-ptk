@@ -423,7 +423,17 @@ int main(int argc, char **argv) {
         if (!entered_game) { CloseWindow(); return 0; } // window closed mid-menu
     }
 
+    // BGS.INI's StartRoom= is "Seq - INTRO0", an intro cutscene sequence
+    // (not a room) that we don't play; the first real interactive room is
+    // КОМНАТА ПЕТЬКИ ("Petka's room", the one with the aquarium) -- see its
+    // P-ROOM entry in kRoomFolders. Default to it instead of whatever .BMP
+    // happens to sort first in the store.
     int bg_index = 0;
+    for (int i = 0; i < bgs.count; i++) {
+        char folder[64];
+        bg_folder_only(bgs.items[i]->name, folder, sizeof(folder));
+        if (strcmp(folder, "P-ROOM") == 0) { bg_index = i; break; }
+    }
     Texture2D bg_tex = {0};
     int bg_width = 0, bg_height = 0;
 
