@@ -725,14 +725,24 @@ draws the current room from the script VM's state, turns clicks into script
 messages and tells the VM when animations, walks and dialogues finish; heroes
 walk across the room's `.CVX` mesh, dialogue menus are shown for the player
 to pick a line, whoever speaks plays his talking clip and his lines are in
-his `CAST.INI` colour, and objects are called by their `NAMES.INI` names. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
+his `CAST.INI` colour, objects are called by their `NAMES.INI` names, and
+backgrounds wider than the screen scroll to keep Petka in view. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
 AVI playback, part switching, save/load. For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
-quit), `PETKA_POST=<frame>:<obj>:<opcode>,...`, `PETKA_FAST=1`,
+quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
 `PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels), `PETKA_TRACE=1`
 and `PETKA_DEBUG=1` (start with the F1 overlay, which draws
 the walk mesh and the heroes' routes).
+
+Seven backgrounds are wider than the 640-pixel screen (six in `PART_2`, up to
+2116 pixels -- the two corridors -- and one in `PART_3`). In such a room
+everything is in background pixels: the object clips are as wide as the
+background, and the MSK rects, walk mesh, walk points and hero positions
+use the same coordinates, so only the view moves. On `GOTO` the exe centres
+it on the entry point (`walk_x - 320`, clamped to the background); how it
+follows the hero afterwards was not traced, so the launcher's rule -- scroll
+when Petka comes within 200 pixels of the edge -- is its own.
 
 `tools/walktest/main.c` — parses every `.CVX` in a store and routes random
 point pairs across each, failing if a route is missing or leaves the floor:

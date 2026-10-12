@@ -12,8 +12,7 @@
 // it; a click or Space skips the phrase being spoken.
 //
 // Known gaps (not in the script, still to be reversed):
-// AVI playback and part switching are only reported, backgrounds wider than
-// the screen do not scroll.
+// AVI playback and part switching are only reported.
 #include "petka/bmp.h"
 #include "petka/dialogue.h"
 #include "petka/flic.h"
@@ -36,6 +35,11 @@
 #define MAX_STORES 8
 #define MAX_SOUNDS 8
 #define HERO_SPEED 160.0f // px/s at full scale; a guess, not measured
+// Scrolling of backgrounds wider than the screen: the view moves when Petka
+// comes within SCROLL_MARGIN of its edge. Both numbers are ours; the exe is
+// only known to centre the view on the entry point when a room is entered.
+#define SCROLL_MARGIN 200.0f
+#define SCROLL_SPEED 480.0f // px/s
 
 // What is on screen for one script object.
 typedef struct {
@@ -79,6 +83,8 @@ typedef struct {
 
     Visual *visuals; // parallel to script->objects
     Texture2D bg_tex;
+    float camera_x;         // left edge of the view, in background pixels
+    int camera_snap;        // a room was just entered: centre the view, don't glide
     PetkaWalkMesh *mesh;    // the current background's floor, NULL if it has none
     uint16_t mesh_resource; // background the mesh belongs to
     uint16_t bg_resource;
@@ -483,6 +489,32 @@ static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
     return 1;
 }
 
+// Objects, clips, walk meshes and hero positions are all in background
+// pixels; only the view moves. It follows Petka, and stays within the
+// background.
+static void camera_update(Game *g, float dt) {
+    float max_x = g->bg_tex.id ? (float)g->bg_tex.width - GAME_W : 0;
+    if (max_x < 0) max_x = 0;
+    const PetkaObjectState *petka = petka_scriptvm_state(g->vm, PETKA_ID_PETKA);
+    float target = g->camera_x;
+    if (petka && g->camera_snap) {
+        target = (float)petka->x - GAME_W / 2.0f;
+    } else if (petka && petka->visible) {
+        float on_screen = (float)petka->x - g->camera_x;
+        if (on_screen < SCROLL_MARGIN) target = (float)petka->x - SCROLL_MARGIN;
+        if (on_screen > GAME_W - SCROLL_MARGIN) target = (float)petka->x - (GAME_W - SCROLL_MARGIN);
+    }
+    if (target < 0) target = 0;
+    if (target > max_x) target = max_x;
+
+    float step = g->camera_snap ? max_x + GAME_W : SCROLL_SPEED * dt;
+    g->camera_snap = 0;
+    if (target > g->camera_x + step) g->camera_x += step;
+    else if (target < g->camera_x - step) g->camera_x -= step;
+    else g->camera_x = target;
+    if (g->camera_x > max_x) g->camera_x = max_x;
+}
+
 static void walk_update(Game *g, uint16_t hero_id, float dt) {
     Walk *w = &g->walk[hero_id];
     PetkaObjectState *st = petka_scriptvm_state(g->vm, hero_id);
@@ -637,6 +669,7 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     if (!room) return;
     load_perspective(g, room->name);
     load_mesh(g);
+    g->camera_snap = 1;
     g->walk[0].active = g->walk[1].active = 0;
 
     const PetkaRoom *section = g->topo ? petka_topology_find_room(g->topo, room->name) : NULL;
@@ -888,7 +921,7 @@ int main(int argc, char **argv) {
     // Dev hooks for unattended runs:
     //   PETKA_SHOT=<file.png>  skip the menu, save a screenshot and quit
     //   PETKA_SHOT_FRAME=<n>   ...after this many frames (default 120)
-    //   PETKA_POST=<frame>:<obj_id>:<opcode>[,...]  post script messages
+    //   PETKA_POST=<frame>:<obj_id>:<opcode>[:<arg1>:<arg2>][,...]  post script messages
     //   PETKA_FAST=1           no voice-over, phrases flash by
     //   PETKA_PICK=<n>|last    dialogue menus answer themselves with that line
     //   PETKA_TRACE=1          log delivered script messages to stderr
@@ -922,7 +955,8 @@ int main(int argc, char **argv) {
         float pin_x, pin_y;
         if (getenv("PETKA_MOUSE") && sscanf(getenv("PETKA_MOUSE"), "%f,%f", &pin_x, &pin_y) == 2)
             mouse = (Vector2){pin_x * scale, pin_y * scale};
-        float mx = mouse.x / scale, my = mouse.y / scale;
+        // The pointer in background pixels: where it is in the room.
+        float mx = mouse.x / scale + g->camera_x, my = mouse.y / scale;
         PetkaScriptVM *vm = g->vm;
 
         if (IsKeyPressed(KEY_F1)) debug = !debug;
@@ -931,9 +965,10 @@ int main(int argc, char **argv) {
         frame++;
         for (const char *p = post_plan; p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : "") {
             long at = 0;
-            unsigned obj_id = 0, opcode = 0;
-            if (sscanf(p, "%ld:%u:%u", &at, &obj_id, &opcode) == 3 && at == frame)
-                petka_scriptvm_post(vm, (uint16_t)obj_id, (uint16_t)opcode, PETKA_NONE, PETKA_NONE, PETKA_NONE, -1);
+            unsigned obj_id = 0, opcode = 0, arg1 = PETKA_NONE, arg2 = PETKA_NONE;
+            if (sscanf(p, "%ld:%u:%u:%u:%u", &at, &obj_id, &opcode, &arg1, &arg2) >= 3 && at == frame)
+                petka_scriptvm_post(vm, (uint16_t)obj_id, (uint16_t)opcode, (uint16_t)arg1, (uint16_t)arg2,
+                                    PETKA_NONE, -1);
         }
 
         if (g->dialogue_done) {
@@ -970,6 +1005,9 @@ int main(int argc, char **argv) {
 
         walk_update(g, PETKA_ID_PETKA, GetFrameTime());
         walk_update(g, PETKA_ID_CHAPAYEV, GetFrameTime());
+        camera_update(g, GetFrameTime());
+        // Everything in the room is drawn through this; the HUD is not.
+        Camera2D view = {.offset = {0, 0}, .target = {roundf(g->camera_x) * scale, 0}, .rotation = 0, .zoom = 1};
 
         for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].live = 0;
         for (uint32_t i = 0; room && i < room->attached_count; i++) {
@@ -1042,6 +1080,7 @@ int main(int argc, char **argv) {
 
         BeginDrawing();
         ClearBackground(BLACK);
+        BeginMode2D(view);
         if (g->bg_tex.id)
             DrawTexturePro(g->bg_tex, (Rectangle){0, 0, (float)g->bg_tex.width, (float)g->bg_tex.height},
                            (Rectangle){0, 0, g->bg_tex.width * scale, g->bg_tex.height * scale}, (Vector2){0, 0}, 0, WHITE);
@@ -1059,6 +1098,8 @@ int main(int argc, char **argv) {
                            (Vector2){r.x + 2, r.y + 2}, 14, 1, YELLOW);
             }
         }
+
+        EndMode2D();
 
         // Top bar: what a click would do.
         const char *action;
@@ -1129,6 +1170,7 @@ int main(int argc, char **argv) {
             DrawTextEx(font, g->status, (Vector2){10, 36}, 18, 1, YELLOW);
         if (debug) {
             // The floor's polygons, and the route each hero is following.
+            BeginMode2D(view);
             for (uint32_t i = 0; g->mesh && i < g->mesh->poly_count; i++) {
                 const PetkaWalkPoly *poly = &g->mesh->polys[i];
                 for (uint32_t k = 0; k < poly->count; k++) {
@@ -1149,9 +1191,10 @@ int main(int argc, char **argv) {
                     from = to;
                 }
             }
+            EndMode2D();
             const PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
-            DrawTextEx(font, TextFormat("room %u  objects %d  queue %u  mouse %d,%d  petka %d,%d %s",
-                                        vm->room, scene_count, vm->queue_count, (int)mx, (int)my,
+            DrawTextEx(font, TextFormat("room %u  objects %d  queue %u  view %d  mouse %d,%d  petka %d,%d %s",
+                                        vm->room, scene_count, vm->queue_count, (int)g->camera_x, (int)mx, (int)my,
                                         petka ? petka->x : 0, petka ? petka->y : 0,
                                         petka && petka->visible ? "" : "(hidden)"),
                        (Vector2){10, 58}, 16, 1, LIME);
