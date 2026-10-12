@@ -47,8 +47,8 @@ void petka_walkmesh_close(PetkaWalkMesh *mesh);
 // Index of the polygon containing the point, or -1 if it is off the floor.
 int petka_walkmesh_locate(const PetkaWalkMesh *mesh, float x, float y);
 
-// Moves a point onto the floor if it is not there already (to the nearest
-// point of the nearest polygon). Returns that polygon's index.
+// Moves a point onto the floor if it is not there already: to the nearest
+// point of the outline, in whole pixels. Returns the polygon it belongs to.
 int petka_walkmesh_snap(const PetkaWalkMesh *mesh, float x, float y, float *out_x, float *out_y);
 
 // A way across the floor from one point to another, built as the exe builds

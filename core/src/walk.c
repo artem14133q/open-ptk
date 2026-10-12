@@ -198,12 +198,11 @@ int petka_walkmesh_snap(const PetkaWalkMesh *mesh, float x, float y, float *out_
             if (d < best) {
                 best = d;
                 best_poly = (int)i;
-                // Nudge towards the centroid so the point is safely inside
-                // rather than exactly on the outline.
-                float nx = poly->cx - px, ny = poly->cy - py;
-                float n = sqrtf(nx * nx + ny * ny);
-                *out_x = n > 0 ? px + nx / n * 0.5f : px;
-                *out_y = n > 0 ? py + ny / n * 0.5f : py;
+                // Right on the edge, in whole pixels, as the exe leaves it
+                // (sub_425120). The point then touches the outline, so the
+                // route to or from it is never straightened through it.
+                *out_x = (float)(int)px;
+                *out_y = (float)(int)py;
             }
         }
     }
@@ -252,25 +251,19 @@ static float orient(float ax, float ay, float bx, float by, float cx, float cy) 
     return cross(bx - ax, by - ay, cx - ax, cy - ay);
 }
 
-// Do the closed segments a-b and c-d have a point in common?
+// The exe's segment test (sub_424AE0): two segments intersect if their
+// lines cross at a point that lies on both, ends included -- so touching
+// counts -- and never if they are parallel, even lying on one line.
 static int segments_meet(float ax, float ay, float bx, float by, float cx, float cy, float dx, float dy) {
+    if (cross(bx - ax, by - ay, dx - cx, dy - cy) == 0) return 0;
     float o1 = orient(ax, ay, bx, by, cx, cy), o2 = orient(ax, ay, bx, by, dx, dy);
     float o3 = orient(cx, cy, dx, dy, ax, ay), o4 = orient(cx, cy, dx, dy, bx, by);
-    if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return 1;
-    // Touching or collinear: a point of one lying on the other.
-    #define ON(o, px, py, qx, qy, rx, ry) \
-        ((o) == 0 && (rx) >= fminf(px, qx) && (rx) <= fmaxf(px, qx) && (ry) >= fminf(py, qy) && (ry) <= fmaxf(py, qy))
-    int touch = ON(o1, ax, ay, bx, by, cx, cy) || ON(o2, ax, ay, bx, by, dx, dy) ||
-                ON(o3, cx, cy, dx, dy, ax, ay) || ON(o4, cx, cy, dx, dy, bx, by);
-    #undef ON
-    return touch;
+    return o1 * o2 <= 0 && o3 * o4 <= 0;
 }
 
 // Does the straight line from a to b leave the floor? It does if it meets
 // any edge of the outline, taken in order and closed back to the first
-// point -- which is how the exe's sub_424E40 decides it. Its segment test
-// (sub_424AE0) was not decompiled; here touching the outline counts as
-// leaving, the safe side.
+// point (the exe's sub_424E40).
 static int blocked(const PetkaWalkMesh *mesh, float ax, float ay, float bx, float by) {
     for (uint32_t i = 0; i < mesh->point_count; i++) {
         const PetkaPoint *c = &mesh->points[i], *d = &mesh->points[(i + 1) % mesh->point_count];
@@ -285,6 +278,12 @@ static int blocked(const PetkaWalkMesh *mesh, float ax, float ay, float bx, floa
 int petka_walkmesh_path(const PetkaWalkMesh *mesh, float from_x, float from_y,
                         float to_x, float to_y, PetkaPoint *out, int max) {
     float start[2], goal[2];
+    // An end that had to be moved lies on the outline. In the exe that makes
+    // every line through it "touch" and so never straightened; whole-pixel
+    // rounding can leave the moved point a hair off the edge, where the
+    // touch would be missed, so it is remembered rather than re-detected.
+    int start_moved = petka_walkmesh_locate(mesh, from_x, from_y) < 0;
+    int goal_moved = petka_walkmesh_locate(mesh, to_x, to_y) < 0;
     int from = petka_walkmesh_snap(mesh, from_x, from_y, &start[0], &start[1]);
     int to = petka_walkmesh_snap(mesh, to_x, to_y, &goal[0], &goal[1]);
     if (max < 1) return 0;
@@ -322,7 +321,9 @@ int petka_walkmesh_path(const PetkaWalkMesh *mesh, float from_x, float from_y,
         pts[2 * n] = pts[2 * i];
         pts[2 * n + 1] = pts[2 * i + 1];
         n++;
-        if (n >= 3 && !blocked(mesh, pts[2 * (n - 3)], pts[2 * (n - 3) + 1], pts[2 * (n - 1)], pts[2 * (n - 1) + 1])) {
+        int touches = (n == 3 && start_moved) || (i == total - 1 && goal_moved);
+        if (n >= 3 && !touches &&
+            !blocked(mesh, pts[2 * (n - 3)], pts[2 * (n - 3) + 1], pts[2 * (n - 1)], pts[2 * (n - 1) + 1])) {
             pts[2 * (n - 2)] = pts[2 * (n - 1)];
             pts[2 * (n - 2) + 1] = pts[2 * (n - 1) + 1];
             n--;

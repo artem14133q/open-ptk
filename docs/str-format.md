@@ -290,16 +290,21 @@ Implemented in `core/src/walk.c`: `petka_walkmesh_open` and
 So the hero keeps to the middle of doorways and gaps instead of cutting
 corners. The stays-on-the-floor test (`sub_424E40`) is: the line must not
 intersect any edge of the outline, taken in order and closed back to the
-first point (identical points pass at once). Its segment-intersection
-helper (`sub_424AE0`) was not decompiled; ours counts touching as
-intersecting.
+first point (identical points pass at once). Two segments intersect
+(`sub_424AE0`) if their lines cross at a point lying on both, ends included
+-- touching counts -- and never if they are parallel, even on one line.
 
 Moving an off-floor point onto the floor (`sub_425120`): the nearest point
 of every outline edge is found (`sub_4252F0`), the closest of them replaces
 the point (truncated to whole pixels), and the polygon is the one that lists
-that edge. Ours does the same search but then nudges the point half a pixel
-towards the polygon's centre, because a point exactly on the outline would
-count as touching it in our on-the-floor test. `walktest` routes 425,000 random point pairs with it,
+that edge. Such a point lies on the outline and so touches it: a route to or
+from it is never straightened through it. (The implementation remembers
+that an end was moved instead of relying on the touch being detected:
+truncation can leave the point a fraction of a pixel outside the edge, and a
+line between two such points across a bay of the outline crosses nothing.
+Whether the exe has that hole was not checked.)
+
+`walktest` routes 425,000 random point pairs with it,
 none missing and none leaving the floor.
 
 ## Resource-ID indirection — SOLVED: `RESOURCE.QRC` is plain text
