@@ -169,9 +169,18 @@ static const char *folder_to_room(const char *folder) {
 
 // Heuristic object numbering (NOT the original engine's scheme -- that
 // wasn't recovered, see docs/str-format.md): within one background folder,
-// every FLC that has a matching MSK is a clickable "object"; we number
-// them 0,1,2... in on-disk order and treat that as a PetkaDialogueTopic
-// index. Good enough to demo the dialogue system against real objects.
+// every FLC that (a) sits directly in the "XXXX.BG\" folder -- not in a
+// nested subfolder -- and (b) has a matching MSK, is treated as one of the
+// scene's standing/idle objects, numbered 0,1,2... in on-disk order and
+// used as both the PetkaDialogueTopic index and the thing we render
+// automatically when a background loads.
+//
+// The "no nested subfolder" rule matters: those subfolders (ACTIV-XX.YYY,
+// POD-TOK, KOLODEC, RAZGOVOR, ...) hold cutscene/reaction animation
+// fragments (e.g. a conversation broken into PET-ANK0..PET-ANK5 clips)
+// meant to play one at a time when triggered, not simultaneously -- lumping
+// them in with the always-visible props would turn busy rooms into visual
+// noise instead of a recognizable scene.
 typedef struct {
     const PetkaEntry **items;
     int count;
@@ -185,6 +194,7 @@ static ObjectList build_object_list(const PetkaStore *flic_store, const EntryLis
     for (int i = 0; i < flics->count; i++) {
         const PetkaEntry *e = flics->items[i];
         if (strncmp(e->name, prefix, prefix_len) != 0) continue;
+        if (strchr(e->name + prefix_len, '\\') != NULL) continue; // nested subfolder: skip
         char msk_name[512];
         make_msk_name(e->name, msk_name, sizeof(msk_name));
         if (petka_store_find(flic_store, msk_name)) list.items[list.count++] = e;
@@ -413,15 +423,23 @@ int main(int argc, char **argv) {
     }
 
     int bg_index = 0;
-    int flic_index = -1; // -1 = no overlay
     Texture2D bg_tex = {0};
-    Texture2D flic_tex = {0};
-    PetkaFlic *flic = NULL;
-    PetkaMskRect mrect = {0};
     int bg_width = 0, bg_height = 0;
-    double next_frame_time = 0;
 
-    int loaded_bg = -1, loaded_flic = -2; // force initial load
+    // All of the current room's standing/idle objects (see
+    // build_object_list's comment), rendered simultaneously -- not just one
+    // picked by hand -- so the assembled scene actually looks like the
+    // room, not a background with everything but the background missing.
+#define MAX_SCENE_OBJECTS 32
+    PetkaFlic *scene_flic[MAX_SCENE_OBJECTS] = {0};
+    Texture2D scene_tex[MAX_SCENE_OBJECTS] = {0};
+    PetkaMskRect scene_rect[MAX_SCENE_OBJECTS] = {0};
+    double scene_next_frame[MAX_SCENE_OBJECTS] = {0};
+    char scene_name[MAX_SCENE_OBJECTS][128] = {{0}};
+    int scene_count = 0;
+    int selected_object = -1; // index into the scene objects above, for ENTER
+
+    int loaded_bg = -1; // force initial load (also rebuilds scene objects)
 
     int sound_index = -1; // -1 = none selected
     Sound current_sound = {0};
@@ -474,9 +492,9 @@ int main(int argc, char **argv) {
         } else {
             exit_choice = 0;
         }
-        if (flics.count > 0) {
-            if (IsKeyPressed(KEY_UP)) flic_index = flic_index + 1 >= flics.count ? -1 : flic_index + 1;
-            if (IsKeyPressed(KEY_DOWN)) flic_index = flic_index - 1 < -1 ? flics.count - 1 : flic_index - 1;
+        if (scene_count > 0) {
+            if (IsKeyPressed(KEY_UP)) selected_object = selected_object + 1 >= scene_count ? -1 : selected_object + 1;
+            if (IsKeyPressed(KEY_DOWN)) selected_object = selected_object - 1 < -1 ? scene_count - 1 : selected_object - 1;
         }
         if (sounds.count > 0) {
             if (IsKeyPressed(KEY_PAGE_UP)) sound_index = sound_index + 1 >= sounds.count ? -1 : sound_index + 1;
@@ -487,13 +505,8 @@ int main(int argc, char **argv) {
             }
         }
         for (int k = 0; k < 4; k++) if (IsKeyPressed(KEY_ONE + k)) verb_choice = k;
-        if (IsKeyPressed(KEY_ENTER) && dtree && phrases && flic_index >= 0) {
-            char prefix[512];
-            folder_prefix(bgs.items[bg_index]->name, prefix, sizeof(prefix));
-            ObjectList objs = build_object_list(flic_store, &flics, prefix);
-            int topic_idx = -1;
-            for (int i = 0; i < objs.count; i++)
-                if (objs.items[i] == flics.items[flic_index]) { topic_idx = i; break; }
+        if (IsKeyPressed(KEY_ENTER) && dtree && phrases && selected_object >= 0) {
+            int topic_idx = selected_object; // same ordering build_object_list produced below
 
             dialogue_line_count = 0;
             if (topic_idx < 0) {
@@ -541,7 +554,6 @@ int main(int argc, char **argv) {
                     }
                 }
             }
-            free(objs.items);
         }
 
         if (bg_index != loaded_bg) {
@@ -560,37 +572,50 @@ int main(int argc, char **argv) {
             } else {
                 fprintf(stderr, "petka_bmp_decode failed for %s\n", e->name);
             }
-            loaded_bg = bg_index;
-        }
-
-        if (flic_index != loaded_flic) {
-            if (flic) { petka_flic_close(flic); flic = NULL; }
-            if (flic_tex.id) { UnloadTexture(flic_tex); flic_tex = (Texture2D){0}; }
-            if (flic_index >= 0) {
-                const PetkaEntry *e = flics.items[flic_index];
-                size_t len = 0;
-                const uint8_t *bytes = petka_store_entry_data(flic_store, e, &len);
-                flic = petka_flic_open(bytes, len);
-                if (flic) {
-                    mrect = (PetkaMskRect){0, 0, flic->width, flic->height};
+            // Rebuild the scene's standing objects for the new background
+            // (see build_object_list's comment: top-level FLC+MSK pairs in
+            // this room's folder, all rendered at once).
+            for (int i = 0; i < scene_count; i++) {
+                if (scene_flic[i]) petka_flic_close(scene_flic[i]);
+                if (scene_tex[i].id) UnloadTexture(scene_tex[i]);
+                scene_flic[i] = NULL;
+                scene_tex[i] = (Texture2D){0};
+            }
+            scene_count = 0;
+            selected_object = -1;
+            if (flic_store) {
+                char prefix[512];
+                folder_prefix(e->name, prefix, sizeof(prefix));
+                ObjectList objs = build_object_list(flic_store, &flics, prefix);
+                int n = objs.count < MAX_SCENE_OBJECTS ? objs.count : MAX_SCENE_OBJECTS;
+                for (int i = 0; i < n; i++) {
+                    const PetkaEntry *oe = objs.items[i];
+                    snprintf(scene_name[i], sizeof(scene_name[0]), "%s", oe->name);
+                    size_t olen = 0;
+                    const uint8_t *obytes = petka_store_entry_data(flic_store, oe, &olen);
+                    scene_flic[i] = petka_flic_open(obytes, olen);
+                    if (!scene_flic[i]) { fprintf(stderr, "petka_flic_open failed for %s\n", oe->name); continue; }
+                    scene_rect[i] = (PetkaMskRect){0, 0, scene_flic[i]->width, scene_flic[i]->height};
                     char msk_name[512];
-                    make_msk_name(e->name, msk_name, sizeof(msk_name));
+                    make_msk_name(oe->name, msk_name, sizeof(msk_name));
                     const PetkaEntry *msk_entry = petka_store_find(flic_store, msk_name);
                     if (msk_entry) {
-                        size_t msk_len = 0;
-                        const uint8_t *msk_bytes = petka_store_entry_data(flic_store, msk_entry, &msk_len);
-                        petka_msk_rect(msk_bytes, msk_len, &mrect);
+                        size_t mlen = 0;
+                        const uint8_t *mbytes = petka_store_entry_data(flic_store, msk_entry, &mlen);
+                        petka_msk_rect(mbytes, mlen, &scene_rect[i]);
                     }
-                    uint8_t *rgba = flic_to_rgba(flic);
-                    Image img = {.data = rgba, .width = flic->width, .height = flic->height, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
-                    flic_tex = LoadTextureFromImage(img);
+                    uint8_t *rgba = flic_to_rgba(scene_flic[i]);
+                    Image img = {.data = rgba, .width = scene_flic[i]->width, .height = scene_flic[i]->height, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+                    scene_tex[i] = LoadTextureFromImage(img);
                     UnloadImage(img);
-                    next_frame_time = GetTime();
-                } else {
-                    fprintf(stderr, "petka_flic_open failed for %s\n", e->name);
+                    scene_next_frame[i] = GetTime();
+                    scene_count++;
                 }
+                free(objs.items);
             }
-            loaded_flic = flic_index;
+            if (scene_count > 0) selected_object = 0;
+
+            loaded_bg = bg_index;
         }
 
         if (sound_index != loaded_sound) {
@@ -611,25 +636,30 @@ int main(int argc, char **argv) {
             loaded_sound = sound_index;
         }
 
-        if (flic && GetTime() >= next_frame_time) {
-            petka_flic_advance(flic);
-            uint8_t *rgba = flic_to_rgba(flic);
-            UpdateTexture(flic_tex, rgba);
+        for (int i = 0; i < scene_count; i++) {
+            if (!scene_flic[i] || GetTime() < scene_next_frame[i]) continue;
+            petka_flic_advance(scene_flic[i]);
+            uint8_t *rgba = flic_to_rgba(scene_flic[i]);
+            UpdateTexture(scene_tex[i], rgba);
             free(rgba);
-            next_frame_time = GetTime() + flic->speed_ms / 1000.0;
+            scene_next_frame[i] = GetTime() + scene_flic[i]->speed_ms / 1000.0;
         }
 
         BeginDrawing();
         ClearBackground(BLACK);
         Rectangle dst = {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()};
         if (bg_tex.id) DrawTexturePro(bg_tex, (Rectangle){0, 0, (float)bg_tex.width, (float)bg_tex.height}, dst, (Vector2){0, 0}, 0, WHITE);
-        if (flic && bg_width > 0) {
+        if (bg_width > 0) {
             float sx = (float)GetScreenWidth() / (float)bg_width;
             float sy = (float)GetScreenHeight() / (float)bg_height;
-            Rectangle src = {(float)mrect.left, (float)mrect.top,
-                              (float)(mrect.right - mrect.left), (float)(mrect.bottom - mrect.top)};
-            Rectangle clip = {src.x * sx, src.y * sy, src.width * sx, src.height * sy};
-            DrawTexturePro(flic_tex, src, clip, (Vector2){0, 0}, 0, WHITE);
+            for (int i = 0; i < scene_count; i++) {
+                if (!scene_flic[i]) continue;
+                Rectangle src = {(float)scene_rect[i].left, (float)scene_rect[i].top,
+                                  (float)(scene_rect[i].right - scene_rect[i].left), (float)(scene_rect[i].bottom - scene_rect[i].top)};
+                Rectangle clip = {src.x * sx, src.y * sy, src.width * sx, src.height * sy};
+                DrawTexturePro(scene_tex[i], src, clip, (Vector2){0, 0}, 0, WHITE);
+                if (i == selected_object) DrawRectangleLinesEx(clip, 2, ORANGE);
+            }
         }
 
         if (dtree) {
@@ -673,7 +703,9 @@ int main(int argc, char **argv) {
 
         DrawRectangle(0, GetScreenHeight() - 84, GetScreenWidth(), 84, Fade(BLACK, 0.6f));
         DrawText(TextFormat("[%d/%d] %s", bg_index + 1, bgs.count, bgs.items[bg_index]->name), 10, GetScreenHeight() - 74, 18, LIME);
-        DrawText(flic_index >= 0 ? TextFormat("[%d/%d] %s", flic_index + 1, flics.count, flics.items[flic_index]->name) : "(no overlay)",
+        DrawText(selected_object >= 0
+                      ? TextFormat("[%d/%d objects] selected: %s", selected_object + 1, scene_count, scene_name[selected_object])
+                      : (scene_count > 0 ? TextFormat("[%d objects in room, none selected]", scene_count) : "(no objects in this room)"),
                   10, GetScreenHeight() - 50, 18, YELLOW);
         DrawText(sound_index >= 0
                       ? TextFormat("[%d/%d] %s %s", sound_index + 1, sounds.count, sounds.items[sound_index]->name,
@@ -683,9 +715,11 @@ int main(int argc, char **argv) {
         EndDrawing();
     }
 
-    if (flic) petka_flic_close(flic);
+    for (int i = 0; i < scene_count; i++) {
+        if (scene_flic[i]) petka_flic_close(scene_flic[i]);
+        if (scene_tex[i].id) UnloadTexture(scene_tex[i]);
+    }
     if (bg_tex.id) UnloadTexture(bg_tex);
-    if (flic_tex.id) UnloadTexture(flic_tex);
     if (current_sound.frameCount > 0) UnloadSound(current_sound);
     if (voice_sound.frameCount > 0) UnloadSound(voice_sound);
     if (cyrillicFont.texture.id != GetFontDefault().texture.id) UnloadFont(cyrillicFont);
