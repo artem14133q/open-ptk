@@ -215,40 +215,48 @@ likely either a genuine artifact in the original 1998 asset, or a seam
 from our simplified "index 0 = transparent" rule where the real engine's
 compositing is subtler. Cosmetic only, not investigated further yet.
 
-## `.CVX` convex walk-mesh — SOLVED (byte-exact, via decompiled `Walk.cpp`)
+## `.CVX` convex walk-mesh — SOLVED (byte-exact, geometry verified)
 
-Reverse-engineered from `sub_423390` (confirmed as `Walk.cpp` via the
-`aDGameWalkCpp` string constant passed to every allocation). This is the
-walkable-area navigation mesh, loaded by lowercasing the background's own
-filename, truncating at a known substring, and appending `CVX` — i.e. it's
-derived from the background name, not looked up via a `.cvx` string literal
-(which is why that string search came up empty).
+The walkable floor of a background, cut into convex polygons. Loaded by
+`sub_423390` (`Walk.cpp`), which builds the name from the background's own:
+`P-ROOM-1.BMP` -> `P-ROOM-1.CVX`, same folder (there is no `.cvx` string
+literal in the exe). A room with several backgrounds has a mesh for each
+(`LENIN.CVX`, `LENIN000.CVX`, `LENIN010.CVX`).
 
 ```
 u32 countA
-countA * (i32 x, i32 y)     -- pool A: outline vertex points
+countA * (i32 x, i32 y)            -- pool A: corners of the floor's outline, in order
 u32 countB
-countB * (i32 idxFrom, i32 idxTo)  -- pool B: edges, as index pairs into pool A
+countB * (i32 from, i32 to)        -- pool B: edges, as index pairs into pool A
 u32 poly_count
-poly_count * u32            -- vertex count per convex polygon
+poly_count * u32                   -- entry count per polygon
 for each polygon:
-  N * i32 index             -- combined index: < countA -> pool A vertex,
-                             --                >= countA -> pool B edge (index - countA)
+  N * i32 index                    -- < countA: a corner (pool A index)
+                                   -- >= countA: an edge (pool B index, used as is)
 ```
 
-Verified byte-exact against `BOLOTO.CVX` (976 bytes): `countA=30` (the
-outline), `countB=48` (30 boundary edges + 18 internal diagonals splitting
-the outline into convex pieces), `poly_count=19` convex polygons — **parses
-to exactly 976/976 bytes, zero leftover** (this resolved the earlier
-"mystery 188 trailing bytes," which was just mis-framing from guessing the
-layout before having the decompiled loader).
+Pool B starts with the outline itself -- its first `countA` edges are
+`(i-1, i)` -- followed by the diagonals that cut the outline into convex
+pieces. A polygon's entries are its corners plus the diagonals it shares
+with its neighbours, not a ring: the corner set is the listed corners plus
+both ends of every listed diagonal, and since the polygon is convex, sorting
+them by angle around the centroid gives the ring. Two polygons that list the
+same diagonal are neighbours, and that diagonal is the way between them.
 
-Still open: the exact geometric meaning of a polygon index that resolves
-into pool B (an edge, i.e. two vertex indices, not a single point) isn't
-nailed down -- plausibly a half-edge/winged-edge style mesh representation
-used for fast neighbor lookups during A* pathfinding (shared edges between
-adjacent convex cells). Not needed until pathfinding/walking is actually
-implemented; the byte layout itself is fully solved either way.
+Checked on the 33 meshes of `PART_1`: the outline edges are as described,
+every diagonal a polygon lists is listed by exactly two, and the polygons'
+areas add up to the outline's area to the pixel. All 85 meshes of the three
+parts parse to their exact length, and `walktest` routes 425,000 random
+point pairs across them without one route missing or leaving the floor. Two
+meshes (`OKNO.CVX`, `VREMUNKY.CVX`) contain a polygon
+that is concave by a pixel or two -- level-editor slack, harmless.
+
+Implemented in `core/src/walk.c`: `petka_walkmesh_open`, and
+`petka_walkmesh_path`, which finds the chain of polygons between two points
+(Dijkstra over centroids) and pulls the route tight through the shared
+diagonals (funnel algorithm). This is our own pathfinder over the game's
+mesh; how `Walk.cpp` itself routes was not decompiled, so the hero may take
+a slightly different line than in the original.
 
 ## Resource-ID indirection — SOLVED: `RESOURCE.QRC` is plain text
 
@@ -666,13 +674,18 @@ take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
 
 `launcher/` — the game front end: `petka_launcher <game_dir> [PART_N]`. It
 draws the current room from the script VM's state, turns clicks into script
-messages and tells the VM when animations, walks and dialogues finish. Not
-done yet: `.CVX` pathfinding (heroes walk in a straight line), per-frame hero
-offsets (`.OFF`/`.LEG`), dialogue menus (`CHOICE` takes the first option),
+messages and tells the VM when animations, walks and dialogues finish; heroes
+walk across the room's `.CVX` mesh. Not done yet: per-frame hero offsets
+(`.OFF`/`.LEG`), dialogue menus (`CHOICE` takes the first option),
 AVI playback, part switching, save/load. For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
-quit), `PETKA_POST=<frame>:<obj>:<opcode>,...`, `PETKA_FAST=1` and
-`PETKA_TRACE=1`.
+quit), `PETKA_POST=<frame>:<obj>:<opcode>,...`, `PETKA_FAST=1`,
+`PETKA_TRACE=1` and `PETKA_DEBUG=1` (start with the F1 overlay, which draws
+the walk mesh and the heroes' routes).
+
+`tools/walktest/main.c` — parses every `.CVX` in a store and routes random
+point pairs across each, failing if a route is missing or leaves the floor:
+`walktest <FLCn.STR> [pairs_per_mesh]`.
 
 `tools/scripttest/main.c` — parses a part's `SCRIPT.DAT` + `BACKGRND.BG` and
 runs the message VM headless (animations and dialogues end instantly):

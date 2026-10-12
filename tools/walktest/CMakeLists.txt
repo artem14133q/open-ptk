@@ -1,0 +1,5 @@
+add_executable(walktest main.c)
+target_link_libraries(walktest PRIVATE petka_core)
+if(NOT WIN32)
+    target_link_libraries(walktest PRIVATE m)
+endif()

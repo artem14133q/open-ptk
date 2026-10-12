@@ -8,8 +8,8 @@
 // there is none), right click / 1-5 = pick a verb, click an inventory item
 // to use it on something, F1 = debug overlay.
 //
-// Known gaps (not in the script, still to be reversed): heroes walk in a
-// straight line (no .CVX pathfinding), nobody's mouth moves in dialogues,
+// Known gaps (not in the script, still to be reversed): nobody's mouth
+// moves in dialogues,
 // AVI playback and part switching are only reported, backgrounds wider than
 // the screen do not scroll.
 #include "petka/bmp.h"
@@ -19,6 +19,7 @@
 #include "petka/script.h"
 #include "petka/store.h"
 #include "petka/topology.h"
+#include "petka/walk.h"
 
 #include "raylib.h"
 
@@ -46,9 +47,13 @@ typedef struct {
     int live;    // drawn this frame
 } Visual;
 
+#define MAX_WAYPOINTS 32
+
+// A hero on the move: the corners of his route across the room's walk mesh.
 typedef struct {
     int active;
-    float tx, ty;
+    PetkaPoint path[MAX_WAYPOINTS];
+    int count, next;
 } Walk;
 
 typedef struct {
@@ -67,6 +72,8 @@ typedef struct {
 
     Visual *visuals; // parallel to script->objects
     Texture2D bg_tex;
+    PetkaWalkMesh *mesh;    // the current background's floor, NULL if it has none
+    uint16_t mesh_resource; // background the mesh belongs to
     uint16_t bg_resource;
     uint16_t shown_room;
 
@@ -412,15 +419,45 @@ static Rectangle hero_dest(const Game *g, const PetkaObjectState *st, const Visu
     return (Rectangle){st->x - ax * s, st->y - ay * s, v->flic->width * s, v->flic->height * s};
 }
 
+// The walk mesh sits next to the background under the same name
+// (P-ROOM-1.BMP -> P-ROOM-1.CVX). Called as soon as the room is known, not
+// from the frame loop: a room's INITBG reaction may start a walk at once.
+static void load_mesh(Game *g) {
+    const PetkaObjectState *room = petka_scriptvm_state(g->vm, g->vm->room);
+    uint16_t resource = room ? room->resource : PETKA_NONE;
+    if (resource == g->mesh_resource) return;
+    petka_walkmesh_close(g->mesh);
+    g->mesh = NULL;
+    g->mesh_resource = resource;
+    const char *path = resource != PETKA_NONE ? g->qrc[resource] : NULL;
+    if (!path || !has_ext(path, ".BMP")) return;
+    char cvx[512];
+    swap_ext(path, "CVX", cvx, sizeof(cvx));
+    size_t len = 0;
+    const uint8_t *bytes = res_find(g, cvx, &len);
+    if (bytes) g->mesh = petka_walkmesh_open(bytes, len);
+}
+
 static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
     Game *g = (Game *)user;
     PetkaObjectState *st = petka_scriptvm_state(g->vm, hero_id);
     if (!st || !st->visible || hero_id > 1) return 0;
-    float dx = (float)(x - st->x), dy = (float)(y - st->y);
+    Walk *w = &g->walk[hero_id];
+    load_mesh(g);
+    w->count = g->mesh ? petka_walkmesh_path(g->mesh, (float)st->x, (float)st->y, (float)x, (float)y,
+                                             w->path, MAX_WAYPOINTS) : 0;
+    if (w->count == 0) {
+        // No floor to follow (a cutscene screen, the map): go straight.
+        w->path[0] = (PetkaPoint){x, y};
+        w->count = 1;
+    }
+    // Measured to where the walk would really end: a click off the floor is
+    // pulled onto it, possibly right back to where the hero stands.
+    const PetkaPoint *end = &w->path[w->count - 1];
+    float dx = (float)(end->x - st->x), dy = (float)(end->y - st->y);
     if (dx * dx + dy * dy < 25) return 0; // the exe's own "already there" threshold
-    g->walk[hero_id].active = 1;
-    g->walk[hero_id].tx = (float)x;
-    g->walk[hero_id].ty = (float)y;
+    w->active = 1;
+    w->next = 0;
     return 1;
 }
 
@@ -428,12 +465,14 @@ static void walk_update(Game *g, uint16_t hero_id, float dt) {
     Walk *w = &g->walk[hero_id];
     PetkaObjectState *st = petka_scriptvm_state(g->vm, hero_id);
     if (!w->active || !st) return;
-    float dx = w->tx - st->x, dy = w->ty - st->y;
+    const PetkaPoint *target = &w->path[w->next];
+    float dx = (float)(target->x - st->x), dy = (float)(target->y - st->y);
     float dist = sqrtf(dx * dx + dy * dy);
     float step = HERO_SPEED * hero_scale(g, (float)st->y) * dt;
     if (dist <= step || dist < 1.0f) {
-        st->x = (int32_t)w->tx;
-        st->y = (int32_t)w->ty;
+        st->x = target->x;
+        st->y = target->y;
+        if (++w->next < w->count) return; // on to the next corner
         w->active = 0;
         if (st->costume != PETKA_NONE) st->resource = st->costume;
         petka_scriptvm_walk_ended(g->vm, hero_id);
@@ -544,6 +583,7 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     const PetkaObject *prev = prev_id != PETKA_NONE ? petka_script_find(g->script, prev_id) : NULL;
     if (!room) return;
     load_perspective(g, room->name);
+    load_mesh(g);
     g->walk[0].active = g->walk[1].active = 0;
 
     const PetkaRoom *section = g->topo ? petka_topology_find_room(g->topo, room->name) : NULL;
@@ -722,7 +762,7 @@ int main(int argc, char **argv) {
 
     static Game game;
     Game *g = &game;
-    g->bg_resource = g->shown_room = g->music_id = g->ambience_id = PETKA_NONE;
+    g->bg_resource = g->shown_room = g->music_id = g->ambience_id = g->mesh_resource = PETKA_NONE;
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
     static const char *const kStoreNames[] = {"MAIN.STR", "BGS%s.STR", "FLC%s.STR", "WAV%s.STR",
@@ -798,7 +838,7 @@ int main(int argc, char **argv) {
     }
     if (start) petka_scriptvm_enter_room(g->vm, start->id, 0);
 
-    int debug = 0;
+    int debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
     Drawable scene[256];
     while (!WindowShouldClose() && !g->quit) {
         float scale = (float)GetScreenWidth() / GAME_W;
@@ -838,6 +878,7 @@ int main(int argc, char **argv) {
             const char *path = g->bg_resource != PETKA_NONE ? g->qrc[g->bg_resource] : NULL;
             if (path && has_ext(path, ".BMP")) g->bg_tex = load_bmp_texture(g, path);
         }
+        load_mesh(g);
         if (room_st) {
             set_stream(g, &g->music, &g->music_id, room_st->music);
             set_stream(g, &g->ambience, &g->ambience_id, room_st->bgsfx);
@@ -977,6 +1018,27 @@ int main(int argc, char **argv) {
         if (g->status[0] && GetTime() < g->status_until)
             DrawTextEx(font, g->status, (Vector2){10, 36}, 18, 1, YELLOW);
         if (debug) {
+            // The floor's polygons, and the route each hero is following.
+            for (uint32_t i = 0; g->mesh && i < g->mesh->poly_count; i++) {
+                const PetkaWalkPoly *poly = &g->mesh->polys[i];
+                for (uint32_t k = 0; k < poly->count; k++) {
+                    const PetkaPoint *a = &g->mesh->points[poly->verts[k]];
+                    const PetkaPoint *b = &g->mesh->points[poly->verts[(k + 1) % poly->count]];
+                    DrawLineEx((Vector2){a->x * scale, a->y * scale}, (Vector2){b->x * scale, b->y * scale},
+                               1, Fade(SKYBLUE, 0.8f));
+                }
+            }
+            for (uint16_t id = 0; id < 2; id++) {
+                const Walk *w = &g->walk[id];
+                const PetkaObjectState *hero = petka_scriptvm_state(vm, id);
+                Vector2 from = {hero ? hero->x * scale : 0, hero ? hero->y * scale : 0};
+                for (int i = w->next; w->active && hero && i < w->count; i++) {
+                    Vector2 to = {w->path[i].x * scale, w->path[i].y * scale};
+                    DrawLineEx(from, to, 3, id ? MAGENTA : RED);
+                    DrawCircleV(to, 5, id ? MAGENTA : RED);
+                    from = to;
+                }
+            }
             const PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
             DrawTextEx(font, TextFormat("room %u  objects %d  queue %u  mouse %d,%d  petka %d,%d %s",
                                         vm->room, scene_count, vm->queue_count, (int)mx, (int)my,
@@ -997,6 +1059,7 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
     free(g->visuals);
     if (g->bg_tex.id) UnloadTexture(g->bg_tex);
+    petka_walkmesh_close(g->mesh);
     if (g->voice.frameCount > 0) UnloadSound(g->voice);
     for (int i = 0; i < MAX_SOUNDS; i++) if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
     if (g->music.frameCount > 0) UnloadMusicStream(g->music);
