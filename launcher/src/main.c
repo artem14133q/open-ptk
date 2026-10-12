@@ -34,7 +34,6 @@
 #define GAME_H 480
 #define MAX_STORES 8
 #define MAX_SOUNDS 8
-#define HERO_SPEED 160.0f // px/s at full scale; a guess, not measured
 // Scrolling of backgrounds wider than the screen: the view moves when Petka
 // comes within SCROLL_MARGIN of its edge. Both numbers are ours; the exe is
 // only known to centre the view on the entry point when a room is entered.
@@ -57,13 +56,22 @@ typedef struct {
 } Visual;
 
 #define MAX_WAYPOINTS 32
+#define MAX_GAITS 8
 
-// A hero on the move: the corners of his route across the room's walk mesh.
+// A hero on the move. The route across the room's walk mesh is ours; how he
+// moves along it -- one step per frame of the walk clip -- is the exe's
+// (petka/walk.h).
 typedef struct {
     int active;
-    PetkaPoint path[MAX_WAYPOINTS];
-    int count, next;
+    PetkaWalker walker;
 } Walk;
+
+// The step tables of one set of walk clips, by the path they share
+// ("MAIN\WALK\P-" for Petka's W-N.FLC ... W-NW.FLC).
+typedef struct {
+    char prefix[96];
+    PetkaGait *gait; // NULL if the files are missing
+} GaitEntry;
 
 typedef struct {
     PetkaStore *stores[MAX_STORES];
@@ -98,6 +106,8 @@ typedef struct {
     // Hero scale by screen row, from BGS.INI; see hero_scale().
     float persp_base, persp_delta, persp_y0, persp_y1, persp_max;
     Walk walk[2];
+    GaitEntry gaits[MAX_GAITS];
+    int gait_count;
 
     const PetkaDialogueVerb *dialogue; // picked by the script, played by DIALOG
     PetkaDialogueVM dvm;
@@ -368,6 +378,8 @@ static int obj_index(const Game *g, const PetkaObject *obj) {
 
 static int is_hero(uint16_t id) { return id == PETKA_ID_PETKA || id == PETKA_ID_CHAPAYEV; }
 
+static void walk_frame(Game *g, uint16_t hero_id);
+
 // Brings one object's visual in line with its VM state and advances its
 // animation, following the exe's object update (sub_4015E0):
 //   - a clip of a single frame is never updated: no END, no sound;
@@ -422,6 +434,8 @@ static void visual_update(Game *g, const PetkaObject *obj) {
     if (frame == v->flic->frame_count / 2)
         petka_scriptvm_post(g->vm, obj->id, PETKA_OP_HALF, v->resource, 0, 0, -1);
     if (is_hero(obj->id) && st->rest_after_loop && frame == 1) v->next_frame += HERO_REST_SECONDS;
+    // A walking hero takes one step for each frame of his walk clip.
+    if (is_hero(obj->id) && g->walk[obj->id].active) walk_frame(g, obj->id);
 }
 
 // ---- heroes ----
@@ -478,14 +492,64 @@ static void load_names(Game *g, const char *part) {
 
 static const char *display_name(const Game *g, const PetkaObject *obj);
 
-// Where a hero's clip goes on screen: the bottom centre of its MSK rect
-// sits on the hero's position (an assumption -- the .OFF/.LEG files next to
-// the walk clips probably refine this per frame and are not decoded yet).
-static Rectangle hero_dest(const Game *g, const PetkaObjectState *st, const Visual *v) {
+// Where a hero's clip goes on screen. While he walks, the frame's foothold
+// (from the clip's .LEG file) sits on his position, so the feet do not
+// slide. A clip with no .LEG -- standing, talking, acting -- is placed by
+// the bottom centre of its MSK rect instead, which is our assumption, so he
+// may shift by a few pixels when a walk starts or ends.
+static Rectangle hero_dest(const Game *g, uint16_t hero_id, const PetkaObjectState *st, const Visual *v) {
+    const Walk *w = &g->walk[hero_id];
+    if (w->active) {
+        const PetkaGait *gait = w->walker.gait;
+        int dir = w->walker.dir, frame = v->flic->frame_index;
+        if (frame > gait->frames[dir]) frame = gait->frames[dir];
+        float s = hero_scale(g, (float)w->walker.y);
+        return (Rectangle){(float)w->walker.x - (float)gait->leg_x[dir][frame] * s,
+                           (float)w->walker.y - (float)gait->leg_y[dir][frame] * s,
+                           v->flic->width * s, v->flic->height * s};
+    }
     float s = hero_scale(g, (float)st->y);
     float ax = (v->rect.left + v->rect.right) / 2.0f, ay = (float)v->rect.bottom;
     return (Rectangle){st->x - ax * s, st->y - ay * s, v->flic->width * s, v->flic->height * s};
 }
+
+// The step tables for a costume's walk clips. As in the exe's Walk
+// constructor, the clips' common path is whatever precedes "W-N" in the
+// path of clip costume+10, and each direction adds its name and .OFF/.LEG.
+static const PetkaGait *gait_for(Game *g, uint16_t costume) {
+    static const char *const kDirs[PETKA_WALK_DIRS] = {"W-N", "W-NE", "W-E", "W-SE", "W-S", "W-SW", "W-W", "W-NW"};
+    const char *path = costume != PETKA_NONE ? g->qrc[(uint16_t)(costume + 10)] : NULL;
+    if (!path) return NULL;
+    char upper[96];
+    size_t n = 0;
+    for (; path[n] && n + 1 < sizeof(upper); n++)
+        upper[n] = path[n] >= 'a' && path[n] <= 'z' ? (char)(path[n] - 32) : path[n];
+    upper[n] = 0;
+    char *cut_at = strstr(upper, "W-N");
+    if (!cut_at) return NULL;
+    *cut_at = 0;
+
+    for (int i = 0; i < g->gait_count; i++)
+        if (strcmp(g->gaits[i].prefix, upper) == 0) return g->gaits[i].gait;
+    if (g->gait_count == MAX_GAITS) return NULL;
+    GaitEntry *entry = &g->gaits[g->gait_count++];
+    snprintf(entry->prefix, sizeof(entry->prefix), "%s", upper);
+
+    const uint8_t *off[PETKA_WALK_DIRS], *leg[PETKA_WALK_DIRS];
+    size_t off_len[PETKA_WALK_DIRS], leg_len[PETKA_WALK_DIRS];
+    for (int d = 0; d < PETKA_WALK_DIRS; d++) {
+        char name[160];
+        snprintf(name, sizeof(name), "%s%s.OFF", upper, kDirs[d]);
+        off[d] = res_find(g, name, &off_len[d]);
+        snprintf(name, sizeof(name), "%s%s.LEG", upper, kDirs[d]);
+        leg[d] = res_find(g, name, &leg_len[d]);
+        if (!off[d] || !leg[d]) { fprintf(stderr, "walk files not found: %s\n", name); return NULL; }
+    }
+    entry->gait = petka_gait_open(off, off_len, leg, leg_len);
+    return entry->gait;
+}
+
+static double walk_scale(void *user, double y) { return (double)hero_scale((const Game *)user, (float)y); }
 
 // The room on screen: the sequence being played, or else the room the game
 // is in. A sequence is a room made of full-screen clips, usually on the
@@ -521,21 +585,33 @@ static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
     if (!st || !st->visible || hero_id > 1) return 0;
     Walk *w = &g->walk[hero_id];
     load_mesh(g);
-    w->count = g->mesh ? petka_walkmesh_path(g->mesh, (float)st->x, (float)st->y, (float)x, (float)y,
-                                             w->path, MAX_WAYPOINTS) : 0;
-    if (w->count == 0) {
+    PetkaPoint route[MAX_WAYPOINTS];
+    int count = g->mesh ? petka_walkmesh_path(g->mesh, (float)st->x, (float)st->y, (float)x, (float)y,
+                                              route, MAX_WAYPOINTS) : 0;
+    if (count == 0) {
         // No floor to follow (a cutscene screen, the map): go straight.
-        w->path[0] = (PetkaPoint){x, y};
-        w->count = 1;
+        route[0] = (PetkaPoint){x, y};
+        count = 1;
     }
     // Measured to where the walk would really end: a click off the floor is
     // pulled onto it, possibly right back to where the hero stands.
-    const PetkaPoint *end = &w->path[w->count - 1];
-    float dx = (float)(end->x - st->x), dy = (float)(end->y - st->y);
+    PetkaPoint end = route[count - 1];
+    float dx = (float)(end.x - st->x), dy = (float)(end.y - st->y);
     if (dx * dx + dy * dy < 25) return 0; // the exe's own "already there" threshold
+
+    const PetkaGait *gait = gait_for(g, st->costume);
+    PetkaPoint from = {st->x, st->y};
+    if (!gait || !petka_walker_start(&w->walker, gait, from, route, count, walk_scale, g)) {
+        // Cannot walk it (no step tables for this costume): just be there.
+        st->x = end.x;
+        st->y = end.y;
+        return 0;
+    }
     w->active = 1;
-    w->next = 0;
     st->rest_after_loop = 0; // the walk clip loops, as when the exe starts a walk
+    // Walk clips are costume+10 .. costume+17: N, NE, E, SE, S, SW, W, NW.
+    st->resource = (uint16_t)(st->costume + 10 + w->walker.dir);
+    g->visuals[obj_index(g, petka_script_find(g->script, hero_id))].restart = 1;
     return 1;
 }
 
@@ -577,36 +653,22 @@ static void stop_heroes(Game *g) {
     }
 }
 
-static void walk_update(Game *g, uint16_t hero_id, float dt) {
+// One step of a walking hero, taken when his walk clip moves on a frame
+// (the exe's hero walk step, sub_408EF0).
+static void walk_frame(Game *g, uint16_t hero_id) {
     Walk *w = &g->walk[hero_id];
     PetkaObjectState *st = petka_scriptvm_state(g->vm, hero_id);
     if (!w->active || !st) return;
-    const PetkaPoint *target = &w->path[w->next];
-    float dx = (float)(target->x - st->x), dy = (float)(target->y - st->y);
-    float dist = sqrtf(dx * dx + dy * dy);
-    float step = HERO_SPEED * hero_scale(g, (float)st->y) * dt;
-    if (dist <= step || dist < 1.0f) {
-        st->x = target->x;
-        st->y = target->y;
-        if (++w->next < w->count) return; // on to the next corner
+    int result = petka_walker_step(&w->walker);
+    st->x = (int32_t)lround(w->walker.x);
+    st->y = (int32_t)lround(w->walker.y);
+    if (result == 2) {
+        // New direction: its clip, from the first frame.
+        st->resource = (uint16_t)(st->costume + 10 + w->walker.dir);
+        g->visuals[obj_index(g, petka_script_find(g->script, hero_id))].restart = 1;
+    } else if (result == 0) {
         w->active = 0;
         petka_scriptvm_walk_ended(g->vm, hero_id);
-        return;
-    }
-    // Sub-pixel steps would be lost in the integer position; walk at least
-    // one pixel per frame along the dominant axis.
-    float mx = dx / dist * step, my = dy / dist * step;
-    if (fabsf(mx) < 1 && fabsf(my) < 1) {
-        if (fabsf(dx) >= fabsf(dy)) mx = dx > 0 ? 1 : -1;
-        else my = dy > 0 ? 1 : -1;
-    }
-    st->x += (int32_t)lroundf(mx);
-    st->y += (int32_t)lroundf(my);
-    // Walk clips are costume+10 .. costume+17: N, NE, E, SE, S, SW, W, NW.
-    if (st->costume != PETKA_NONE) {
-        float angle = atan2f(dx, -dy); // 0 = north, clockwise
-        int dir = (int)lroundf(angle / (float)(M_PI / 4));
-        st->resource = (uint16_t)(st->costume + 10 + ((dir % 8) + 8) % 8);
     }
 }
 
@@ -846,7 +908,7 @@ static Rectangle visual_dest(const Game *g, const PetkaObject *obj) {
     const Visual *v = &g->visuals[obj_index(g, obj)];
     const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
     // Room clips are full-frame and already in place; hero clips are sprites.
-    if (is_hero(obj->id)) return hero_dest(g, st, v);
+    if (is_hero(obj->id)) return hero_dest(g, obj->id, st, v);
     return (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height};
 }
 
@@ -1079,8 +1141,6 @@ int main(int argc, char **argv) {
         if (g->music.frameCount > 0) UpdateMusicStream(g->music);
         if (g->ambience.frameCount > 0) UpdateMusicStream(g->ambience);
 
-        walk_update(g, PETKA_ID_PETKA, GetFrameTime());
-        walk_update(g, PETKA_ID_CHAPAYEV, GetFrameTime());
         camera_update(g, GetFrameTime());
         // Everything in the room is drawn through this; the HUD is not.
         Camera2D view = {.offset = {0, 0}, .target = {roundf(g->camera_x) * scale, 0}, .rotation = 0, .zoom = 1};
@@ -1263,8 +1323,8 @@ int main(int argc, char **argv) {
                 const Walk *w = &g->walk[id];
                 const PetkaObjectState *hero = petka_scriptvm_state(vm, id);
                 Vector2 from = {hero ? hero->x * scale : 0, hero ? hero->y * scale : 0};
-                for (int i = w->next; w->active && hero && i < w->count; i++) {
-                    Vector2 to = {w->path[i].x * scale, w->path[i].y * scale};
+                for (int i = w->walker.next; w->active && hero && i < w->walker.count; i++) {
+                    Vector2 to = {w->walker.route[i].x * scale, w->walker.route[i].y * scale};
                     DrawLineEx(from, to, 3, id ? MAGENTA : RED);
                     DrawCircleV(to, 5, id ? MAGENTA : RED);
                     from = to;
@@ -1293,6 +1353,7 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0; i < g->script->object_count; i++) free(g->names[i]);
     free(g->names);
     free(g->colors);
+    for (int i = 0; i < g->gait_count; i++) petka_gait_close(g->gaits[i].gait);
     if (g->bg_tex.id) UnloadTexture(g->bg_tex);
     petka_walkmesh_close(g->mesh);
     if (g->voice.frameCount > 0) UnloadSound(g->voice);

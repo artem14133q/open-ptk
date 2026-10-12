@@ -59,6 +59,65 @@ int petka_walkmesh_snap(const PetkaWalkMesh *mesh, float x, float y, float *out_
 int petka_walkmesh_path(const PetkaWalkMesh *mesh, float from_x, float from_y,
                         float to_x, float to_y, PetkaPoint *out, int max);
 
+// ---- gait: how a hero moves along a route ----
+//
+// A hero has eight walk clips, one per direction (N, NE, E, SE, S, SW, W,
+// NW). Next to each lie an .OFF and a .LEG file: per frame, how far the
+// sprite moves and where in the sprite the hero's foothold is. Their sum is
+// how far the foothold travels on that frame; the hero's position *is* the
+// foothold. A leg of the route rarely points exactly along a clip, so the
+// clip nearest in direction is played and its motion is turned by the
+// difference. Reimplements Walk.cpp's sub_422D30, sub_423B80 and sub_424030.
+
+#define PETKA_WALK_DIRS 8
+
+typedef struct {
+    int frames[PETKA_WALK_DIRS];        // frames in each direction's clip
+    // All owned, frames[d] + 1 entries; entry i belongs to clip frame i.
+    int32_t *leg_x[PETKA_WALK_DIRS], *leg_y[PETKA_WALK_DIRS];   // foothold inside the sprite
+    int32_t *step_x[PETKA_WALK_DIRS], *step_y[PETKA_WALK_DIRS]; // foothold travel on reaching frame i
+    double slope[PETKA_WALK_DIRS];      // dy/dx of the clip's own motion
+} PetkaGait;
+
+// off[d] / leg[d] are the two files of direction d ("xyof", then frames + 1
+// pairs of i32). Returns NULL if any of the sixteen is missing or malformed.
+PetkaGait *petka_gait_open(const uint8_t *const off[PETKA_WALK_DIRS], const size_t off_len[PETKA_WALK_DIRS],
+                           const uint8_t *const leg[PETKA_WALK_DIRS], const size_t leg_len[PETKA_WALK_DIRS]);
+void petka_gait_close(PetkaGait *gait);
+
+// Hero scale at a screen row; steps are multiplied by it.
+typedef double (*PetkaScaleFn)(void *user, double y);
+
+#define PETKA_WALK_MAX_ROUTE 34
+
+typedef struct {
+    const PetkaGait *gait;
+    PetkaScaleFn scale;
+    void *user;
+
+    PetkaPoint route[PETKA_WALK_MAX_ROUTE]; // route[0] is where the walk starts
+    int count, next;                        // next = point being walked towards
+
+    int dir;        // clip in use, 0..7
+    int frame;      // frame of that clip the hero is on
+    int steps_left; // steps before the current leg is over
+    double cos_a, sin_a;     // turn applied to the clip's motion
+    double start_x, start_y; // where the current leg began
+    double acc_x, acc_y;     // foothold travel so far on this leg, before the turn
+    double x, y;             // the hero's position
+} PetkaWalker;
+
+// Sets a walk up from `from` through `points`. Returns 0 if there is nowhere
+// to go (no points, or all of them where the hero already stands).
+int petka_walker_start(PetkaWalker *w, const PetkaGait *gait, PetkaPoint from,
+                       const PetkaPoint *points, int count, PetkaScaleFn scale, void *user);
+
+// One step, to be taken each time the walk clip moves on a frame. Returns
+// 0 when the hero has arrived (x, y are then exactly the last point),
+// 1 after an ordinary step, 2 when the direction -- and so the clip --
+// changed; the new clip starts at its first frame.
+int petka_walker_step(PetkaWalker *w);
+
 #ifdef __cplusplus
 }
 #endif

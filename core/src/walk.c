@@ -342,3 +342,183 @@ int petka_walkmesh_path(const PetkaWalkMesh *mesh, float from_x, float from_y,
     free(right);
     return n > 0 ? n : 0;
 }
+
+// ---- gait ----
+
+static int32_t rd_i32(const uint8_t *p) {
+    return (int32_t)((uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24);
+}
+
+// "xyof" then pairs of i32. Returns the number of pairs, 0 if malformed.
+static int load_xyof(const uint8_t *data, size_t len, int32_t **out_x, int32_t **out_y) {
+    if (!data || len < 12 || memcmp(data, "xyof", 4) != 0 || (len - 4) % 8 != 0) return 0;
+    int n = (int)((len - 4) / 8);
+    *out_x = (int32_t *)malloc((size_t)n * sizeof(int32_t));
+    *out_y = (int32_t *)malloc((size_t)n * sizeof(int32_t));
+    for (int i = 0; i < n; i++) {
+        (*out_x)[i] = rd_i32(data + 4 + 8 * i);
+        (*out_y)[i] = rd_i32(data + 8 + 8 * i);
+    }
+    return n;
+}
+
+PetkaGait *petka_gait_open(const uint8_t *const off[PETKA_WALK_DIRS], const size_t off_len[PETKA_WALK_DIRS],
+                           const uint8_t *const leg[PETKA_WALK_DIRS], const size_t leg_len[PETKA_WALK_DIRS]) {
+    PetkaGait *gait = (PetkaGait *)calloc(1, sizeof(PetkaGait));
+    for (int d = 0; d < PETKA_WALK_DIRS; d++) {
+        int32_t *off_x = NULL, *off_y = NULL;
+        int n_off = load_xyof(off[d], off_len[d], &off_x, &off_y);
+        int n_leg = load_xyof(leg[d], leg_len[d], &gait->leg_x[d], &gait->leg_y[d]);
+        int n = n_off - 1; // the last pair repeats the first
+        if (n < 1 || n_leg != n_off) {
+            free(off_x);
+            free(off_y);
+            petka_gait_close(gait);
+            return NULL;
+        }
+        gait->frames[d] = n;
+        gait->step_x[d] = (int32_t *)malloc((size_t)(n + 1) * sizeof(int32_t));
+        gait->step_y[d] = (int32_t *)malloc((size_t)(n + 1) * sizeof(int32_t));
+        // The sprite's own move plus the foothold's move inside the sprite.
+        for (int i = 1; i <= n; i++) {
+            gait->step_x[d][i] = gait->leg_x[d][i] + off_x[i] - gait->leg_x[d][i - 1];
+            gait->step_y[d][i] = gait->leg_y[d][i] + off_y[i] - gait->leg_y[d][i - 1];
+        }
+        gait->step_x[d][0] = gait->step_x[d][n];
+        gait->step_y[d][0] = gait->step_y[d][n];
+        free(off_x);
+        free(off_y);
+
+        // Where the clip takes the hero by itself, summed over 150 steps as
+        // the exe does (a whole number of cycles would do as well).
+        long sum_x = 0, sum_y = 0;
+        for (int k = 0, i = 1; k < 150; k++, i = (i + 1) % n) {
+            sum_x += gait->step_x[d][i];
+            sum_y += gait->step_y[d][i];
+        }
+        gait->slope[d] = (double)sum_y / (double)sum_x; // +-inf for a vertical clip, as in the exe
+    }
+    return gait;
+}
+
+void petka_gait_close(PetkaGait *gait) {
+    if (!gait) return;
+    for (int d = 0; d < PETKA_WALK_DIRS; d++) {
+        free(gait->leg_x[d]);
+        free(gait->leg_y[d]);
+        free(gait->step_x[d]);
+        free(gait->step_y[d]);
+    }
+    free(gait);
+}
+
+#define PI 3.14159265358979323846
+
+// Angle of each clip, counter-clockwise from east with y pointing up -- the
+// table the exe builds at start-up (0x4E1F18).
+static const double kDirAngle[PETKA_WALK_DIRS] = {
+    PI / 2, PI / 4, 0, -PI / 4, -PI / 2, -3 * PI / 4, PI, 3 * PI / 4,
+};
+
+// Sets up the leg from a to b: picks the clip, the turn and the number of
+// steps (sub_423B80). Returns 0 for a leg of no length.
+static int walker_leg(PetkaWalker *w, PetkaPoint a, PetkaPoint b) {
+    const PetkaGait *gait = w->gait;
+    double dx = (double)(b.x - a.x), dy = (double)(b.y - a.y);
+    if (dx == 0.0 && dy == 0.0) return 0;
+
+    // Nearest clip by direction. The second form of the angle catches the
+    // wrap-around at due west.
+    double angle = atan2(-dy, dx);
+    double other = angle >= 0.0 ? 2 * PI - angle : angle + 2 * PI;
+    double best = 4.0;
+    for (int d = 0; d < PETKA_WALK_DIRS; d++) {
+        if (fabs(angle - kDirAngle[d]) < best) { best = fabs(angle - kDirAngle[d]); w->dir = d; }
+        if (fabs(other - kDirAngle[d]) < best) { best = fabs(other - kDirAngle[d]); w->dir = d; }
+    }
+
+    // Turn the clip's own line of motion onto the leg. The exe measures the
+    // angle against the point where that line meets the leg's end column,
+    // then folds it into +-90 degrees; the line has no direction, so this
+    // comes to the same thing.
+    double turn = atan2(dy, dx) - atan(gait->slope[w->dir]);
+    while (turn > PI / 2) turn -= PI;
+    while (turn < -PI / 2) turn += PI;
+    w->cos_a = cos(turn);
+    w->sin_a = sin(turn);
+
+    // Dry run: step until ten steps in a row bring the hero no nearer to
+    // the end, and keep the step count of the nearest approach.
+    int n = gait->frames[w->dir];
+    double acc_x = 0, acc_y = 0, y = (double)a.y;
+    double nearest = dx * dx + dy * dy + 1.0;
+    int steps = 0, worse = 0, frame = 1 % n;
+    w->steps_left = 0;
+    while (worse < 10) {
+        double s = w->scale ? w->scale(w->user, (double)(long long)y) : 1.0;
+        acc_x += (double)gait->step_x[w->dir][frame] * s;
+        acc_y += (double)gait->step_y[w->dir][frame] * s;
+        steps++;
+        frame = (frame + 1) % n;
+        y = acc_y * w->cos_a + acc_x * w->sin_a + (double)a.y;
+        double ex = acc_x * w->cos_a - acc_y * w->sin_a + (double)a.x - (double)b.x;
+        double ey = y - (double)b.y;
+        double d2 = ex * ex + ey * ey;
+        if (d2 >= nearest) {
+            worse++;
+        } else {
+            nearest = d2;
+            w->steps_left = steps;
+            worse = 0;
+        }
+    }
+
+    w->acc_x = w->acc_y = 0;
+    w->x = w->start_x = (double)a.x;
+    w->y = w->start_y = (double)a.y;
+    w->frame = 0;
+    return 1;
+}
+
+int petka_walker_start(PetkaWalker *w, const PetkaGait *gait, PetkaPoint from,
+                       const PetkaPoint *points, int count, PetkaScaleFn scale, void *user) {
+    memset(w, 0, sizeof(*w));
+    w->gait = gait;
+    w->scale = scale;
+    w->user = user;
+    // Drop legs of no length, which the leg set-up cannot take.
+    w->route[w->count++] = from;
+    for (int i = 0; i < count && w->count < PETKA_WALK_MAX_ROUTE; i++) {
+        PetkaPoint prev = w->route[w->count - 1];
+        if (points[i].x != prev.x || points[i].y != prev.y) w->route[w->count++] = points[i];
+    }
+    if (w->count < 2) return 0;
+    w->next = 1;
+    return walker_leg(w, w->route[0], w->route[1]);
+}
+
+// sub_424030.
+int petka_walker_step(PetkaWalker *w) {
+    const PetkaGait *gait = w->gait;
+    int dir = w->dir;
+    w->frame = (w->frame + 1) % gait->frames[dir];
+    if (--w->steps_left < 0) {
+        // This leg is done: on to the next point, or arrived.
+        if (++w->next >= w->count) {
+            w->x = (double)w->route[w->count - 1].x;
+            w->y = (double)w->route[w->count - 1].y;
+            return 0;
+        }
+        int frame = w->frame;
+        walker_leg(w, w->route[w->next - 1], w->route[w->next]);
+        if (w->dir != dir) return 2;
+        w->frame = frame; // same clip: it just carries on
+        return 1;
+    }
+    double s = w->scale ? w->scale(w->user, (double)(long long)w->y) : 1.0;
+    w->acc_x += (double)gait->step_x[dir][w->frame] * s;
+    w->acc_y += (double)gait->step_y[dir][w->frame] * s;
+    w->x = w->acc_x * w->cos_a - w->acc_y * w->sin_a + w->start_x;
+    w->y = w->acc_y * w->cos_a + w->acc_x * w->sin_a + w->start_y;
+    return 1;
+}

@@ -489,9 +489,9 @@ and gets one of three answers:
   is then cleared, which is what releases the `QM_WALKED` queued behind the
   walk.
 
-The launcher reproduces the resting clip, the re-armed sound and the arrival
-(`petka_scriptvm_walk_ended`); the walk itself is its own (constant speed
-along the route, not one step per clip frame).
+The launcher reproduces the resting clip, the re-armed sound, the arrival
+(`petka_scriptvm_walk_ended`) and the step per clip frame (see "Gait"
+below); the walk-speed slider is not.
 
 ### Opcodes
 
@@ -582,26 +582,62 @@ and 1.0 for a room with no line. So the hero is `a` times full size at row
 factor: `МОСТ = 0.9 0.0 0 480 0.9` is a flat 0.9. The walk step asks for
 this on every frame, and the hero's clip is drawn at its frame size times it.
 
-**Walk offsets**: next to each of the 24 walk clips (`MAIN\WALK\P-W-E.FLC`,
-...) lie an `.OFF` and a `.LEG` file of the same layout:
+**Gait** -- how a hero moves along a route (`Walk.cpp`; implemented in
+`core/src/walk.c` as `PetkaGait` / `PetkaWalker`, checked by `gaittest`).
+
+Next to each of a hero's eight walk clips (`MAIN\WALK\P-W-N.FLC` ... `W-NW`,
+in the order N, NE, E, SE, S, SW, W, NW) lie an `.OFF` and a `.LEG` file of
+the same layout:
 
 ```
 "xyof"
 (clip frames + 1) x (i32 x, i32 y)     -- the last pair repeats the first
 ```
 
-`.OFF` is how far the hero moves on each frame: over one cycle the eastward
-clip adds up to about +123 pixels in x, the westward one to -119, north to
--20 in y, south to +30. `.LEG` is a point inside the sprite for each frame
-(e.g. 84,186 in the eastward clip) -- by the look of it the foot that is on
-the ground, i.e. what stays put on the hero's position. The walk step
-(`sub_424030`) takes the current frame's entry from two per-direction
-tables, scales it by the hero scale, adds it to two running sums, rotates
-them by the leg's angle and adds the leg's start point; when a leg's step
-count runs out it moves to the next route point. Which table is which, the
-rotation and the use of `.LEG` are in functions not decompiled yet
-(`sub_422D30`, `sub_423B80`, `0x4089A0`), so the launcher still walks at a
-constant speed.
+`.OFF` is how far the sprite moves on each frame, `.LEG` where in the sprite
+the hero's foothold is on each frame. The constructor (`sub_422D30`) adds
+them up into the step tables,
+
+```
+step[i] = OFF[i] + LEG[i] - LEG[i-1]        (i = 1..frames; step[0] = step[frames])
+```
+
+i.e. how far the foothold travels on reaching frame `i`. The bobbing of the
+sprite and of the foothold inside it cancel out, leaving a steady advance
+(about 10 pixels a frame for the eastward clip; one cycle moves Petka
+(123, -1) east, (2, -20) north, (-119, -3) west, (3, 30) south). It also
+keeps each clip's slope: the sum of the y steps over the sum of the x steps.
+
+The hero's position is the foothold. A route is a list of points; for each
+leg (`sub_423B80`):
+
+1. the leg's angle is taken counter-clockwise from east with y pointing up,
+   and the clip whose angle is nearest is chosen from the table
+   `pi/2, pi/4, 0, -pi/4, -pi/2, -3pi/4, pi, 3pi/4` (built at start-up at
+   `0x4E1F18`; read out of the four initialisers at `0x422C00`-`0x422C80`
+   by hand);
+2. the angle between the clip's own line of motion (its slope) and the leg
+   is the turn, folded into +-90 degrees;
+3. the leg is dry-run: steps are added up, each times the hero scale at the
+   row reached, until ten in a row bring the hero no nearer to the leg's
+   end; the count at the nearest approach is the leg's number of steps.
+
+Each time the walk clip moves on a frame (`sub_424030`) the frame's step,
+times the hero scale, is added to two running sums, and the position is the
+leg's start plus those sums turned by the turn. When the steps run out the
+next leg is set up from its exact start point; after the last one the hero
+is put exactly on the destination. The sprite is drawn with the current
+frame's `.LEG` point on the position.
+
+`gaittest` walks 4000 random legs per hero and scale: the hero ends 1-5
+pixels from the leg's end on average and always within one step, with all
+eight clips in use -- which a wrong sign in the turn or swapped tables
+would not survive. Not seen in the exe: how the position is applied to the
+sprite (`0x4089A0`; drawing by the `.LEG` point is the reading that makes
+the sprite move by exactly `.OFF`), how a clip without a `.LEG` is anchored
+(the launcher uses the bottom centre of its MSK rect), and how the route
+itself is built (`sub_423650`; the launcher uses its own pathfinder over the
+`.CVX` mesh).
 
 `CHAPTER n` (`sub_411C00`) opens the store named by `[Part P Chapter n]` in
 `PARTS.INI` (`chap21.str`, `chap22.str`) and re-reads `NAMES.INI`/`CAST.INI`
@@ -885,8 +921,9 @@ messages and tells the VM when animations, walks and dialogues finish; heroes
 walk across the room's `.CVX` mesh, dialogue menus are shown for the player
 to pick a line, whoever speaks plays his talking clip and his lines are in
 his `CAST.INI` colour, objects are called by their `NAMES.INI` names, and
-backgrounds wider than the screen scroll to keep Petka in view. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
-AVI playback, part switching, save/load. For unattended runs it reads
+backgrounds wider than the screen scroll to keep Petka in view. They move
+along the route by the game's own gait (one step per walk-clip frame, from
+`.OFF`/`.LEG`). Not done yet: AVI playback, part switching, save/load. For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
 quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
@@ -903,6 +940,10 @@ use the same coordinates, so only the view moves. On `GOTO` the exe centres
 it on the entry point (`walk_x - 320`, clamped to the background); how it
 follows the hero afterwards was not traced, so the launcher's rule -- scroll
 when Petka comes within 200 pixels of the edge -- is its own.
+
+`tools/gaittest/main.c` — loads a hero's `.OFF`/`.LEG` step tables and walks
+thousands of random legs, failing if the hero does not end up next to the
+end of each: `gaittest <MAIN.STR> [clip prefix, e.g. MAIN\WALK\W-]`.
 
 `tools/walktest/main.c` — parses every `.CVX` in a store and routes random
 point pairs across each, failing if a route is missing or leaves the floor:

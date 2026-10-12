@@ -1,0 +1,5 @@
+add_executable(gaittest main.c)
+target_link_libraries(gaittest PRIVATE petka_core)
+if(NOT WIN32)
+    target_link_libraries(gaittest PRIVATE m)
+endif()
