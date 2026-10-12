@@ -395,6 +395,46 @@ it. The data format itself, however, is fully solved: all dialogue text,
 voice-clip filenames, and branching/random-variant logic can already be
 extracted and replayed from any `PART_N/DIALOGUE.FIX`+`.LOD` pair.
 
+## Room topology — SOLVED: `BGS.INI` is the room graph, plain text
+
+`PART_N/BGS.INI` (found inside `MAIN.STR`, same location/family as
+`DIALOGUE.FIX`/`.LOD`/`CAST.INI`/`NAMES.INI` — **not** the per-part
+`BGS*.STR`/`FLC*.STR` stores, which is why this was missed on the first
+several passes looking for topology there). Plain CP1251 INI text:
+
+```
+[Settings]
+StartRoom = Seq - INTRO0          ; or a room name directly
+;StartRoom = КОМНАТА ПЕТЬКИ         (commented-out alternates, ignored)
+
+<room name> = <5 numbers>          ; per-room walk/perspective scale params,
+                                    ; e.g. "0.3 0.7 130 290 1.0" -- not
+                                    ; parsed (not needed for the graph
+                                    ; itself; likely camera/character
+                                    ; depth-scaling factors, unverified)
+
+[<room name>]
+<target room name> = <human-readable exit description>
+...                                 ; one [section] per room; every line is
+                                     ; one exit to an adjacent room
+```
+
+Implemented in `core/src/topology.c` (`petka_topology_parse`). Verified on
+`PART_1/BGS.INI`: 28 rooms, **zero dangling exit targets** (every exit's
+destination resolves to an actual `[room]` section) — e.g. `[БОЛОТО]` (the
+swamp) has one exit to `ЛЕСНАЯ ДОРОГА` ("Выход из Болота на Лес с
+Транспарантом"), `[ДОМ ПЕТЬКИ]` (Petka's house) has four exits
+(`ВРЕМЯНКА`/`БАНЯ`/`ХУТОР`/`ОКНО`).
+
+**Open gap**: room names here (`БОЛОТО`, `ДЕРЕВО`'s equivalent, etc.) are
+the game's own Cyrillic display names, not the `.BG` resource folder names
+used everywhere else (`BOLOTO.BG`, `DEREVO.BG`) — no direct mapping between
+the two has been found yet. They're clearly related by transliteration in
+most cases (`ХУТОР`→`HUTOR.BG`, `ВРЕМЯНКА`→`VREMYNKA.BG`-ish) but not
+reliably enough to hardcode without checking each one — needed before the
+engine can actually load the right background when walking through an
+exit.
+
 ## Tooling
 
 `tools/strtool/main.c` — host-side (macOS/Linux/clang) lister/extractor.
@@ -408,3 +448,10 @@ With `extract_dir`, dumps every named resource to
 `<extract_dir>/<original backslash-path-with-/-separators>`, creating
 directories as needed. Verified against `BGS1.STR` (34/34 BMPs extracted,
 valid per `file(1)`).
+
+`tools/flictest/main.c` — dumps N decoded FLIC frames as `.ppm` for visual
+inspection. `tools/dlgtest/main.c` — walks every topic/verb in a part's
+dialogue tree and prints the resulting phrase text. `tools/topotest/main.c`
+— prints a part's room graph and flags any dangling exit target. All three
+take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
+`<store.str> <entry_name> <out_dir> [num_frames]` (flictest).

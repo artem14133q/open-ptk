@@ -4,6 +4,7 @@ add_library(petka_core STATIC
     src/flic.c
     src/msk.c
     src/dialogue.c
+    src/topology.c
 )
 
 target_include_directories(petka_core PUBLIC
