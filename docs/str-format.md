@@ -461,21 +461,38 @@ a plausible guess.
 
 ```
 u32 phrase_count N
-u32 _unused        (always 0 in samples seen)
 N × 24-byte phrase records:
-    char filename[16]   "11_01701.wav" style voice-clip filename (NUL-padded,
+    u32  speaker         id of the SCRIPT.DAT object that says the phrase
+    char filename[16]    "11_01701.wav" style voice-clip filename (NUL-padded,
                          and legitimately EMPTY for ~58% of entries -- not
                          every phrase has its own voice clip)
-    u32  _unused1        (on-disk garbage, overwritten at load time)
-    u32  _unused2
+    u32  _unused         (on-disk garbage, overwritten at load time)
 immediately followed by:
 N NUL-terminated strings, CP1251, in the same order as the phrase
 records — the actual on-screen dialogue text for each phrase.
 ```
 
-Verified on `PART_1/DIALOGUE.LOD`: `N=2916`, phrase table is exactly
-`8 + 2916*24 = 69992` bytes, and the text blob runs to **exactly** EOF
-(164025 bytes total) with no remainder.
+An earlier reading put a second, always-zero header word before the records
+and two unused words after each filename. That is the same bytes shifted by
+four: the "zero header word" was phrase 0's speaker (Petka, object 0), and it
+cost phrase 0 the first four letters of its text ("Только не при Василь
+Иваныче..." came out as "ко не при...").
+
+Verified on all three parts: the table is `4 + 24*N` bytes, the text blob
+runs to exactly EOF, and the speaker of every one of the 8420 phrases is an
+existing object id that fits the line -- Petka (0) and Chapayev (1) say most
+of them, then the part's characters (`PART_1`: object 173 "Анка", 280
+"Фурманов", ...). The speaker is often a stand-in object rather than the
+hero himself, e.g. "Петька - КОМНАТА ПЕТЬКИ", the Petka lying in bed in the
+intro.
+
+The speaker is what drives talking animations. Whoever starts speaking is
+sent `SAY`, and `SAID` when the next phrase belongs to someone else or the
+dialogue pauses or ends. A hero turns those into his talking clip (costume
++ 1) and back; other speakers have `SAY`/`SAID` reactions in the script that
+do the same with their own clips (Anka: `SET 1614` / `SET 1607`). Only the
+`SAID` at the end of a dialogue was seen in the exe (`sub_4165A0`); sending
+them between phrases is inferred from the data.
 
 ### `DIALOGUE.FIX`: a 4-level tree index + one shared bytecode array
 
@@ -694,8 +711,8 @@ take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
 `launcher/` — the game front end: `petka_launcher <game_dir> [PART_N]`. It
 draws the current room from the script VM's state, turns clicks into script
 messages and tells the VM when animations, walks and dialogues finish; heroes
-walk across the room's `.CVX` mesh, and dialogue menus are shown for the
-player to pick a line. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
+walk across the room's `.CVX` mesh, dialogue menus are shown for the player
+to pick a line, and whoever speaks plays his talking clip. Not done yet: per-frame hero offsets (`.OFF`/`.LEG`),
 AVI playback, part switching, save/load. For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
 quit), `PETKA_POST=<frame>:<obj>:<opcode>,...`, `PETKA_FAST=1`,

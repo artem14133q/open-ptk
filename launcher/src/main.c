@@ -11,8 +11,7 @@
 // In a conversation, click a line of the menu (or press its number) to say
 // it; a click or Space skips the phrase being spoken.
 //
-// Known gaps (not in the script, still to be reversed): nobody's mouth
-// moves in dialogues,
+// Known gaps (not in the script, still to be reversed):
 // AVI playback and part switching are only reported, backgrounds wider than
 // the screen do not scroll.
 #include "petka/bmp.h"
@@ -88,6 +87,7 @@ typedef struct {
     PetkaDialogueVM dvm;
     int talking;
     int paused;        // dialogue waits for the script's CONTINUE
+    uint16_t talker;   // object speaking the current phrase, PETKA_NONE = nobody
     uint32_t menu[16]; // phrase indices of the lines the player may pick
     int menu_count;    // > 0 while the dialogue waits for that pick
     int auto_pick;     // dev: line to pick without asking; -1 = the last one, -2 = ask
@@ -529,12 +529,25 @@ static void host_select_dialogue(void *user, uint16_t obj_id, uint32_t key) {
     g->dialogue = find_dialogue(g, obj_id, key);
 }
 
+// Whoever speaks gets SAY, and SAID when he stops: heroes switch to their
+// talking clip themselves, other objects do it in their SAY/SAID reactions.
+// Both are delivered at once, not queued, like the exe's SAID at the end of
+// a dialogue.
+static void set_talker(Game *g, uint16_t id) {
+    if (g->talker == id) return;
+    uint16_t prev = g->talker;
+    g->talker = id;
+    if (prev != PETKA_NONE) petka_scriptvm_send(g->vm, prev, PETKA_OP_SAID, 0, 0, 0, -1);
+    if (id != PETKA_NONE) petka_scriptvm_send(g->vm, id, PETKA_OP_SAY, 0, 0, 0, -1);
+}
+
 static void next_phrase(Game *g) {
     if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
     uint32_t idx;
     int step = petka_dialoguevm_next(&g->dvm, &idx);
     if (step == 2) {
         // The dialogue hands control to the script and waits for CONTINUE.
+        set_talker(g, PETKA_NONE);
         g->talking = 0;
         g->paused = 1;
         g->line[0] = 0;
@@ -543,6 +556,7 @@ static void next_phrase(Game *g) {
         return;
     }
     if (step == 3) {
+        set_talker(g, PETKA_NONE);
         g->menu_count = petka_dialoguevm_choices(&g->dvm, g->menu, 16);
         if (g->menu_count > 16) g->menu_count = 16;
         g->line[0] = 0;
@@ -563,12 +577,14 @@ static void next_phrase(Game *g) {
         return;
     }
     const PetkaPhrase *ph = &g->phrases->phrases[idx];
+    set_talker(g, ph->speaker <= 0xFFFE ? (uint16_t)ph->speaker : PETKA_NONE);
     cp1251_to_utf8(ph->text, g->line, sizeof(g->line));
     // Without a voice clip the line stays up for a reading-speed guess.
     g->line_until = GetTime() + 1.2 + 0.05 * (double)strlen(ph->text);
     if (g->fast) {
         g->line_until = GetTime() + 0.1;
-        fprintf(stderr, "say: %s\n", g->line);
+        const PetkaObject *who = petka_script_find(g->script, g->talker);
+        fprintf(stderr, "say [%s]: %s\n", who ? utf8_name(who->name) : "?", g->line);
     } else if (ph->wav_name[0]) {
         char wav[64];
         snprintf(wav, sizeof(wav), "%s\\%s", g->speech_prefix, ph->wav_name);
@@ -790,6 +806,7 @@ int main(int argc, char **argv) {
     static Game game;
     Game *g = &game;
     g->bg_resource = g->shown_room = g->music_id = g->ambience_id = g->mesh_resource = PETKA_NONE;
+    g->talker = PETKA_NONE;
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
     static const char *const kStoreNames[] = {"MAIN.STR", "BGS%s.STR", "FLC%s.STR", "WAV%s.STR",
@@ -889,7 +906,10 @@ int main(int argc, char **argv) {
 
         if (g->dialogue_done) {
             g->dialogue_done = 0;
-            petka_scriptvm_dialogue_ended(vm, PETKA_NONE);
+            // The VM sends the last speaker his SAID before going on.
+            uint16_t talker = g->talker;
+            g->talker = PETKA_NONE;
+            petka_scriptvm_dialogue_ended(vm, talker);
         }
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
 

@@ -19,6 +19,7 @@ extern "C" {
 // ---- DIALOGUE.LOD: phrase table + text ----
 
 typedef struct {
+    uint32_t speaker;  // id of the SCRIPT.DAT object that says the phrase
     char wav_name[17]; // NUL-terminated, e.g. "11_01701.wav"
     char *text;        // owned, CP1251 bytes (not converted), NUL-terminated
 } PetkaPhrase;
