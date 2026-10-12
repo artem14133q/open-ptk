@@ -95,17 +95,17 @@ static void bg_folder_only(const char *entry_name, char *out, size_t out_sz) {
 // resource folder names. NOT a recovered mapping -- no such table was
 // found anywhere in the data (checked RESOURCE.QRC, BGDATA.DAT's "KARTA"
 // map-screen text). Built by hand from transliteration + content
-// inspection (e.g. DEREVO.BG's "/POD-TOK/" subfolder is full of
-// electrical-hazard objects -- ELEKTRO1-6, TOK-L/S/P -- matching
-// "ТРАНСФОРМАТОР"/transformer). Deliberately incomplete: entries left out
-// here just show as "no mapped background" rather than guessing wrong.
-// Written as UTF-8 and compared against topology room names (CP1251) via
-// cp1251_to_utf8() below.
+// inspection of each folder's FLC object names in FLC1.STR. All 28 of
+// PART_1's rooms are covered; most are high-confidence (direct
+// transliteration, or an unambiguous object name), a few are best-effort
+// guesses noted inline. Written as UTF-8 and compared against topology
+// room names (CP1251) via cp1251_to_utf8() below.
 typedef struct {
     const char *room_utf8;
     const char *folder;
 } RoomFolderMap;
 static const RoomFolderMap kRoomFolders[] = {
+    // High confidence: direct transliteration.
     {"БАНЯ", "BANIA"},
     {"БОЛОТО", "BOLOTO"},
     {"ВРЕМЯНКА", "VREMYNKA"},
@@ -114,15 +114,44 @@ static const RoomFolderMap kRoomFolders[] = {
     {"ПАЛЬМА", "PALMA"},
     {"ПАСЕКА", "PASEKA"},
     {"САРАЙ", "SARAY"},
-    {"МОСТИК У ДОМА ФУРМАНОВА", "MOSTIK"},
-    {"ПЕНЕК В ЛЕСУ", "PENEK"},
-    {"ДОРОГА ВОКРУГ ХЛЕВА", "HLEV"},
-    {"ПЕРЕКРЕСТОК В ЛЕСУ", "FOUR-WAY"},
-    {"КОМНАТА АНКИ", "ANKAROOM"},
-    {"ДОМ АНКИ", "ANHUTOR"},
-    {"ТРАНСФОРМАТОР", "DEREVO"},
-    {"КЛУБ", "DK"},
-    {"АКТОВЫЙ ЗАЛ В КЛУБЕ", "ZAL-DK"},
+    {"МОСТИК У ДОМА ФУРМАНОВА", "MOSTIK"},       // мостик = little bridge
+    {"ПЕНЕК В ЛЕСУ", "PENEK"},                    // пенек = stump
+    {"ДОРОГА ВОКРУГ ХЛЕВА", "HLEV"},              // хлев = cowshed
+    {"ПЕРЕКРЕСТОК В ЛЕСУ", "FOUR-WAY"},           // crossroads = four-way
+    // High confidence: constructed English name or unambiguous object match.
+    {"КОМНАТА АНКИ", "ANKAROOM"},                 // "Anka's Room"
+    {"ДОМ АНКИ", "ANHUTOR"},                      // "An(ka)" + "Hutor"
+    {"ТРАНСФОРМАТОР", "DEREVO"},                  // DEREVO.BG/POD-TOK has
+                                                   // ELEKTRO1-6/TOK-L/S/P
+                                                   // (ток=electric current)
+    {"КЛУБ", "DK"},                               // Дом Культуры = the "club"
+    {"АКТОВЫЙ ЗАЛ В КЛУБЕ", "ZAL-DK"},            // "Зал" (hall) + "ДК"
+    {"КОМНАТА ФУРМАНОВА", "SHWARC"},              // SHWARC.BG/FURMANOF/*.FLC
+    {"ДОМ ПЕТЬКИ", "LENIN"},                      // LENIN.BG has VHOD-B
+                                                   // (entrance-to-bathhouse)
+                                                   // + OUTBANIA, matching
+                                                   // DOM PETKI's БАНЯ exit
+    {"КОМНАТА ПЕТЬКИ", "P-ROOM"},                 // "Petka's Room"; has the
+                                                   // aquarium/fish/key props
+                                                   // from the dialogue text
+    {"ПОЛЕ", "POKOSHEN"},                         // покос = haymaking; has
+                                                   // STOG (haystack) objects
+    {"СВАЛКА", "WZRIV"},                          // has MAGNIT (scrapyard
+                                                   // magnet) + a PASEK
+                                                   // object, matching
+                                                   // SVALKA's ПАСЕКА exit
+    {"МОСТ", "SVOLOCHI"},                         // has MOST.FLC/AN-MOST
+                                                   // (bridge to Anka)
+    {"ПЕРЕД МАГАЗИНОМ", "SHOP"},                  // SHOP.BG/ALKISHI =
+                                                   // drunkards outside
+    {"МАГАЗИН ВНУТРИ", "SHOPPING"},               // SHOPPING.BG/TETKA =
+                                                   // shopkeeper lady inside
+    {"ДОМ ФУРМАНОВА", "DROVA"},                   // well+woodpile yard;
+                                                   // placed by elimination
+                                                   // next to SHWARC/MOSTIK
+    // Low confidence -- genuine coin flip, no distinguishing evidence found:
+    {"ЛЕСНАЯ ДОРОГА", "ROAD-L"},
+    {"ЛЕСНАЯ ДОРОГА - 2", "ROAD-R"},
 };
 static const int kRoomFolderCount = sizeof(kRoomFolders) / sizeof(kRoomFolders[0]);
 

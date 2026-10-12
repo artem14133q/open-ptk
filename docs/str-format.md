@@ -426,14 +426,25 @@ swamp) has one exit to `ЛЕСНАЯ ДОРОГА` ("Выход из Болот�
 Транспарантом"), `[ДОМ ПЕТЬКИ]` (Petka's house) has four exits
 (`ВРЕМЯНКА`/`БАНЯ`/`ХУТОР`/`ОКНО`).
 
-**Open gap**: room names here (`БОЛОТО`, `ДЕРЕВО`'s equivalent, etc.) are
-the game's own Cyrillic display names, not the `.BG` resource folder names
-used everywhere else (`BOLOTO.BG`, `DEREVO.BG`) — no direct mapping between
-the two has been found yet. They're clearly related by transliteration in
-most cases (`ХУТОР`→`HUTOR.BG`, `ВРЕМЯНКА`→`VREMYNKA.BG`-ish) but not
-reliably enough to hardcode without checking each one — needed before the
-engine can actually load the right background when walking through an
-exit.
+**Room name → `.BG` folder mapping — all 28/28 of PART_1 covered.** Room
+names here (`БОЛОТО`, etc.) are the game's own Cyrillic display names, not
+the `.BG` resource folder names used everywhere else (`BOLOTO.BG`) — no
+such mapping exists anywhere in the data (checked `RESOURCE.QRC` and
+`BGDATA.DAT`'s "KARTA" map-screen text, both dead ends). Built by hand in
+`launcher/src/main.c`'s `kRoomFolders` table from transliteration plus
+inspecting each folder's `.FLC` object names for unambiguous content clues
+— e.g. `SHWARC.BG` contains a subfolder literally named `FURMANOF`, so it's
+`КОМНАТА ФУРМАНОВА`; `LENIN.BG` has a `VHOD-B` ("entrance-to-bathhouse")
+object matching `ДОМ ПЕТЬКИ`'s only unexplained exit (to `БАНЯ`). Verified
+live in the engine: navigating into the mapped `ЛЕСНАЯ ДОРОГА` (→ `ROAD-L`)
+renders a background with a literal signpost reading "ЛЕС **С
+ТРАНСПАРАНТОМ**" ("forest **with a banner**") — exactly matching that
+exit's own description text in `BGS.INI`, confirming the guess rather than
+just plausibly fitting. Two entries (`ЛЕСНАЯ ДОРОГА`/`ЛЕСНАЯ ДОРОГА - 2` →
+`ROAD-L`/`ROAD-R`) are flagged in the table as lower-confidence (no
+distinguishing object-name evidence beyond generic road props), though the
+transparent/signpost match above is actually decent indirect evidence this
+one's right too.
 
 ## Tooling
 
