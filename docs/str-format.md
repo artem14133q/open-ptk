@@ -283,10 +283,12 @@ Implemented in `core/src/walk.c`: `petka_walkmesh_open` and
    floor (`sub_424E40`), the point in between is dropped.
 
 So the hero keeps to the middle of doorways and gaps instead of cutting
-corners. Two helpers were not decompiled and are stood in for: moving an
-off-floor point onto the floor (ours goes to the nearest point of the
-nearest polygon) and the stays-on-the-floor test (ours: the line must not
-meet the outline). `walktest` routes 425,000 random point pairs with it,
+corners. The stays-on-the-floor test (`sub_424E40`) is: the line must not
+intersect any edge of the outline, taken in order and closed back to the
+first point (identical points pass at once). Its segment-intersection
+helper (`sub_424AE0`) was not decompiled; ours counts touching as
+intersecting. Moving an off-floor point onto the floor (`sub_425120`) was
+not decompiled either; ours goes to the nearest point of the nearest polygon. `walktest` routes 425,000 random point pairs with it,
 none missing and none leaving the floor.
 
 ## Resource-ID indirection — SOLVED: `RESOURCE.QRC` is plain text

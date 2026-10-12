@@ -267,8 +267,10 @@ static int segments_meet(float ax, float ay, float bx, float by, float cx, float
 }
 
 // Does the straight line from a to b leave the floor? It does if it meets
-// the outline anywhere. (Our stand-in for the exe's sub_424E40, which was
-// not decompiled; touching the outline counts as leaving, the safe side.)
+// any edge of the outline, taken in order and closed back to the first
+// point -- which is how the exe's sub_424E40 decides it. Its segment test
+// (sub_424AE0) was not decompiled; here touching the outline counts as
+// leaving, the safe side.
 static int blocked(const PetkaWalkMesh *mesh, float ax, float ay, float bx, float by) {
     for (uint32_t i = 0; i < mesh->point_count; i++) {
         const PetkaPoint *c = &mesh->points[i], *d = &mesh->points[(i + 1) % mesh->point_count];
