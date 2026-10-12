@@ -409,6 +409,33 @@ If an object has no matching reaction but `DIALOGUE.FIX` has an entry for
 (object id, verb), that dialogue starts instead. For `OBJECTUSE` the verb key
 is `(item_id << 16) | 26` -- the "5th verb" described in the dialogue section.
 
+### How a click becomes a message
+
+A click on an object (`sub_401B30`, a virtual method of the object) first
+stops both heroes, then posts one message to the object, chosen by the
+cursor's current action (`+128` of the cursor object, `QSystem+140`):
+
+| action | message | arguments | sender |
+|---:|---|---|---|
+| 0 | `LOOK` | 0, 0, 0 | the object itself |
+| 1 | `WALK` | x, y of the click | the object itself |
+| 2 | `USE` | 0, 0, 0 | the object itself |
+| 3 | `TAKE` | 0, 0, 0 | the object itself |
+| 4 | `TALK` | 0, 0, 0 | the object itself |
+| 5 | `OBJECTUSE` | x, y of the click | Chapayev |
+| 6 | `OBJECTUSE` | 0, 0, 0 | the inventory object on the cursor (`+124`) |
+
+Action 5 is "send Chapayev": with no reaction to it, the built-in
+`OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
+message switches the cursor to. The arguments matter because a reaction's
+`IF` compares them.
+
+Where the other engine-sent messages come from, read off the constants at
+the call sites (the functions themselves were not all decompiled): `END`
+from the object update at `0x4015E0`, `TOTALINIT` from `sub_405D00` at
+load, `SAY`/`SAID` from the dialogue step at `0x4160E0`, `USERMSG` from
+`sub_409610`. No call site sends `HALF` as a constant.
+
 ### Opcodes
 
 Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
@@ -744,7 +771,8 @@ AVI playback, part switching, save/load. For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
 quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
-`PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels), `PETKA_TRACE=1`
+`PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels),
+`PETKA_CLICK=<frame>:<x>:<y>[:<verb>],...` (left-click there), `PETKA_TRACE=1`
 and `PETKA_DEBUG=1` (start with the F1 overlay, which draws
 the walk mesh and the heroes' routes).
 

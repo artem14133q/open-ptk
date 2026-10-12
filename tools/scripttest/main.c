@@ -142,7 +142,8 @@ int main(int argc, char **argv) {
             if (!st) { fprintf(stderr, "no such object: %u\n", obj_id); return 1; }
             printf("\n%s on %u \"%s\" (status %u)\n", petka_opcode_name(opcode), obj_id,
                    obj_name(script, obj_id), st->status);
-            petka_scriptvm_post(vm, obj_id, opcode, PETKA_NONE, PETKA_NONE, PETKA_NONE, PETKA_ID_PETKA);
+            // As a click does it: no arguments, the object is its own sender.
+            petka_scriptvm_post(vm, obj_id, opcode, 0, 0, 0, obj_id);
             run_all(vm, &host);
             printf("status now %u, visible %d, resource %d, interface %s, room %u \"%s\"\n",
                    st->status, st->visible, (int16_t)st->resource,

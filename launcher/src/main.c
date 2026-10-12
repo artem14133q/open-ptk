@@ -5,7 +5,7 @@
 // report back to the VM when they finish. See docs/str-format.md.
 //
 // Controls: left click = act on the object under the cursor (or walk when
-// there is none), right click / 1-5 = pick a verb, click an inventory item
+// there is none), right click / 1-6 = pick a verb, click an inventory item
 // to use it on something, F1 = debug overlay.
 //
 // In a conversation, click a line of the menu (or press its number) to say
@@ -119,9 +119,15 @@ typedef struct {
     double status_until;
 } Game;
 
+// The cursor's actions. A click on an object posts the action's message to
+// it (the exe's click handler, sub_401B30): the sender is the object itself
+// and the arguments are zero, except that WALK carries the clicked point.
+// The last action sends Chapayev over: OBJECTUSE with him as the sender and
+// the clicked point. (A seventh, using an inventory item, is OBJECTUSE with
+// the item as the sender; it is picked from the inventory, not from here.)
 static const struct { uint16_t op; const char *label; } kVerbs[] = {
     {PETKA_OP_WALK, "ИДТИ"}, {PETKA_OP_LOOK, "СМОТРЕТЬ"}, {PETKA_OP_TAKE, "ВЗЯТЬ"},
-    {PETKA_OP_USE, "ПРИМЕНИТЬ"}, {PETKA_OP_TALK, "ГОВОРИТЬ"},
+    {PETKA_OP_USE, "ПРИМЕНИТЬ"}, {PETKA_OP_TALK, "ГОВОРИТЬ"}, {PETKA_OP_OBJECTUSE, "ЧАПАЕВ"},
 };
 #define VERB_COUNT ((int)(sizeof(kVerbs) / sizeof(kVerbs[0])))
 
@@ -513,6 +519,18 @@ static void camera_update(Game *g, float dt) {
     else if (target < g->camera_x - step) g->camera_x -= step;
     else g->camera_x = target;
     if (g->camera_x > max_x) g->camera_x = max_x;
+}
+
+// Both heroes stop where they are. The exe does this on every click on an
+// object, before posting the click's message.
+static void stop_heroes(Game *g) {
+    for (uint16_t id = 0; id < 2; id++) {
+        PetkaObjectState *st = petka_scriptvm_state(g->vm, id);
+        if (!st || !g->walk[id].active) continue;
+        g->walk[id].active = 0;
+        if (st->costume != PETKA_NONE) st->resource = st->costume;
+        petka_scriptvm_walk_ended(g->vm, id);
+    }
 }
 
 static void walk_update(Game *g, uint16_t hero_id, float dt) {
@@ -955,6 +973,18 @@ int main(int argc, char **argv) {
         float pin_x, pin_y;
         if (getenv("PETKA_MOUSE") && sscanf(getenv("PETKA_MOUSE"), "%f,%f", &pin_x, &pin_y) == 2)
             mouse = (Vector2){pin_x * scale, pin_y * scale};
+        // dev: PETKA_CLICK=<frame>:<x>:<y>[:<verb>][,...] left-clicks at a
+        // point of the screen (game pixels), optionally picking a verb first.
+        int clicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        for (const char *p = getenv("PETKA_CLICK"); p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : "") {
+            long at = 0;
+            float cx = 0, cy = 0;
+            int verb = -1;
+            if (sscanf(p, "%ld:%f:%f:%d", &at, &cx, &cy, &verb) < 3 || at != frame + 1) continue;
+            mouse = (Vector2){cx * scale, cy * scale};
+            clicked = 1;
+            if (verb >= 0 && verb < VERB_COUNT) g->verb = verb;
+        }
         // The pointer in background pixels: where it is in the room.
         float mx = mouse.x / scale + g->camera_x, my = mouse.y / scale;
         PetkaScriptVM *vm = g->vm;
@@ -1045,7 +1075,7 @@ int main(int argc, char **argv) {
         if (g->menu_count > 0) {
             // The dialogue waits for the player's line: click it or press
             // its number.
-            int pick = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ? menu_hover : -1;
+            int pick = clicked ? menu_hover : -1;
             for (int k = 0; k < g->menu_count && k < 9; k++) if (IsKeyPressed(KEY_ONE + k)) pick = k;
             if (pick >= 0 && petka_dialoguevm_choose(&g->dvm, pick) == 0) {
                 g->menu_count = 0;
@@ -1053,7 +1083,7 @@ int main(int argc, char **argv) {
             }
         } else if (g->talking) {
             int voiced = g->voice.frameCount > 0;
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_SPACE) ||
+            if (clicked || IsKeyPressed(KEY_SPACE) ||
                 (voiced ? !IsSoundPlaying(g->voice) : GetTime() >= g->line_until))
                 next_phrase(g);
         } else if (can_act) {
@@ -1061,16 +1091,19 @@ int main(int argc, char **argv) {
                 if (vm->cursor_object != PETKA_NONE) vm->cursor_object = PETKA_NONE;
                 else g->verb = (g->verb + 1) % VERB_COUNT;
             }
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (clicked) {
                 if (inv_hover >= 0) {
                     vm->cursor_object = vm->inventory[inv_hover];
                 } else if (hover && vm->cursor_object != PETKA_NONE) {
-                    petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, (uint16_t)mx, (uint16_t)my,
-                                        PETKA_NONE, vm->cursor_object);
+                    stop_heroes(g);
+                    petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, 0, 0, 0, vm->cursor_object);
                     vm->cursor_object = PETKA_NONE;
                 } else if (hover) {
-                    petka_scriptvm_post(vm, hover->id, kVerbs[g->verb].op, (uint16_t)mx, (uint16_t)my,
-                                        PETKA_NONE, -1);
+                    uint16_t op = kVerbs[g->verb].op;
+                    int point = op == PETKA_OP_WALK || op == PETKA_OP_OBJECTUSE;
+                    stop_heroes(g);
+                    petka_scriptvm_post(vm, hover->id, op, point ? (uint16_t)mx : 0, point ? (uint16_t)my : 0, 0,
+                                        op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)hover->id);
                 } else if (my < inv_y / scale) {
                     PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
                     if (petka && host_walk(g, PETKA_ID_PETKA, (int32_t)mx, (int32_t)my)) petka->busy = 1;
