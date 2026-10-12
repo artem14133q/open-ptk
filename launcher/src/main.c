@@ -627,30 +627,69 @@ int main(int argc, char **argv) {
                 folder_prefix(e->name, prefix, sizeof(prefix));
                 ObjectList objs = build_object_list(flic_store, &flics, prefix);
                 int n = objs.count < MAX_SCENE_OBJECTS ? objs.count : MAX_SCENE_OBJECTS;
+
+                // Load every object first, indexed by STR entry order (which
+                // is arbitrary -- not a paint order).
+                PetkaFlic *load_flic[MAX_SCENE_OBJECTS] = {0};
+                Texture2D load_tex[MAX_SCENE_OBJECTS] = {0};
+                PetkaMskRect load_rect[MAX_SCENE_OBJECTS] = {0};
+                int loaded_n = 0;
                 for (int i = 0; i < n; i++) {
                     const PetkaEntry *oe = objs.items[i];
-                    snprintf(scene_name[i], sizeof(scene_name[0]), "%s", oe->name);
                     size_t olen = 0;
                     const uint8_t *obytes = petka_store_entry_data(flic_store, oe, &olen);
-                    scene_flic[i] = petka_flic_open(obytes, olen);
-                    if (!scene_flic[i]) { fprintf(stderr, "petka_flic_open failed for %s\n", oe->name); continue; }
-                    scene_rect[i] = (PetkaMskRect){0, 0, scene_flic[i]->width, scene_flic[i]->height};
+                    PetkaFlic *flic = petka_flic_open(obytes, olen);
+                    if (!flic) { fprintf(stderr, "petka_flic_open failed for %s\n", oe->name); continue; }
+                    PetkaMskRect rect = {0, 0, flic->width, flic->height};
                     char msk_name[512];
                     make_msk_name(oe->name, msk_name, sizeof(msk_name));
                     const PetkaEntry *msk_entry = petka_store_find(flic_store, msk_name);
                     if (msk_entry) {
                         size_t mlen = 0;
                         const uint8_t *mbytes = petka_store_entry_data(flic_store, msk_entry, &mlen);
-                        petka_msk_rect(mbytes, mlen, &scene_rect[i]);
+                        petka_msk_rect(mbytes, mlen, &rect);
                     }
-                    uint8_t *rgba = flic_to_rgba(scene_flic[i]);
-                    Image img = {.data = rgba, .width = scene_flic[i]->width, .height = scene_flic[i]->height, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
-                    scene_tex[i] = LoadTextureFromImage(img);
+                    uint8_t *rgba = flic_to_rgba(flic);
+                    Image img = {.data = rgba, .width = flic->width, .height = flic->height, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+                    load_flic[loaded_n] = flic;
+                    load_tex[loaded_n] = LoadTextureFromImage(img);
+                    load_rect[loaded_n] = rect;
+                    snprintf(scene_name[loaded_n], sizeof(scene_name[0]), "%s", oe->name);
                     UnloadImage(img);
-                    scene_next_frame[i] = GetTime();
-                    scene_count++;
+                    loaded_n++;
                 }
                 free(objs.items);
+
+                // Rooms are hand-painted with a fixed camera, so there's no
+                // real depth data to sort by -- approximate it with a
+                // painter's algorithm over each object's MSK rect bottom
+                // edge (lower on screen == closer to the camera == drawn
+                // later, on top). Without this, e.g. a pond that happens to
+                // sit earlier in the STR than a birch trunk in front of it
+                // would paint over the trunk instead of behind it.
+                int order[MAX_SCENE_OBJECTS];
+                for (int i = 0; i < loaded_n; i++) order[i] = i;
+                for (int i = 1; i < loaded_n; i++) {
+                    int key = order[i];
+                    int key_bottom = load_rect[key].bottom;
+                    int j = i - 1;
+                    while (j >= 0 && load_rect[order[j]].bottom > key_bottom) {
+                        order[j + 1] = order[j];
+                        j--;
+                    }
+                    order[j + 1] = key;
+                }
+                char sorted_name[MAX_SCENE_OBJECTS][128];
+                for (int i = 0; i < loaded_n; i++) {
+                    int src = order[i];
+                    scene_flic[i] = load_flic[src];
+                    scene_tex[i] = load_tex[src];
+                    scene_rect[i] = load_rect[src];
+                    scene_next_frame[i] = GetTime();
+                    snprintf(sorted_name[i], sizeof(sorted_name[0]), "%s", scene_name[src]);
+                }
+                for (int i = 0; i < loaded_n; i++) snprintf(scene_name[i], sizeof(scene_name[0]), "%s", sorted_name[i]);
+                scene_count = loaded_n;
             }
             if (scene_count > 0) selected_object = 0;
 
