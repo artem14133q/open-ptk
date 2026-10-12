@@ -166,18 +166,28 @@ well-known FLI/FLC format used by countless public decoders (e.g. ffmpeg's
 `COLOR_256`, etc.) can reuse any existing public-domain implementation
 instead of reversing `sub_410820`.
 
-**Known decoder bug, not yet fixed:** `core/src/flic.c`'s frame decode
-produces visibly corrupted output (horizontal smearing/tearing) for at
-least `PART_1/P-ROOM.BG/KROVATI.FLC` (a single-frame, i.e. no inter-frame
-delta involved) — confirmed it's a decode bug and not a launcher
-scaling/draw issue by dumping the raw decoded frame directly via
+**Fixed decoder bug:** `decode_byte_run` (the `BYTE_RUN`/chunk-15 decoder)
+had an off-by-one on its "replicate" packet (`n >= 0`): pixel count was
+`n + 1`, should be `n`. First caught as visible corruption (horizontal
+smearing/tearing) in `PART_1/P-ROOM.BG/KROVATI.FLC` (a single-frame FLC,
+no inter-frame delta involved) — confirmed it was a decode bug and not a
+launcher scaling/draw issue by dumping the raw decoded frame via
 `flictest` (`tools/flictest`) and seeing the same smearing in the `.ppm`
-output. Likely a bug in one of the chunk-type decoders (`BYTE_RUN`/`SS2`)
-for this file's specific chunk layout, not yet isolated. Other FLCs
-(campfire, pond ripple, birds, signposts, etc.) decode and animate
-correctly, so this isn't a wholesale format misunderstanding — probably an
-edge case (chunk size, packet count, or line-count field) the simpler
-test files never exercised.
+output. The bug was subtle to isolate: on flat-colored regions (most of
+any frame) an off-by-one on run length barely matters visually and total
+chunk byte-consumption still comes out *almost* right over hundreds of
+packets, so plain/simple test FLCs (campfire, pond ripple, birds,
+signposts) all looked and decoded fine; it only became glaring on
+`KROVATI.FLC`'s patchwork-quilt region, which is dense with many short
+runs, where the per-packet error compounds into a growing horizontal
+offset within each row. Root-caused by independently re-decoding the raw
+chunk bytes in Python (bypassing the C code entirely) and bisecting across
+candidate conventions (packet-count-authoritative vs `x < width`-bound
+loop; `n`/`n+1`/`-n`/`-n-1` run lengths) until total bytes consumed
+matched the chunk size exactly *and* the rendered image was coherent, not
+just byte-accounted-for -- byte accounting alone falsely "validated" a
+still-broken variant (loop bound fix without the length fix) earlier in
+the investigation.
 
 ## `.MSK` mask files — rect confirmed, no real per-pixel data found
 

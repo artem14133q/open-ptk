@@ -38,13 +38,24 @@ static uint32_t rd_u32(Reader *r) {
 static void decode_byte_run(Reader *r, uint8_t *indices, int width, int height) {
     for (int y = 0; y < height; y++) {
         uint8_t *row = indices + (size_t)y * width;
-        rd_u8(r); // packet count byte, unused -- packets run until the row is full
+        rd_u8(r); // packet count byte -- redundant with "packets until the row is full", not used
         int x = 0;
         while (x < width) {
             int8_t n = rd_i8(r);
             if (n >= 0) {
+                // Replicate packet: the next byte is ONE pixel, repeated
+                // `n` times -- NOT `n + 1`. Getting this +1 wrong doesn't
+                // break byte-alignment much (each row is still roughly
+                // `width` pixels, so neighboring rows mostly resync), but
+                // it corrupts every replicate run's length by one pixel,
+                // which is invisible on flat-colored runs (most of a
+                // frame) and only shows up as compounding smear/tearing
+                // on busy, detail-heavy regions with many short runs
+                // (confirmed on PART_1/P-ROOM.BG/KROVATI.FLC's patchwork
+                // quilt -- plain areas like the pillow decoded fine even
+                // with the bug, only the quilt pattern was garbled).
                 uint8_t pixel = rd_u8(r);
-                int count = n + 1;
+                int count = n;
                 for (int i = 0; i < count && x < width; i++) row[x++] = pixel;
             } else {
                 int count = -n;
