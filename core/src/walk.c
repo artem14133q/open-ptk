@@ -34,7 +34,7 @@ static void add_vertex(PetkaWalkPoly *poly, uint32_t v) {
 }
 
 // Sorts a convex polygon's corners by angle around its centroid. The file
-// lists a polygon as a mix of corners and shared diagonals, not as a ring.
+// lists a polygon by its edges, in no particular order, not as a ring.
 static void order_polygon(const PetkaWalkMesh *mesh, PetkaWalkPoly *poly) {
     float cx = 0, cy = 0;
     for (uint32_t i = 0; i < poly->count; i++) {
@@ -72,7 +72,8 @@ PetkaWalkMesh *petka_walkmesh_open(const uint8_t *data, size_t len) {
     }
 
     // Pool B: edges as corner index pairs. The first point_count of them
-    // are the outline itself; the rest are the diagonals cutting it up.
+    // are the outline itself (edge i runs from corner i-1 to corner i); the
+    // rest are the diagonals cutting it up.
     uint32_t edge_count = rd_u32(&r);
     if (!count_ok(&r, edge_count, 8)) goto fail;
     edges = (uint32_t *)calloc(edge_count ? edge_count : 1, 2 * sizeof(uint32_t));
@@ -99,15 +100,14 @@ PetkaWalkMesh *petka_walkmesh_open(const uint8_t *data, size_t len) {
         // Each entry adds at most two corners.
         poly->verts = (uint32_t *)calloc(counts[i] ? 2 * (size_t)counts[i] : 1, sizeof(uint32_t));
         for (uint32_t k = 0; k < counts[i]; k++) {
-            // One index space for both pools: below point_count it is a
-            // corner, otherwise it is an edge of pool B -- a diagonal this
-            // polygon shares with exactly one neighbour.
+            // Every entry is an edge of pool B: one of the outline's (the
+            // first point_count of them), or a diagonal, which this polygon
+            // shares with exactly one neighbour.
             uint32_t idx = rd_u32(&r);
-            if (r.error) goto fail;
-            if (idx < point_count) { add_vertex(poly, idx); continue; }
-            if (idx >= edge_count) goto fail;
+            if (r.error || idx >= edge_count) goto fail;
             add_vertex(poly, edges[2 * idx]);
             add_vertex(poly, edges[2 * idx + 1]);
+            if (idx < point_count) continue; // outline: not a way through
             if (!owner[idx]) {
                 owner[idx] = i + 1;
             } else if (owner[idx] != i + 1) {

@@ -244,17 +244,22 @@ countB * (i32 from, i32 to)        -- pool B: edges, as index pairs into pool A
 u32 poly_count
 poly_count * u32                   -- entry count per polygon
 for each polygon:
-  N * i32 index                    -- < countA: a corner (pool A index)
-                                   -- >= countA: an edge (pool B index, used as is)
+  N * i32 index                    -- an edge: index into pool B
 ```
 
 Pool B starts with the outline itself -- its first `countA` edges are
 `(i-1, i)` -- followed by the diagonals that cut the outline into convex
-pieces. A polygon's entries are its corners plus the diagonals it shares
-with its neighbours, not a ring: the corner set is the listed corners plus
-both ends of every listed diagonal, and since the polygon is convex, sorting
-them by angle around the centroid gives the ring. Two polygons that list the
-same diagonal are neighbours, and that diagonal is the way between them.
+pieces. A polygon is listed by its edges, outline edges and diagonals
+alike, in no particular order: its corners are the ends of those edges, and
+since it is convex, sorting them by angle around the centroid gives the
+ring. Two polygons that list the same diagonal are neighbours, and that
+diagonal is the way between them.
+
+(An earlier reading took an index below `countA` for "corner `i`" rather
+than "outline edge `i`". Edge `i` ends at corner `i`, and every corner of a
+polygon is the end of two of its edges, so both readings give the same
+corners -- but the exe's `sub_425120` looks an outline edge's number up in
+these lists, which settles it.)
 
 Checked on the 33 meshes of `PART_1`: the outline edges are as described,
 every diagonal a polygon lists is listed by exactly two, and the polygons'
@@ -287,8 +292,14 @@ corners. The stays-on-the-floor test (`sub_424E40`) is: the line must not
 intersect any edge of the outline, taken in order and closed back to the
 first point (identical points pass at once). Its segment-intersection
 helper (`sub_424AE0`) was not decompiled; ours counts touching as
-intersecting. Moving an off-floor point onto the floor (`sub_425120`) was
-not decompiled either; ours goes to the nearest point of the nearest polygon. `walktest` routes 425,000 random point pairs with it,
+intersecting.
+
+Moving an off-floor point onto the floor (`sub_425120`): the nearest point
+of every outline edge is found (`sub_4252F0`), the closest of them replaces
+the point (truncated to whole pixels), and the polygon is the one that lists
+that edge. Ours does the same search but then nudges the point half a pixel
+towards the polygon's centre, because a point exactly on the outline would
+count as touching it in our on-the-floor test. `walktest` routes 425,000 random point pairs with it,
 none missing and none leaving the floor.
 
 ## Resource-ID indirection — SOLVED: `RESOURCE.QRC` is plain text
