@@ -465,17 +465,33 @@ The heroes' update (`sub_407BF0`) is the same loop with these differences:
 - while the hero walks, elapsed time is multiplied by `(n + 50) / 50`, `n`
   being a value of the object at `QSystem+544` (it looks like the walk-speed
   slider of the options panel);
-- after each frame it calls the hero's method in vtable slot `+76` -- the
-  walk step, taken once per frame of the walk clip rather than continuously.
-  Not decompiled; this is presumably where the `.OFF`/`.LEG` files next to
-  the walk clips come in;
+- after each frame it calls the hero's walk step (vtable slot `+76`,
+  `sub_408EF0`, below): the hero moves once per frame of the walk clip
+  rather than continuously;
 - the clip's drawn size is its frame size times the double at `+152`, the
   hero's current scale;
 - the sound is armed again on every loop regardless of `+72`, and it may
   step several frames in one call.
 
-The launcher reproduces the resting clip and the re-armed sound; its walk
-is its own (constant speed along the route, not one step per clip frame).
+The walk step asks the hero's walk object (`+160`, `sub_424030`, not
+decompiled -- the route and presumably the `.OFF`/`.LEG` files are in there)
+and gets one of three answers:
+
+- direction changed: the clip becomes `costume + 10 + direction`, from its
+  first frame;
+- a step was made: the hero is moved;
+- arrived: the hero is put exactly on the destination and, normally, sent
+  `SET costume 1` at once (the idle pose). But if the reaction parked on this
+  walk contains a `GOTO` or a `SETSEQ` -- he is walking out of the room -- he
+  is sent `ANIMATE 0` instead and stays frozen in mid-stride, and
+  `SET costume 1` and `ANIMATE 1` are appended to the parked reaction, so he
+  stands up only after the room has changed. Either way the busy flag `+56`
+  is then cleared, which is what releases the `QM_WALKED` queued behind the
+  walk.
+
+The launcher reproduces the resting clip, the re-armed sound and the arrival
+(`petka_scriptvm_walk_ended`); the walk itself is its own (constant speed
+along the route, not one step per clip frame).
 
 ### Opcodes
 

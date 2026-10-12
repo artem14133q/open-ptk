@@ -570,8 +570,6 @@ static void stop_heroes(Game *g) {
         PetkaObjectState *st = petka_scriptvm_state(g->vm, id);
         if (!st || !g->walk[id].active) continue;
         g->walk[id].active = 0;
-        if (st->costume != PETKA_NONE) st->resource = st->costume;
-        st->rest_after_loop = 1;
         petka_scriptvm_walk_ended(g->vm, id);
     }
 }
@@ -589,8 +587,6 @@ static void walk_update(Game *g, uint16_t hero_id, float dt) {
         st->y = target->y;
         if (++w->next < w->count) return; // on to the next corner
         w->active = 0;
-        if (st->costume != PETKA_NONE) st->resource = st->costume;
-        st->rest_after_loop = 1;
         petka_scriptvm_walk_ended(g->vm, hero_id);
         return;
     }

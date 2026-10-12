@@ -710,9 +710,32 @@ void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t
     petka_scriptvm_post(vm, obj_id, PETKA_OP_END, resource, 0, 0, -1);
 }
 
+// The end of a hero's walk step routine (sub_408EF0).
 void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id) {
     PetkaObjectState *hero = petka_scriptvm_state(vm, hero_id);
-    if (hero) hero->busy = 0;
+    if (!hero) return;
+    PetkaTail *tail = &hero->walk_tail;
+    int leaving = 0;
+    for (uint32_t i = 0; tail->present && i < tail->count && !leaving; i++)
+        leaving = tail->messages[i].opcode == PETKA_OP_GOTO || tail->messages[i].opcode == PETKA_OP_SETSEQ;
+
+    if (hero->costume == PETKA_NONE) {
+        // No costume yet: nothing to stand in.
+    } else if (!leaving) {
+        petka_scriptvm_send(vm, hero_id, PETKA_OP_SET, hero->costume, 1, 0, -1);
+    } else {
+        // About to walk out of the room: hold the walking pose rather than
+        // flash the idle one, and stand up once the reaction has moved on.
+        petka_scriptvm_send(vm, hero_id, PETKA_OP_ANIMATE, 0, 0, 0, -1);
+        PetkaMessage after[2] = {
+            { hero_id, PETKA_OP_SET, hero->costume, 1, 0 },
+            { hero_id, PETKA_OP_ANIMATE, 1, 0, 0 },
+        };
+        tail->messages = (PetkaMessage *)realloc(tail->messages, (tail->count + 2) * sizeof(PetkaMessage));
+        memcpy(tail->messages + tail->count, after, sizeof(after));
+        tail->count += 2;
+    }
+    hero->busy = 0;
 }
 
 // sub_4165A0: the talker gets SAID at once, not through the queue, so it is

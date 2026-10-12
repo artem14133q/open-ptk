@@ -273,6 +273,10 @@ void petka_scriptvm_enter_room(PetkaScriptVM *vm, uint16_t room, int silent);
 // A clip reached its last frame: posts END (resource, 0, 0) from nobody, as
 // the exe's object update does on every loop of the clip.
 void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t resource);
+// A hero's walk is over (he arrived, or was stopped). He goes back to his
+// idle pose and stops being busy, which lets the WALKED queued behind the
+// walk through. If the reaction parked on that walk goes on to leave the
+// room, he instead freezes in mid-stride and takes the idle pose after it.
 void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id);
 // talker is the object that spoke last, or PETKA_NONE.
 void petka_scriptvm_dialogue_ended(PetkaScriptVM *vm, uint16_t talker);
