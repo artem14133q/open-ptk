@@ -89,6 +89,9 @@ typedef struct {
     uint16_t mesh_resource; // background the mesh belongs to
     uint16_t bg_resource;
     uint16_t shown_room;
+    // A cutscene "sequence" (SETSEQ): this room is on screen instead of the
+    // one the game is in, until ENDSEQ. PETKA_NONE = no sequence.
+    uint16_t seq_room;
 
     // Hero scale by screen y, from BGS.INI: base + delta over [y0, y1], * k.
     float persp_base, persp_delta, persp_y0, persp_y1, persp_k;
@@ -453,11 +456,20 @@ static Rectangle hero_dest(const Game *g, const PetkaObjectState *st, const Visu
     return (Rectangle){st->x - ax * s, st->y - ay * s, v->flic->width * s, v->flic->height * s};
 }
 
+// The room on screen: the sequence being played, or else the room the game
+// is in. A sequence is a room made of full-screen clips, usually on the
+// black MAIN\BG1.BMP; the script moves it along with the clips' END
+// reactions and closes it with ENDSEQ. No INITBG/LEAVEBG is involved, and
+// the game's own room can change (GOTO) while the sequence is up.
+static uint16_t screen_room(const Game *g) {
+    return g->seq_room != PETKA_NONE ? g->seq_room : g->vm->room;
+}
+
 // The walk mesh sits next to the background under the same name
 // (P-ROOM-1.BMP -> P-ROOM-1.CVX). Called as soon as the room is known, not
 // from the frame loop: a room's INITBG reaction may start a walk at once.
 static void load_mesh(Game *g) {
-    const PetkaObjectState *room = petka_scriptvm_state(g->vm, g->vm->room);
+    const PetkaObjectState *room = petka_scriptvm_state(g->vm, screen_room(g));
     uint16_t resource = room ? room->resource : PETKA_NONE;
     if (resource == g->mesh_resource) return;
     petka_walkmesh_close(g->mesh);
@@ -501,6 +513,7 @@ static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
 static void camera_update(Game *g, float dt) {
     float max_x = g->bg_tex.id ? (float)g->bg_tex.width - GAME_W : 0;
     if (max_x < 0) max_x = 0;
+    if (g->seq_room != PETKA_NONE) { g->camera_x = 0; return; } // sequences are one screen
     const PetkaObjectState *petka = petka_scriptvm_state(g->vm, PETKA_ID_PETKA);
     float target = g->camera_x;
     if (petka && g->camera_snap) {
@@ -731,7 +744,7 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         const PetkaObjectState *st = &vm->state[obj_index(g, obj)];
         const char *path = g->qrc[m->arg1];
         // No room yet means TOTALINIT is still setting every object up.
-        if (path && has_ext(path, ".FLC") && (st->room == vm->room || is_hero(obj->id)) &&
+        if (path && has_ext(path, ".FLC") && (st->room == screen_room(g) || is_hero(obj->id)) &&
             vm->room != PETKA_NONE) {
             char wav[512];
             swap_ext(path, "WAV", wav, sizeof(wav));
@@ -739,6 +752,13 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         }
         break;
     }
+    case PETKA_OP_SETSEQ:
+        g->seq_room = obj->id;
+        break;
+    case PETKA_OP_ENDSEQ:
+        g->seq_room = PETKA_NONE;
+        g->camera_snap = 1;
+        break;
     case PETKA_OP_CONTINUE:
         if (g->paused) {
             g->paused = 0;
@@ -782,8 +802,10 @@ static int by_z(const void *a, const void *b) {
 // rect stands in (the two agree wherever z is given).
 static int build_scene(Game *g, Drawable *out, int max) {
     int n = 0;
-    const PetkaObject *room = petka_script_find(g->script, g->vm->room);
-    for (uint32_t i = 0; room && i <= room->attached_count + 1 && n < max; i++) {
+    const PetkaObject *room = petka_script_find(g->script, screen_room(g));
+    // The heroes walk the game's room; a sequence shows only its own objects.
+    uint32_t extra = g->seq_room != PETKA_NONE ? 0 : 2;
+    for (uint32_t i = 0; room && i < room->attached_count + extra && n < max; i++) {
         const PetkaObject *obj = i < room->attached_count
             ? petka_script_find(g->script, room->attached[i].obj_id)
             : petka_script_find(g->script, (uint16_t)(i - room->attached_count)); // then the two heroes
@@ -880,6 +902,7 @@ int main(int argc, char **argv) {
     Game *g = &game;
     g->bg_resource = g->shown_room = g->music_id = g->ambience_id = g->mesh_resource = PETKA_NONE;
     g->talker = PETKA_NONE;
+    g->seq_room = PETKA_NONE;
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
     // The last one is the store of the part's first chapter; only a part
@@ -1011,12 +1034,12 @@ int main(int argc, char **argv) {
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
 
         // The room the VM is in may have changed: drop the old room's clips.
-        if (g->shown_room != vm->room) {
+        if (g->shown_room != screen_room(g)) {
             for (uint32_t i = 0; i < g->script->object_count; i++)
                 if (!is_hero(g->script->objects[i].id)) visual_free(&g->visuals[i]);
-            g->shown_room = vm->room;
+            g->shown_room = screen_room(g);
         }
-        const PetkaObject *room = petka_script_find(g->script, vm->room);
+        const PetkaObject *room = petka_script_find(g->script, screen_room(g));
         const PetkaObjectState *room_st = room ? &vm->state[obj_index(g, room)] : NULL;
         if (room_st && room_st->resource != g->bg_resource) {
             if (g->bg_tex.id) UnloadTexture(g->bg_tex);
@@ -1027,8 +1050,13 @@ int main(int argc, char **argv) {
         }
         load_mesh(g);
         if (room_st) {
-            set_stream(g, &g->music, &g->music_id, room_st->music);
-            set_stream(g, &g->ambience, &g->ambience_id, room_st->bgsfx);
+            // A sequence with no track of its own keeps the room's playing.
+            const PetkaObjectState *under = g->seq_room != PETKA_NONE ? petka_scriptvm_state(vm, vm->room) : NULL;
+            uint16_t music = room_st->music, ambience = room_st->bgsfx;
+            if (under && music == PETKA_NONE) music = under->music;
+            if (under && ambience == PETKA_NONE) ambience = under->bgsfx;
+            set_stream(g, &g->music, &g->music_id, music);
+            set_stream(g, &g->ambience, &g->ambience_id, ambience);
         }
         if (g->music.frameCount > 0) UpdateMusicStream(g->music);
         if (g->ambience.frameCount > 0) UpdateMusicStream(g->ambience);
@@ -1044,7 +1072,7 @@ int main(int argc, char **argv) {
             const PetkaObject *obj = petka_script_find(g->script, room->attached[i].obj_id);
             if (obj) visual_update(g, obj);
         }
-        for (uint16_t id = 0; id < 2; id++) {
+        for (uint16_t id = 0; id < 2 && g->seq_room == PETKA_NONE; id++) {
             const PetkaObject *hero = petka_script_find(g->script, id);
             if (hero && !g->visuals[obj_index(g, hero)].live) visual_update(g, hero);
         }
@@ -1058,7 +1086,7 @@ int main(int argc, char **argv) {
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
 
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
-        int can_act = vm->interface_enabled && !g->talking;
+        int can_act = vm->interface_enabled && !g->talking && g->seq_room == PETKA_NONE;
         const PetkaObject *hover = can_act ? object_at(g, scene, scene_count, mx, my) : NULL;
 
         // Inventory strip along the bottom edge.
@@ -1136,7 +1164,7 @@ int main(int argc, char **argv) {
 
         // Top bar: what a click would do.
         const char *action;
-        if (!vm->interface_enabled) action = "...";
+        if (!vm->interface_enabled || g->seq_room != PETKA_NONE) action = "...";
         else if (vm->cursor_object != PETKA_NONE) {
             const PetkaObject *item = petka_script_find(g->script, vm->cursor_object);
             action = TextFormat("%s -> %s", item ? display_name(g, item) : "?",

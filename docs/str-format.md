@@ -460,7 +460,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 25 | `CURSOR` | cursor carries this item; `-1` = default cursor (5002) |
 | 26 | `OBJECTUSE` | an inventory item was used on this object |
 | 27 / 44 | `ACTIVE` / `PASSIVE` | `+60` |
-| 29 / 30 | `SETSEQ` / `ENDSEQ` | (room) start / end a cutscene sequence |
+| 29 / 30 | `SETSEQ` / `ENDSEQ` | (room) put this room on screen as a cutscene sequence / go back to the game, see below |
 | 31, 32 | `CHECK`, `IF` | conditions, see above |
 | 33 | `SHOWDESCRIPTION` | show the object's text from `INVNTR.TXT` |
 | 35 | `QM_WALKED` | (hero) resume the tail parked by a walk |
@@ -479,15 +479,49 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 60 / 61 | `PART`* / `CHAPTER`* | switch part / chapter |
 | 62 | `AVI`* | play a video by resource id |
 
+A **sequence** is a cutscene built as a room: 68 of the 104 uses name a room
+called "Seq - ...", whose background is the black `MAIN\BG1.BMP` (resource
+10) and whose objects are full-screen clips. `SETSEQ` hands the room to a
+separate interface object (`QSystem+540`, created by `sub_4167C0`; its
+methods are at `0x416860` and `0x416FD0`, not decompiled) which shows it
+instead of the room the game is in. Nothing is broadcast: the sequence runs
+on its clips' `END` reactions -- each sets the next clip -- and the last one
+posts `ENDSEQ`, usually together with a `GOTO` for where the game continues:
+
+```
+OBJ "Темно" (in ROOM "Seq - ВСЕ ВЫХОДЯТ ИЗ АКТОВОГО ЗАЛА")
+    on END: IF 1423 -> SET 1424        on END: IF 1424 -> SET 1425
+    on END: IF 1425 -> SET 1426
+    on END: IF 1426 -> КЛУБ GOTO, Петька ON, ВИЧ ON, ENDSEQ
+```
+
+`QSystem` start-up (`sub_405D00`) confirms several things read off the data
+elsewhere in this document:
+
+- objects 0 and 1 of `SCRIPT.DAT` are loaded straight into the two hero
+  objects embedded in `QSystem` (`+160` Petka, `+344` Chapayev); the other
+  plain objects are 124 bytes each, rooms 156;
+- every object's shown name and colour are read from `NAMES.INI`/`CAST.INI`
+  here, as on a chapter change;
+- each room's `BGS.INI` `[Settings]` line is parsed as
+  `"%lf %lf %d %d %lf"` into a per-room record, default `1.0 0.0 0 480 1.0`
+  -- two doubles, two screen rows, one double, which fits the launcher's
+  reading of it as hero scale `(a + b * t) * k` across rows `[y0, y1]` (the
+  code that applies it was not seen);
+- `TOTALINIT` is posted to every object, in list order, with no sender, and
+  before the cursor and the two panel objects are created -- so those three
+  never get it.
+
 `CHAPTER n` (`sub_411C00`) opens the store named by `[Part P Chapter n]` in
 `PARTS.INI` (`chap21.str`, `chap22.str`) and re-reads `NAMES.INI`/`CAST.INI`
 from it for every object -- which is why those two files live in the chapter
 stores.
 
 Not understood: opcode 55 (sets a flag on the screen object; used twice in
-`PART_3`), and `HALF`/`USERMSG`, which appear only as reaction triggers. Who
-sends `TOTALINIT` and `END` was not traced; the VM broadcasts the former at
-start-up and leaves the latter to the host's animation code.
+`PART_3`) and `HALF`, a reaction trigger used once that no call site sends
+as a constant. `END` is sent by the object update at `0x4015E0`, which was
+not decompiled, so exactly when (every loop of a clip, or once) is the
+launcher's guess.
 
 ### Scene object state variants — solved by the script
 

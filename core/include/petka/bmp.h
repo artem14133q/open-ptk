@@ -11,8 +11,9 @@
 // Standard BMP decoders (including stb_image, which raylib uses internally)
 // get all three wrong. The length field is how this variant is recognised.
 //
-// A few images are ordinary 8bpp BMPs with a palette, and 24bpp is handled
-// as standard BGR888 too.
+// A few images are ordinary BMPs with a palette (8bpp, and the 1bpp black
+// screen MAIN\BG1.BMP that cutscene sequences use), and 24bpp is handled as
+// standard BGR888 too.
 //
 // See docs/str-format.md for how this was found.
 #ifndef PETKA_BMP_H

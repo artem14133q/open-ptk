@@ -31,11 +31,12 @@ uint8_t *petka_bmp_decode(const uint8_t *data, size_t len, int *out_width, int *
     }
     if (bits_off > len || row_stride * (size_t)height > len - bits_off) return NULL;
 
-    // 8bpp: BGRA palette entries right after the info header.
+    // 8bpp and 1bpp: BGRA palette entries right after the info header.
     const uint8_t *palette = NULL;
-    if (bpp == 8) {
+    if (bpp == 8 || bpp == 1) {
         size_t palette_off = 14 + (size_t)read_u32le(data + 14);
-        if (palette_off > len || len - palette_off < 256 * 4) return NULL;
+        size_t palette_bytes = (bpp == 8 ? 256 : 2) * 4;
+        if (palette_off > len || len - palette_off < palette_bytes) return NULL;
         palette = data + palette_off;
     }
 
@@ -61,6 +62,13 @@ uint8_t *petka_bmp_decode(const uint8_t *data, size_t len, int *out_width, int *
         } else if (bpp == 8) {
             for (int x = 0; x < width; x++) {
                 const uint8_t *c = palette + (size_t)row[x] * 4;
+                dst[x * 3 + 0] = c[2];
+                dst[x * 3 + 1] = c[1];
+                dst[x * 3 + 2] = c[0];
+            }
+        } else if (bpp == 1) {
+            for (int x = 0; x < width; x++) {
+                const uint8_t *c = palette + (size_t)((row[x / 8] >> (7 - x % 8)) & 1) * 4;
                 dst[x * 3 + 0] = c[2];
                 dst[x * 3 + 1] = c[1];
                 dst[x * 3 + 2] = c[0];
