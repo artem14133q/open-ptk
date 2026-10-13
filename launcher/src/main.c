@@ -418,12 +418,17 @@ static void clip_show(Game *g, Visual *v, uint16_t resource, int run) {
     free(rgba);
 }
 
-static void draw_cursor(Game *g, uint16_t resource, int over_object, Vector2 mouse, float scale) {
+// `centre` is the last argument of the exe's cursor move: the room's mouse
+// function passes 1, the map's 0 -- there the frame's corner is the point.
+static void draw_cursor(Game *g, uint16_t resource, int over_object, int centre, Vector2 mouse, float scale) {
     Visual *v = &g->cursor;
     clip_show(g, v, resource, over_object);
     if (!v->flic) return;
-    int x = (int)(mouse.x / scale) - v->rect.left - (v->rect.right - v->rect.left) / 2;
-    int y = (int)(mouse.y / scale) - v->rect.top - (v->rect.bottom - v->rect.top) / 2;
+    int x = (int)(mouse.x / scale), y = (int)(mouse.y / scale);
+    if (centre) {
+        x -= v->rect.left + (v->rect.right - v->rect.left) / 2;
+        y -= v->rect.top + (v->rect.bottom - v->rect.top) / 2;
+    }
     DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
                    (Rectangle){x * scale, y * scale, v->flic->width * scale, v->flic->height * scale},
                    (Vector2){0, 0}, 0, WHITE);
@@ -1595,8 +1600,8 @@ int main(int argc, char **argv) {
             Rectangle d = visual_dest(g, scene[i].obj);
             int shown = vm->state[obj_index(g, scene[i].obj)].visible;
             // On the map a place's clip is its highlight: the script keeps it
-            // hidden, and it is shown while the pointer is on it. (Ours: the
-            // map screen's mouse function was not decompiled.)
+            // hidden, and the map's mouse function (sub_41D4D0) shows the one
+            // under the pointer, on its first frame, and hides the rest.
             if (shown || (g->map_open && scene[i].obj == hover))
                 DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
                            (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale},
@@ -1733,7 +1738,7 @@ int main(int argc, char **argv) {
                           : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
                           : (uint16_t)(CURSOR_ACTION0 + g->verb);
             HideCursor();
-            draw_cursor(g, clip, hover != NULL && !g->map_open, mouse, scale);
+            draw_cursor(g, clip, hover != NULL, !g->map_open, mouse, scale);
         } else {
             ShowCursor();
         }

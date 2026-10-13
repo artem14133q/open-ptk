@@ -745,16 +745,28 @@ on the map:
    reactions can pick its picture), and makes itself the current screen.
 
 The places stay hidden but active: invisible hot spots like a room's exits.
-Three of `PART_1`'s start out `PASSIVE`. The other methods are not
-decompiled: click `0x41D690`, mouse move `0x41D4D0`, leave `0x41D730`
-(slot `+56`).
+Three of `PART_1`'s start out `PASSIVE`.
+
+Its **mouse move** (`sub_41D4D0`) is what shows them. It goes down the
+list from the end to the entry after the room, skipping the cursor and
+anything that has the room's picture; the first object whose own hit test
+(vtable slot `+32`) takes the point becomes "the place under the pointer"
+(screen `+24`) and gets state 2, every other one state 1 (the state is kept
+at object `+32` and `+36`). An object whose state changes is put on its
+first frame, **made visible if the state is 2 and hidden otherwise**, and
+redrawn. So a place's clip is its highlight. The cursor is animated while
+there is a place under it and moved with 0 as its last argument -- on the
+map the pointer's corner, not its middle, is the point. The caption follows
+the same rule as in a room: the name from `NAMES.INI` in `0xFFFFC0`, else
+the script name in `0x000080`, cleared when the pointer leaves.
+
+Not decompiled: click `0x41D690`, leave `0x41D730` (slot `+56`).
 
 The launcher shows the map the way it shows a sequence -- the room `КАРТА`
 in place of the current one, no heroes, no scroll -- with the pointer and
 the action as above; a `GOTO` from a place, or `M` again, leaves it and
 gives the cursor its action back. It draws a place's clip while the pointer
-is on it, as a highlight: that is a guess at what the mouse-move function
-does with clips that are otherwise never seen.
+is on it, and the pointer as the mouse function has it.
 
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
