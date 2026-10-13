@@ -96,6 +96,8 @@ typedef struct {
     Visual *visuals; // parallel to script->objects
     Visual cursor;   // the pointer's own clip
     // The case: the game's panel, with the things carried.
+    int map_open;    // the map is on screen in place of the room
+    int map_verb;    // the cursor's action to give back when it is left
     int case_open;
     int case_first;  // number of the first thing shown, a page is six
     int case_lit;    // the button under the pointer, -1 = none
@@ -889,8 +891,12 @@ static void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
 
 // BGS.INI: in the new room's section, the key is the room we came from and
 // the value names the object whose walk point is the entry spot.
+static void map_leave(Game *g);
+
 static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     Game *g = (Game *)user;
+    // A place picked on the map: the map is done with.
+    map_leave(g);
     const PetkaObject *room = petka_script_find(g->script, room_id);
     const PetkaObject *prev = prev_id != PETKA_NONE ? petka_script_find(g->script, prev_id) : NULL;
     if (!room) return;
@@ -1114,12 +1120,38 @@ static int map_allowed(const Game *g) {
     return room && room->on_map;
 }
 
+#define CURSOR_INTERFACE 4901
+static void drop_item(Game *g);
+
+// Back from the map to the room, with the cursor as it was.
+static void map_leave(Game *g) {
+    if (!g->map_open) return;
+    g->map_open = 0;
+    g->seq_room = PETKA_NONE;
+    g->verb = g->map_verb;
+    g->camera_snap = 1;
+}
+
 // The map command (sub_417D80; keys M and Tab, and the case's map button):
-// it shuts the case and goes to the map screen, which is not built yet.
+// to the map, or back from it. The map is a room of the script, "КАРТА",
+// that the exe's map screen (its start, sub_41CF30) puts up in place of the
+// current one: the room's picture and its objects, no heroes, no scroll; the
+// cursor becomes the interface pointer with the action "look", which is what
+// the places on the map answer to; and INITBG goes round with the map as
+// its sender.
 static void map_command(Game *g) {
-    if (!g->vm->interface_enabled || !map_allowed(g)) return;
+    if (!g->vm->interface_enabled) return;
+    if (g->map_open) { map_leave(g); return; }
+    if (!map_allowed(g) || g->seq_room != PETKA_NONE) return;
+    const PetkaObject *map = petka_script_find_name(g->script, "\xCA\xC0\xD0\xD2\xC0"); // "КАРТА", cp1251
+    if (!map) { set_status(g, "(в этой части нет карты)"); return; }
     g->case_open = 0;
-    set_status(g, "(карта пока не сделана)");
+    drop_item(g);
+    g->map_verb = g->verb;
+    g->verb = 0;
+    g->map_open = 1;
+    g->seq_room = map->id;
+    petka_scriptvm_broadcast(g->vm, PETKA_OP_INITBG, 0, 0, 0, map->id);
 }
 
 // What the pointer (screen pixels of the game) is over while the case is
@@ -1394,7 +1426,7 @@ int main(int argc, char **argv) {
             {KEY_ONE, KEY_L, 0}, {KEY_TWO, KEY_W, 1}, {KEY_THREE, KEY_G, 3},
             {KEY_FOUR, KEY_U, 2}, {KEY_FIVE, KEY_T, 4}, {KEY_SIX, KEY_C, 5},
         };
-        for (int k = 0; k < 6 && !g->menu_count && vm->interface_enabled; k++) {
+        for (int k = 0; k < 6 && !g->menu_count && vm->interface_enabled && !g->map_open; k++) {
             if (!IsKeyPressed(kActionKeys[k].digit) && !IsKeyPressed(kActionKeys[k].letter)) continue;
             g->verb = kActionKeys[k].action;
             drop_item(g);
@@ -1473,15 +1505,19 @@ int main(int argc, char **argv) {
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
 
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
-        int can_act = vm->cursor_visible && !g->talking && g->seq_room == PETKA_NONE;
+        int can_act = vm->cursor_visible && !g->talking && (g->seq_room == PETKA_NONE || g->map_open);
         // The case is opened and shut with I (the exe's command 32779),
         // while the panel is on. Open, it takes the mouse off the room.
         // dev: PETKA_CASE=<frame> opens it on that frame of an unattended run.
         int case_key = IsKeyPressed(KEY_I) || (getenv("PETKA_CASE") && atol(getenv("PETKA_CASE")) == frame);
-        if (case_key && can_act && vm->interface_enabled && !g->menu_count) g->case_open = !g->case_open;
+        if (case_key && can_act && vm->interface_enabled && !g->menu_count && !g->map_open)
+            g->case_open = !g->case_open;
         while (g->case_first > 0 && (uint32_t)g->case_first >= vm->inventory_count) g->case_first -= CASE_PAGE;
         if (g->case_first < 0) g->case_first = 0;
-        if ((IsKeyPressed(KEY_M) || IsKeyPressed(KEY_TAB)) && can_act && !g->menu_count) map_command(g);
+        // dev: PETKA_MAP=<frame> presses M on that frame of an unattended run.
+        int map_key = IsKeyPressed(KEY_M) || IsKeyPressed(KEY_TAB) ||
+                      (getenv("PETKA_MAP") && atol(getenv("PETKA_MAP")) == frame);
+        if (map_key && can_act && !g->menu_count) map_command(g);
         int in_case = g->case_open && can_act;
         if (!in_case) g->case_lit = -1;
         const PetkaObject *hover = !can_act ? NULL
@@ -1506,7 +1542,7 @@ int main(int argc, char **argv) {
                 (voiced ? !IsSoundPlaying(g->voice) : game_now() >= g->line_until))
                 next_phrase(g);
         } else if (can_act) {
-            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && !g->map_open) {
                 if (vm->cursor_object != PETKA_NONE) drop_item(g);
                 else g->verb = (g->verb + 1) % VERB_COUNT;
             }
@@ -1524,7 +1560,7 @@ int main(int argc, char **argv) {
                                         op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)hover->id);
                 } else if (in_case) {
                     case_click(g);
-                } else if (vm->cursor_object == PETKA_NONE) {
+                } else if (vm->cursor_object == PETKA_NONE && !g->map_open) {
                     // Nothing under the click (the end of sub_414320): only
                     // two of the cursor's actions do anything.
                     uint16_t op = kVerbs[g->verb].op;
@@ -1558,7 +1594,10 @@ int main(int argc, char **argv) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
             Rectangle d = visual_dest(g, scene[i].obj);
             int shown = vm->state[obj_index(g, scene[i].obj)].visible;
-            if (shown)
+            // On the map a place's clip is its highlight: the script keeps it
+            // hidden, and it is shown while the pointer is on it. (Ours: the
+            // map screen's mouse function was not decompiled.)
+            if (shown || (g->map_open && scene[i].obj == hover))
                 DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
                            (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale},
                            (Vector2){0, 0}, 0, WHITE);
@@ -1591,7 +1630,7 @@ int main(int argc, char **argv) {
             }
         }
         const char *action;
-        if (!vm->cursor_visible || g->seq_room != PETKA_NONE) {
+        if (!vm->cursor_visible || (g->seq_room != PETKA_NONE && !g->map_open)) {
             action = "...";
             caption = "";
         } else if (vm->cursor_object != PETKA_NONE) {
@@ -1688,12 +1727,13 @@ int main(int argc, char **argv) {
         // The pointer goes on last, over everything (its z is 1000). It is
         // there whenever the cursor is shown; a dialogue hides it for its
         // phrases and brings it back for a menu.
-        if (vm->cursor_visible && g->seq_room == PETKA_NONE && (!g->talking || g->menu_count > 0)) {
-            uint16_t clip = g->menu_count > 0 ? CURSOR_POINTER
+        if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) && (!g->talking || g->menu_count > 0)) {
+            uint16_t clip = g->map_open ? CURSOR_INTERFACE
+                          : g->menu_count > 0 ? CURSOR_POINTER
                           : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
                           : (uint16_t)(CURSOR_ACTION0 + g->verb);
             HideCursor();
-            draw_cursor(g, clip, hover != NULL, mouse, scale);
+            draw_cursor(g, clip, hover != NULL && !g->map_open, mouse, scale);
         } else {
             ShowCursor();
         }

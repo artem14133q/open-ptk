@@ -713,8 +713,7 @@ the script clears it with `NOMAP` in the rooms one cannot leave by the map
 case and then, on the main screen, clears the caption under the cursor and
 starts the map screen (`QSystem+548`, its slot `+24`); on the map screen, it
 leaves it (that screen's slot `+56`). So `M` goes to the map and back. The
-launcher checks the same conditions and shuts the case; it has no map
-screen yet.
+launcher does the same (`map_command`).
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`
@@ -728,11 +727,34 @@ on LOOK:   <the place's room> GOTO
 
 In the exe it is a screen of its own (`QSystem+548`; constructor
 `sub_41CE90`, which only sets a flag at `+36`; vtable `0x4B9E30`). Its
-methods, not decompiled: start `0x41CF30` (slot `+24` -- it looks the room
-up by the name `КАРТА` and gives the cursor the interface pointer, resource
-4901), click `0x41D690`, mouse move `0x41D4D0`, leave `0x41D730` (slot
-`+56`). What shows a place's object -- the script never sends one `SHOW` --
-must be in the start.
+start (`sub_41CF30`, slot `+24`), which does nothing in a room that is not
+on the map:
+
+1. clears the caption and empties its own object list;
+2. finds the room by the name `КАРТА` and puts it on the list (its picture
+   is kept at screen `+64`), then every object `BACKGRND.BG` attaches to
+   it, each with `z` 1, position 0,0 and **animate set to its visible
+   flag** -- nothing is shown or hidden here;
+3. takes the cursor over: its clip and action are saved (screen `+40`,
+   `+42`), and it gets the interface pointer (resource 4901,
+   `MAIN\INTRFACE.BG\KURSOR1.FLC`), shown, not animated, with **action 0,
+   "look"** -- which is the one message the places react to;
+4. saves the view's scroll and width (`QSystem+104`, `+112`) and sets them
+   to 0 and 640;
+5. broadcasts `INITBG` with the map room as the sender (so the room's
+   reactions can pick its picture), and makes itself the current screen.
+
+The places stay hidden but active: invisible hot spots like a room's exits.
+Three of `PART_1`'s start out `PASSIVE`. The other methods are not
+decompiled: click `0x41D690`, mouse move `0x41D4D0`, leave `0x41D730`
+(slot `+56`).
+
+The launcher shows the map the way it shows a sequence -- the room `КАРТА`
+in place of the current one, no heroes, no scroll -- with the pointer and
+the action as above; a `GOTO` from a place, or `M` again, leaves it and
+gives the cursor its action back. It draws a place's clip while the pointer
+is on it, as a highlight: that is a guess at what the mouse-move function
+does with clips that are otherwise never seen.
 
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
@@ -1536,6 +1558,7 @@ quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
 `PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels),
 `PETKA_CASE=<frame>` (open the case on that frame),
+`PETKA_MAP=<frame>` (the map command on that frame),
 `PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the
 cursor's action number as in the table under "How a click becomes a
 message"),
