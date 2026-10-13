@@ -770,10 +770,33 @@ marks (`... слайдер N min/max`) are hidden. The screen's start
    button, on frame 7 if it is on and 1 if not; object 11 on frame 2 or 1;
 6. makes itself the current screen.
 
-Not decompiled: click `0x41CAE0`, mouse move `0x41C8D0`, leave `0x41CE00`,
-the sliders `sub_41C740`. The launcher puts the panel up the same way
-(`panel_command`), with everything in its place, and leaves it on `O`; the
-buttons and sliders do nothing yet, and the subtitle switch is shown off.
+Its **click** (`sub_41CAE0`) finds the object under the point as the map's
+does and acts on its number in the screen's list -- the room is entry 0, so
+that is the number in the table above plus one:
+
+| list # | object | what the click does |
+|---:|---|---|
+| 1 | новая игра | `sub_418260`, the handler of command 32789 (not decompiled) |
+| 2 | загрузить | leaves the panel; the screen at `QSystem+552` is set up with 0 (its slot `+60`) and made current |
+| 3 | продолжить | leaves the panel (its own slot `+56`) |
+| 4 | выход | leaves the panel, then a call on the application object that the disassembler takes for a library routine -- by the button, closing the game |
+| 5 | сохранить | leaves the panel; the screen at `QSystem+552` set up with 1 and made current |
+| 8 | кнопка | flips the subtitle switch (screen `+60`), shows it on objects 7 and 11 as the start does, then `sub_41C740` |
+| 17, 18 | слайдер 1 min, max | value at screen `+64` down or up by 5, then `sub_41C740` |
+| 19, 20 | слайдер 2 min, max | the same for `+72` |
+| 21, 22 | слайдер 3 min, max | the same for `+80` |
+| 23, 24 | слайдер 4 min, max | the same for `+88` |
+
+So `QSystem+552` is one screen for both loading (0) and saving (1), and the
+hidden slider marks are hot spots: a click on a dial's "min" or "MAX" moves
+it a notch. Which value is which dial is in `sub_41C740`.
+
+Not decompiled: mouse move `0x41C8D0`, leave `0x41CE00`, the sliders
+`sub_41C740`, the save/load screen. The launcher puts the panel up the same
+way (`panel_command`) and takes "continue", the door and the subtitle
+switch (`panel_click`); with the subtitles off a phrase is not written out,
+and one without a voice is not waited for. New game, loading, saving and the
+dials only say they are not there yet, or do nothing.
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`

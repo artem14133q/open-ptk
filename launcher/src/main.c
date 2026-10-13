@@ -101,6 +101,7 @@ typedef struct {
     int panel_open;  // ... and it is the panel
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
+    int subtitles;   // the panel's switch: phrases are shown as text
     int case_open;
     int case_first;  // number of the first thing shown, a page is six
     int case_lit;    // the button under the pointer, -1 = none
@@ -860,7 +861,8 @@ static void next_phrase(Game *g) {
     cp1251_to_utf8(ph->text, g->line, sizeof(g->line));
     // Without a voice clip the line stays up for a second plus 30 ms a
     // character, as the exe's subtitle update has it (0x421170).
-    g->line_until = game_now() + 1.0 + 0.03 * (double)strlen(ph->text);
+    // With the subtitles off there is nothing to wait for.
+    g->line_until = game_now() + (g->subtitles ? 1.0 + 0.03 * (double)strlen(ph->text) : 0.0);
     if (g->fast) {
         g->line_until = game_now() + 0.1;
         const PetkaObject *who = petka_script_find(g->script, g->talker);
@@ -1195,12 +1197,58 @@ static void panel_command(Game *g) {
         PetkaObjectState *st = petka_scriptvm_state(g->vm, panel->attached[i].obj_id);
         if (st) { st->x = kPlace[i][0]; st->y = kPlace[i][1]; }
     }
+    // None of them is animated: a clip's frames are the states of a switch.
+    for (uint32_t i = 0; i < panel->attached_count; i++) {
+        PetkaObjectState *st = petka_scriptvm_state(g->vm, panel->attached[i].obj_id);
+        if (st) st->animate = 0;
+    }
     g->map_verb = g->verb;
     g->map_camera = g->camera_x;
     g->verb = 0;
     g->map_open = g->panel_open = 1;
     g->seq_room = panel->id;
-    set_status(g, "(кнопки панели пока не работают; O - назад)");
+}
+
+// A click on the panel (sub_41CAE0). The exe goes by the object's number in
+// the screen's list, which is its number in the room's list plus one.
+static void panel_click(Game *g, const PetkaObject *hit) {
+    const PetkaObject *panel = petka_script_find(g->script, g->seq_room);
+    int n = -1;
+    for (uint32_t i = 0; panel && i < panel->attached_count; i++)
+        if (panel->attached[i].obj_id == hit->id) n = (int)i;
+    switch (n) {
+    case 0: set_status(g, "(новая игра пока не сделана: перезапустите игру)"); break;
+    case 1: set_status(g, "(загрузка пока не сделана)"); break;
+    case 2: map_leave(g); break;                 // "continue"
+    case 3: map_leave(g); g->quit = 1; break;    // the door: out of the game
+    case 4: set_status(g, "(сохранение пока не сделано)"); break;
+    case 7: g->subtitles = !g->subtitles; break; // the subtitle switch
+    default: break;
+    }
+}
+
+// Puts an object's clip on a given frame (counted from 1), for the clips
+// whose frames are states rather than an animation.
+static void show_frame(Game *g, const PetkaObject *obj, int frame) {
+    Visual *v = &g->visuals[obj - g->script->objects];
+    if (!v->flic || frame < 1 || frame > v->flic->frame_count || v->flic->frame_index == frame - 1) return;
+    for (int guard = 0; guard < v->flic->frame_count && v->flic->frame_index != frame - 1; guard++)
+        petka_flic_advance(v->flic);
+    uint8_t *rgba = flic_to_rgba(v->flic);
+    UpdateTexture(v->tex, rgba);
+    free(rgba);
+}
+
+// The panel shows the subtitle switch on two of its objects (the end of
+// sub_41C170): the button, number 7, on frame 7 for "on" and 1 for "off",
+// and the word, number 11, on frame 2 or 1.
+static void panel_show_state(Game *g) {
+    const PetkaObject *panel = petka_script_find(g->script, g->seq_room);
+    if (!panel || panel->attached_count < 12) return;
+    const PetkaObject *button = petka_script_find(g->script, panel->attached[7].obj_id);
+    const PetkaObject *word = petka_script_find(g->script, panel->attached[11].obj_id);
+    if (button) show_frame(g, button, g->subtitles ? 7 : 1);
+    if (word) show_frame(g, word, g->subtitles ? 2 : 1);
 }
 
 // What the pointer (screen pixels of the game) is over while the case is
@@ -1352,6 +1400,7 @@ int main(int argc, char **argv) {
     g->case_body.resource = g->case_exit.resource = g->case_strip.resource = PETKA_NONE;
     for (int i = 0; i < 6; i++) g->case_button[i].resource = PETKA_NONE;
     g->case_lit = -1;
+    g->subtitles = 1;
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
     // The last one is the store of the part's first chapter; only a part
@@ -1553,6 +1602,7 @@ int main(int argc, char **argv) {
         }
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
 
+        if (g->panel_open) panel_show_state(g);
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
         int can_act = vm->cursor_visible && !g->talking && (g->seq_room == PETKA_NONE || g->map_open);
         // The case is opened and shut with I (the exe's command 32779),
@@ -1601,7 +1651,9 @@ int main(int argc, char **argv) {
                 else g->verb = (g->verb + 1) % VERB_COUNT;
             }
             if (clicked) {
-                if (hover && vm->cursor_object != PETKA_NONE) {
+                if (g->panel_open) {
+                    if (hover) panel_click(g, hover);
+                } else if (hover && vm->cursor_object != PETKA_NONE) {
                     uint16_t item = vm->cursor_object;
                     stop_heroes(g);
                     drop_item(g);
@@ -1708,7 +1760,7 @@ int main(int argc, char **argv) {
             DrawTextEx(font, name, (Vector2){GetScreenWidth() - size.x - 10, 6}, 18, 1, SKYBLUE);
         }
 
-        if (g->talking && g->line[0]) {
+        if (g->talking && g->line[0] && g->subtitles) {
             // Word-wrap the phrase into the box.
             float box_w = (float)GetScreenWidth() - 40, y = (float)GetScreenHeight() - 150;
             DrawRectangle(10, (int)y - 10, GetScreenWidth() - 20, 110, Fade(BLACK, 0.7f));
