@@ -1341,18 +1341,39 @@ int main(int argc, char **argv) {
         EndMode2D();
 
         // Top bar: what a click would do.
+        // The object under the cursor is captioned as the exe does it (the
+        // end of 0x414020): its NAMES.INI name in a pale cyan, or, where it
+        // has none, its script name in dark red.
+        const char *caption = "";
+        Color caption_color = {192, 255, 255, 255};
+        if (hover) {
+            const char *shown = g->names[hover - g->script->objects];
+            if (shown && shown[0]) {
+                caption = utf8_name(shown);
+            } else {
+                caption = utf8_name(hover->name);
+                caption_color = (Color){128, 0, 0, 255};
+            }
+        }
         const char *action;
-        if (!vm->cursor_visible || g->seq_room != PETKA_NONE) action = "...";
-        else if (vm->cursor_object != PETKA_NONE) {
+        if (!vm->cursor_visible || g->seq_room != PETKA_NONE) {
+            action = "...";
+            caption = "";
+        } else if (vm->cursor_object != PETKA_NONE) {
             const PetkaObject *item = petka_script_find(g->script, vm->cursor_object);
-            action = TextFormat("%s -> %s", item ? display_name(g, item) : "?",
-                                hover && display_name(g, hover)[0] ? display_name(g, hover) : "...");
+            action = TextFormat("%s -> %s", item ? display_name(g, item) : "?", hover ? "" : "...");
         } else {
-            const char *name = hover ? display_name(g, hover) : "";
-            action = TextFormat("%s%s%s", kVerbs[g->verb].label, name[0] ? ": " : "", name);
+            action = TextFormat("%s%s", kVerbs[g->verb].label, hover ? ": " : "");
         }
         DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
         DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
+        if (caption[0]) {
+            // The bar is dark: lift the dark red off it with a light plate.
+            Vector2 at = {10 + MeasureTextEx(font, action, 20, 1).x, 5};
+            Vector2 size = MeasureTextEx(font, caption, 20, 1);
+            if (caption_color.r == 128) DrawRectangle((int)at.x - 2, 3, (int)size.x + 4, 24, Fade(RAYWHITE, 0.75f));
+            DrawTextEx(font, caption, at, 20, 1, caption_color);
+        }
         if (room) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);

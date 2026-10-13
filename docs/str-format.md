@@ -572,11 +572,13 @@ does cover the exit behind him.
   - with nothing under the cursor, the string at `0x4D417C` itself.
 
   All three with `0x0A0A0A` as a second colour (an outline or shadow). The
-  string at `0x4D417C` is filled at run time; being what the caption is
-  cleared to, it must be empty. Object `+80` was not traced -- by its place
-  next to the shown name it should be the script name, which would mean the
-  original labels objects absent from `NAMES.INI` with their script names
-  in dark red. The launcher shows nothing for those until that is checked.
+  string at `0x4D417C` is the empty string: zeros in the exe's data, and the
+  default the loader hands `GetPrivateProfileString` for `NAMES.INI`,
+  `CAST.INI` and `BGS.INI`. Object `+80` is the name from `SCRIPT.DAT`
+  (`sub_405D00` copies it there, then looks `+84` up by it). So an object
+  absent from `NAMES.INI` is labelled with its script name in dark red --
+  this is a build with its assertions left in, and it shows. The launcher
+  does the same.
 - `0x414320`, click: with the cursor hidden the click goes to the dialogue
   instead (`sub_415F80(-1)` on `QSystem+536`: skip the phrase). Otherwise
   the first hit gets slot `+40` (`sub_401B30`, above). With **nothing** hit,
