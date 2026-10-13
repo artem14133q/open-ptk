@@ -105,6 +105,10 @@ typedef struct {
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
+    // A thing's description (SHOWDESCRIPTION), up until the next click.
+    char desc[2048]; // UTF-8, "" = none
+    int desc_frame;  // the message's number: a frame of the description clip
+    Visual desc_clip;
     // The part of the game that is loaded, and the way to another.
     char game_dir[1024];
     char part[16];      // "PART_n", the folder its files are under
@@ -1034,8 +1038,22 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
     case PETKA_OP_CHAPTER:
         chapter_open(g, m->arg1);
         break;
-    case PETKA_OP_SHOWDESCRIPTION:
-        set_status(g, display_name(g, obj));
+    case PETKA_OP_SHOWDESCRIPTION: {
+        // The text is the object's line in [all] of INVNTR.TXT, by its
+        // script name; the message's number goes with it to the screen.
+        size_t len = 0;
+        const uint8_t *ini = part_file(g, g->part, "INVNTR.TXT", &len);
+        char text[1024];
+        if (ini && petka_ini_get(ini, len, "all", obj->name, text, sizeof(text)) && text[0])
+            cp1251_to_utf8(text, g->desc, sizeof(g->desc));
+        else
+            snprintf(g->desc, sizeof(g->desc), "%s", display_name(g, obj));
+        g->desc_frame = m->arg1;
+        break;
+    }
+    case PETKA_OP_CURSOR:
+        // CURSOR with no clip puts the cursor back on its first action.
+        if (m->arg1 == PETKA_NONE) g->verb = 0;
         break;
     default:
         break;
@@ -1168,6 +1186,52 @@ static const PetkaObject *listed_object_at(Game *g, float x, float y) {
         if (clip_hit(v, (int)x - st->x, (int)y - st->y)) return obj;
     }
     return NULL;
+}
+
+// Draws text broken into lines no wider than `width`; returns the y below it.
+static float draw_wrapped(Font font, const char *text, float x, float y, float width, float size, Color ink) {
+    char row[1024] = "";
+    const char *p = text;
+    while (*p) {
+        const char *space = strchr(p, ' ');
+        size_t word = space ? (size_t)(space - p) + 1 : strlen(p);
+        char trial[1024];
+        snprintf(trial, sizeof(trial), "%s%.*s", row, (int)word, p);
+        if (row[0] && MeasureTextEx(font, trial, size, 1).x > width) {
+            DrawTextEx(font, row, (Vector2){x, y}, size, 1, ink);
+            y += size + 4;
+            row[0] = 0;
+            continue;
+        }
+        snprintf(row, sizeof(row), "%s", trial);
+        p += word;
+    }
+    DrawTextEx(font, row, (Vector2){x, y}, size, 1, ink);
+    return y + size + 4;
+}
+
+// A thing's description: the description clip (resource 6008, a frame for
+// each thing) with the text from INVNTR.TXT. The exe's own drawing of it was
+// not decompiled; where the words go is read off the picture.
+#define DESCRIPTION_CLIP 6008
+static void draw_description(Game *g, Font font, float scale) {
+    Visual *v = &g->desc_clip;
+    if (v->resource != DESCRIPTION_CLIP) visual_load(g, v, DESCRIPTION_CLIP);
+    if (v->flic && g->desc_frame >= 1 && g->desc_frame <= v->flic->frame_count) {
+        if (v->flic->frame_index != g->desc_frame - 1) {
+            for (int guard = 0; guard < v->flic->frame_count && v->flic->frame_index != g->desc_frame - 1; guard++)
+                petka_flic_advance(v->flic);
+            uint8_t *rgba = flic_to_rgba(v->flic);
+            UpdateTexture(v->tex, rgba);
+            free(rgba);
+        }
+        DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
+                       (Rectangle){0, 0, v->flic->width * scale, v->flic->height * scale}, (Vector2){0, 0}, 0, WHITE);
+    }
+    // The frame is a wooden board along the bottom: the thing's picture on
+    // the left and, right of it, an empty field -- about 160,274 to 600,378
+    // -- for the words.
+    draw_wrapped(font, g->desc, 165 * scale, 278 * scale, 430 * scale, 8.5f * scale, (Color){60, 25, 10, 255});
 }
 
 // ---- the case ----
@@ -1798,6 +1862,8 @@ static void part_close(Game *g) {
     free(g->visuals);
     g->visuals = NULL;
     visual_free(&g->cursor);
+    visual_free(&g->desc_clip);
+    g->desc[0] = 0;
     saves_unload(g);
     visual_free(&g->case_body);
     visual_free(&g->case_exit);
@@ -1960,6 +2026,7 @@ int main(int argc, char **argv) {
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;
     g->cursor.resource = PETKA_NONE;
+    g->desc_clip.resource = PETKA_NONE;
     g->chapter_store = -1;
     snprintf(g->game_dir, sizeof(g->game_dir), "%s", game_dir);
     g->case_body.resource = g->case_exit.resource = g->case_strip.resource = PETKA_NONE;
@@ -2140,8 +2207,14 @@ int main(int argc, char **argv) {
 
         if (g->panel_open) panel_show_state(g);
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
+        // A description stays up until a click, which it takes.
+        int desc_shown = g->desc[0] != 0;
+        if (desc_shown && (clicked || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_SPACE))) {
+            g->desc[0] = 0;
+            clicked = 0;
+        }
         int can_act = vm->cursor_visible && !g->talking && (g->seq_room == PETKA_NONE || g->map_open) &&
-                      !g->save_mode;
+                      !g->save_mode && !desc_shown;
         // The save screen takes the mouse to itself; the right button or O
         // leaves it (ours -- its own way out was not decompiled).
         if (g->save_mode) {
@@ -2312,30 +2385,14 @@ int main(int argc, char **argv) {
         }
 
         if (g->talking && g->line[0] && g->subtitles) {
-            // Word-wrap the phrase into the box.
             float box_w = (float)GetScreenWidth() - 40, y = (float)GetScreenHeight() - 150;
             DrawRectangle(10, (int)y - 10, GetScreenWidth() - 20, 110, Fade(BLACK, 0.7f));
             // Each speaker's lines are in his own colour.
             const PetkaObject *talker = petka_script_find(g->script, g->talker);
             Color ink = talker ? g->colors[obj_index(g, talker)] : WHITE;
-            char row[512] = "";
-            const char *p = g->line;
-            while (*p) {
-                const char *space = strchr(p, ' ');
-                size_t word = space ? (size_t)(space - p) + 1 : strlen(p);
-                char trial[512];
-                snprintf(trial, sizeof(trial), "%s%.*s", row, (int)word, p);
-                if (row[0] && MeasureTextEx(font, trial, 24, 1).x > box_w) {
-                    DrawTextEx(font, row, (Vector2){20, y}, 24, 1, ink);
-                    y += 28;
-                    row[0] = 0;
-                    continue;
-                }
-                snprintf(row, sizeof(row), "%s", trial);
-                p += word;
-            }
-            DrawTextEx(font, row, (Vector2){20, y}, 24, 1, ink);
+            draw_wrapped(font, g->line, 20, y, box_w, 24, ink);
         }
+        if (g->desc[0]) draw_description(g, font, scale);
 
         for (int i = 0; i < g->menu_count; i++) {
             Rectangle row = menu_row(g, i);

@@ -1288,7 +1288,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 29 / 30 | `SETSEQ` / `ENDSEQ` | (room) put this room on screen as a cutscene sequence / go back to the game, see below |
 | 31, 32 | `CHECK`, `IF` | conditions, see above |
 | 34 | `HALF` | a clip reached its middle frame (a reaction trigger; used once) |
-| 33 | `SHOWDESCRIPTION` | show the object's text from `INVNTR.TXT` |
+| 33 | `SHOWDESCRIPTION` | the object's line in `[all]` of `INVNTR.TXT`, looked up by its script name, is handed to the main screen (slot `+64`, `0x4147A0`, not decompiled) with `arg1` -- a number 1-40 in `PART_1`, one per thing, matching the 40 frames of `MAIN\INVENTOR.1\T-01.FLC` (6008): a wooden board with the thing's picture and an empty field for the words |
 | 35 | `QM_WALKED` | (hero) resume the tail parked by a walk |
 | 36 / 37 | `WALKTO` / `WALKVICH` | Petka / Chapayev walks to (`arg1`,`arg2`) or the object's walk point |
 | 38 | `INITBG` | broadcast when a room is entered, sender = that room |
@@ -1303,8 +1303,8 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 55 | `SHAKE`* | screen shake on (1) / off |
 | 57 | `RANDOM`* | see above |
 | 58 / 59 | `JUMP`* / `JUMPVICH`* | place Petka / Chapayev instantly |
-| 60 / 61 | `PART`* / `CHAPTER`* | load another part (`PART 2` ends part 1, `PART 3` part 2) / open another chapter's store (part 2 only: `CHAPTER 2`, `CHAPTER 1`); see "Loading a part" |
-| 62 | `AVI`* | play a video by resource id |
+| 60 / 61 | `PART`* / `CHAPTER`* | `PART n` does not load anything itself: it sets the wanted part (`dword_4DE880`), chapter 1, an empty "save to load" name and the flag `dword_4DE8B0` -- the same request a saved game of another part leaves -- plus a second flag, `dword_4DE8B4`; the part is loaded later (`PART 2` ends part 1, `PART 3` part 2). `CHAPTER n` calls `sub_411C00(n)` at once (part 2 only: `CHAPTER 2`, `CHAPTER 1`). See "Loading a part" |
+| 62 | `AVI`* | the resource's path (`sub_419B20`) is handed to `sub_4124A0`, the player (not decompiled) |
 
 A **sequence** is a cutscene built as a room: 68 of the 104 uses name a room
 called "Seq - ...", whose background is the black `MAIN\BG1.BMP` (resource
