@@ -12,7 +12,7 @@
 // it; a click or Space skips the phrase being spoken.
 //
 // Known gaps (not in the script, still to be reversed):
-// AVI playback and part switching are only reported.
+// AVI playback is only reported.
 #include "petka/bmp.h"
 #include "petka/dialogue.h"
 #include "petka/flic.h"
@@ -105,14 +105,17 @@ typedef struct {
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
-    // What a new game is made from: the part's script and dialogue files as
-    // they are in the stores -- the running copies get written to.
-    const uint8_t *script_data, *bg_data, *fix_data;
-    size_t script_len, bg_len, fix_len;
-    PetkaScriptHost host;
-    int restart_wanted; // start the part over at the top of the next frame
-    // Saved games.
+    // The part of the game that is loaded, and the way to another.
+    char game_dir[1024];
+    char part[16];      // "PART_n", the folder its files are under
     int part_number;
+    int chapter;
+    int chapter_store;  // which of `stores` is the chapter's, -1 = none
+    PetkaScriptHost host;
+    int switch_part, switch_chapter; // load this part at the top of the next
+                                     // frame; 0 = stay
+    char pending_load[64];           // ... and then this saved game
+    // Saved games.
     int save_mode;   // the save screen is up: 1 loading, 2 saving
     int save_page;   // 0..2, six slots a page
     Texture2D save_bg;
@@ -982,6 +985,8 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     if (chapayev) { chapayev->x = spot->walk_x; chapayev->y = spot->walk_y - 2; chapayev->busy = 0; }
 }
 
+static void chapter_open(Game *g, int chapter);
+
 static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
                          const PetkaQueued *q, int reacted) {
     Game *g = (Game *)user;
@@ -1021,10 +1026,13 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         set_status(g, TextFormat("(видео %s пропущено)", g->qrc[m->arg1] ? g->qrc[m->arg1] : "?"));
         break;
     case PETKA_OP_PART:
-        set_status(g, TextFormat("(переход к части %u не реализован)", m->arg1));
+        // The whole game is taken down and built again for the new part
+        // (sub_412040); that waits for the top of the next frame.
+        g->switch_part = m->arg1;
+        g->switch_chapter = 1;
         break;
     case PETKA_OP_CHAPTER:
-        set_status(g, TextFormat("(глава %u)", m->arg1));
+        chapter_open(g, m->arg1);
         break;
     case PETKA_OP_SHOWDESCRIPTION:
         set_status(g, display_name(g, obj));
@@ -1339,12 +1347,14 @@ static Texture2D thumb_texture(const uint8_t *thumb) {
     return tex;
 }
 
+static void chapter_open(Game *g, int chapter);
+
 // Writes the game as it stands to a file (the exe's sub_406EB0).
 static int game_save(Game *g, const char *path) {
     PetkaScriptVM *vm = g->vm;
     PetkaSave save = {0};
     save.part = (uint32_t)g->part_number;
-    save.chapter = 1; // the chapter the launcher runs; it cannot change it yet
+    save.chapter = (uint32_t)g->chapter;
     time_t now = time(NULL);
     strftime(save.label, sizeof(save.label), "%X   %d %B %Y", localtime(&now));
     memcpy(save.thumb, g->thumb, sizeof(save.thumb));
@@ -1415,11 +1425,15 @@ static int game_load(Game *g, const char *path) {
     free(bytes);
     if (!save) return 0;
     if ((int)save->part != g->part_number) {
-        // The exe switches to the save's part and loads it there.
-        set_status(g, "(это сохранение из другой части игры; смена части пока не сделана)");
+        // A save from another part is not loaded here: the game goes to that
+        // part first and comes back to the file.
+        snprintf(g->pending_load, sizeof(g->pending_load), "%s", path);
+        g->switch_part = (int)save->part;
+        g->switch_chapter = save->chapter ? (int)save->chapter : 1;
         petka_save_free(save);
         return 0;
     }
+    chapter_open(g, (int)save->chapter);
     map_leave(g);
     g->case_open = 0;
     g->talking = g->paused = g->menu_count = 0;
@@ -1553,13 +1567,24 @@ static void draw_saves(Game *g, Font font, float scale) {
 
 // A click on the panel (sub_41CAE0). The exe goes by the object's number in
 // the screen's list, which is its number in the room's list plus one.
+// "New game" (sub_418260): the part and chapter to begin with are read from
+// [All] of PARTS.INI, 1 and 1 unless it says otherwise, and that part loaded.
+static void new_game(Game *g) {
+    size_t len = 0;
+    const uint8_t *ini = res_find(g, "PARTS.INI", &len);
+    char value[32];
+    g->switch_part = ini && petka_ini_get(ini, len, "All", "Part", value, sizeof(value)) ? atoi(value) : 1;
+    g->switch_chapter = ini && petka_ini_get(ini, len, "All", "Chapter", value, sizeof(value)) ? atoi(value) : 1;
+    if (g->switch_part <= 0) g->switch_part = 1;
+}
+
 static void panel_click(Game *g, const PetkaObject *hit) {
     const PetkaObject *panel = petka_script_find(g->script, g->seq_room);
     int n = -1;
     for (uint32_t i = 0; panel && i < panel->attached_count; i++)
         if (panel->attached[i].obj_id == hit->id) n = (int)i;
     switch (n) {
-    case 0: map_leave(g); g->restart_wanted = 1; break; // "new game"
+    case 0: map_leave(g); new_game(g); break;
     case 1: map_leave(g); saves_open(g, 1); break; // "restore"
     case 2: map_leave(g); break;                 // "continue"
     case 3: map_leave(g); g->quit = 1; break;    // the door: out of the game
@@ -1756,25 +1781,143 @@ static void game_start(Game *g) {
     if (start) petka_scriptvm_enter_room(g->vm, start->id, 0);
 }
 
-// "New game" (the panel's first button; the exe's sub_418260 reads the part
-// and chapter to start with from PARTS.INI and loads that part). The launcher
-// runs one part, so it starts that part over: the script and the dialogue
-// code are read afresh -- the game writes into both as it goes -- and
-// everything the launcher keeps of the old game is dropped.
-static void game_restart(Game *g) {
+// Everything of the loaded part is let go: what is on screen or sounding,
+// the script and its machine, the dialogue, and the stores themselves.
+static void part_close(Game *g) {
+    if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
+    set_stream(g, &g->music, &g->music_id, PETKA_NONE);
+    set_stream(g, &g->ambience, &g->ambience_id, PETKA_NONE);
+    for (uint32_t i = 0; g->script && g->visuals && i < g->script->object_count; i++) visual_free(&g->visuals[i]);
+    free(g->visuals);
+    g->visuals = NULL;
+    visual_free(&g->cursor);
+    saves_unload(g);
+    visual_free(&g->case_body);
+    visual_free(&g->case_exit);
+    visual_free(&g->case_strip);
+    for (int i = 0; i < 6; i++) visual_free(&g->case_button[i]);
+    for (uint32_t i = 0; g->script && g->names && i < g->script->object_count; i++) free(g->names[i]);
+    free(g->names);
+    free(g->colors);
+    g->names = NULL;
+    g->colors = NULL;
+    for (int i = 0; i < g->gait_count; i++) petka_gait_close(g->gaits[i].gait);
+    g->gait_count = 0;
+    petka_walkmesh_close(g->mesh);
+    g->mesh = NULL;
+    if (g->vm) petka_scriptvm_close(g->vm);
+    if (g->script) petka_script_close(g->script);
+    if (g->dtree) petka_dialoguetree_close(g->dtree);
+    if (g->phrases) petka_phrasetable_close(g->phrases);
+    if (g->topo) petka_topology_close(g->topo);
+    g->vm = NULL;
+    g->script = NULL;
+    g->dtree = NULL;
+    g->phrases = NULL;
+    g->topo = NULL;
+    g->bgs_ini = NULL;
+    g->bgs_ini_len = 0;
+    for (int i = 0; i < 65536; i++) { free(g->qrc[i]); g->qrc[i] = NULL; }
+    for (int i = 0; i < g->store_count; i++) petka_store_close(g->stores[i]);
+    g->store_count = 0;
+    g->chapter_store = -1;
+}
+
+// Opens a part: its stores, script, resource table, room graph, dialogue and
+// names (the exe's sub_412040 and what it calls). Returns 0 if the part is
+// not there; whatever was opened is then for part_close to let go.
+static int part_open(Game *g, int number, int chapter) {
+    snprintf(g->part, sizeof(g->part), "PART_%d", number);
+    snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%d", number);
+    g->part_number = number;
+    g->chapter = chapter;
+    g->chapter_store = -1;
+
+    static const char *const kStoreNames[] = {"MAIN.STR", "BGS%d.STR", "FLC%d.STR", "WAV%d.STR",
+                                              "SFX%d.STR", "MUSIC%d.STR", "SPEECH%d.STR"};
+    char file[64];
+    for (size_t i = 0; i < sizeof(kStoreNames) / sizeof(kStoreNames[0]); i++) {
+        if (i == 0) snprintf(file, sizeof(file), "%s", kStoreNames[i]);
+        else snprintf(file, sizeof(file), kStoreNames[i], number);
+        PetkaStore *store = open_store(g->game_dir, file);
+        if (store) g->stores[g->store_count++] = store;
+        else fprintf(stderr, "store not found under %s: %s\n", g->game_dir, file);
+    }
+    // Only a part split into chapters has a chapter store; it carries that
+    // chapter's speech, names and colours.
+    snprintf(file, sizeof(file), "CHAP%d%d.STR", number, chapter);
+    PetkaStore *chapter_store = open_store(g->game_dir, file);
+    if (chapter_store) {
+        g->chapter_store = g->store_count;
+        g->stores[g->store_count++] = chapter_store;
+    }
+
+    size_t script_len = 0, bg_len = 0, len = 0;
+    const uint8_t *script_data = part_file(g, g->part, "SCRIPT.DAT", &script_len);
+    const uint8_t *bg_data = part_file(g, g->part, "BACKGRND.BG", &bg_len);
+    g->script = script_data && bg_data ? petka_script_open(script_data, script_len, bg_data, bg_len) : NULL;
+    if (!g->script) { fprintf(stderr, "no script for %s under %s\n", g->part, g->game_dir); return 0; }
+
+    const uint8_t *bytes = part_file(g, g->part, "RESOURCE.QRC", &len);
+    if (bytes) load_qrc(g, bytes, len);
+    bytes = part_file(g, g->part, "BGS.INI", &len);
+    if (bytes) {
+        g->topo = petka_topology_parse(bytes, len);
+        g->bgs_ini = bytes;
+        g->bgs_ini_len = len;
+    }
+    size_t lod_len = 0, fix_len = 0;
+    const uint8_t *lod = part_file(g, g->part, "DIALOGUE.LOD", &lod_len);
+    const uint8_t *fix = part_file(g, g->part, "DIALOGUE.FIX", &fix_len);
+    if (lod && fix) {
+        g->phrases = petka_phrasetable_open(lod, lod_len);
+        g->dtree = petka_dialoguetree_open(fix, fix_len);
+    }
+    if (!g->phrases || !g->dtree) fprintf(stderr, "dialogue data unavailable for %s\n", g->part);
+
+    g->vm = petka_scriptvm_open(g->script, &g->host);
+    load_names(g, g->part);
+    g->visuals = (Visual *)calloc(g->script->object_count, sizeof(Visual));
+    for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].resource = PETKA_NONE;
+    return 1;
+}
+
+// CHAPTER n (the exe's sub_411C00): the chapter's store takes the place of
+// the one before it, and every object's shown name and colour are read
+// again from it. The game itself goes on untouched.
+static void chapter_open(Game *g, int chapter) {
+    if (chapter <= 0 || chapter == g->chapter) return;
+    char file[64];
+    snprintf(file, sizeof(file), "CHAP%d%d.STR", g->part_number, chapter);
+    PetkaStore *store = open_store(g->game_dir, file);
+    if (!store) return; // a part that is not split into chapters
+    if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
+    if (g->chapter_store >= 0) {
+        petka_store_close(g->stores[g->chapter_store]);
+        g->stores[g->chapter_store] = store;
+    } else if (g->store_count < MAX_STORES) {
+        g->chapter_store = g->store_count;
+        g->stores[g->store_count++] = store;
+    } else {
+        petka_store_close(store);
+        return;
+    }
+    g->chapter = chapter;
+    for (uint32_t i = 0; g->names && i < g->script->object_count; i++) free(g->names[i]);
+    free(g->names);
+    free(g->colors);
+    load_names(g, g->part);
+}
+
+// Takes the game down and builds it again for a part, as the exe does for
+// "new game", for the script's PART message and for a saved game of another
+// part (sub_412040): nothing of the old game is kept -- and since the game
+// writes into its script and dialogue code as it goes, this is also how a
+// part is started over.
+static void game_switch(Game *g, int part, int chapter) {
+    int old_part = g->part_number, old_chapter = g->chapter;
     map_leave(g);
     saves_close(g);
-    if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
-    for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
-    petka_scriptvm_close(g->vm);
-    petka_script_close(g->script);
-    g->script = petka_script_open(g->script_data, g->script_len, g->bg_data, g->bg_len);
-    if (g->dtree && g->fix_data) {
-        petka_dialoguetree_close(g->dtree);
-        g->dtree = petka_dialoguetree_open(g->fix_data, g->fix_len);
-    }
-    g->vm = petka_scriptvm_open(g->script, &g->host);
-
     g->dialogue = NULL;
     g->talking = g->paused = g->menu_count = g->dialogue_done = 0;
     g->line[0] = 0;
@@ -1787,6 +1930,13 @@ static void game_restart(Game *g) {
     g->verb = 0;
     g->camera_x = g->camera_target = 0;
     g->camera_snap = 1;
+
+    part_close(g);
+    if (!part_open(g, part, chapter)) {
+        part_close(g);
+        part_open(g, old_part, old_chapter);
+        set_status(g, TextFormat("(часть %d не найдена, игра начата заново)", part));
+    }
     game_start(g);
 }
 
@@ -1803,56 +1953,13 @@ int main(int argc, char **argv) {
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;
     g->cursor.resource = PETKA_NONE;
-    g->part_number = atoi(digit);
+    g->chapter_store = -1;
+    snprintf(g->game_dir, sizeof(g->game_dir), "%s", game_dir);
     g->case_body.resource = g->case_exit.resource = g->case_strip.resource = PETKA_NONE;
     for (int i = 0; i < 6; i++) g->case_button[i].resource = PETKA_NONE;
     g->case_lit = -1;
     g->subtitles = 1;
     for (int i = 0; i < 4; i++) g->dial[i] = kDialDefault[i];
-    snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
-
-    // The last one is the store of the part's first chapter; only a part
-    // split into chapters has it (it carries that chapter's speech, names
-    // and colours). Switching chapters mid-game is not done yet.
-    static const char *const kStoreNames[] = {"MAIN.STR", "BGS%s.STR", "FLC%s.STR", "WAV%s.STR",
-                                              "SFX%s.STR", "MUSIC%s.STR", "SPEECH%s.STR", "CHAP%s1.STR"};
-    const size_t store_names = sizeof(kStoreNames) / sizeof(kStoreNames[0]);
-    for (size_t i = 0; i < store_names; i++) {
-        char file[64];
-        snprintf(file, sizeof(file), kStoreNames[i], digit);
-        PetkaStore *store = open_store(game_dir, file);
-        if (store) g->stores[g->store_count++] = store;
-        else if (i + 1 < store_names) fprintf(stderr, "store not found under %s: %s\n", game_dir, file);
-    }
-
-    size_t script_len = 0, bg_len = 0, len = 0;
-    const uint8_t *script_data = part_file(g, part, "SCRIPT.DAT", &script_len);
-    const uint8_t *bg_data = part_file(g, part, "BACKGRND.BG", &bg_len);
-    g->script = script_data && bg_data ? petka_script_open(script_data, script_len, bg_data, bg_len) : NULL;
-    g->script_data = script_data;
-    g->script_len = script_len;
-    g->bg_data = bg_data;
-    g->bg_len = bg_len;
-    if (!g->script) { fprintf(stderr, "no script for %s under %s\n", part, game_dir); return 1; }
-
-    const uint8_t *bytes = part_file(g, part, "RESOURCE.QRC", &len);
-    if (bytes) load_qrc(g, bytes, len);
-    bytes = part_file(g, part, "BGS.INI", &len);
-    if (bytes) {
-        g->topo = petka_topology_parse(bytes, len);
-        g->bgs_ini = bytes;
-        g->bgs_ini_len = len;
-    }
-    size_t lod_len = 0, fix_len = 0;
-    const uint8_t *lod = part_file(g, part, "DIALOGUE.LOD", &lod_len);
-    const uint8_t *fix = part_file(g, part, "DIALOGUE.FIX", &fix_len);
-    if (lod && fix) {
-        g->phrases = petka_phrasetable_open(lod, lod_len);
-        g->dtree = petka_dialoguetree_open(fix, fix_len);
-        g->fix_data = fix;
-        g->fix_len = fix_len;
-    }
-    if (!g->phrases || !g->dtree) fprintf(stderr, "dialogue data unavailable for %s\n", part);
 
     g->host.user = g;
     g->host.has_dialogue = host_has_dialogue;
@@ -1862,10 +1969,7 @@ int main(int argc, char **argv) {
     g->host.stop = host_stop;
     g->host.room_changed = host_room_changed;
     g->host.message = host_message;
-    g->vm = petka_scriptvm_open(g->script, &g->host);
-    load_names(g, part);
-    g->visuals = (Visual *)calloc(g->script->object_count, sizeof(Visual));
-    for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].resource = PETKA_NONE;
+    if (!part_open(g, atoi(digit), 1)) return 1;
 
     InitWindow(GAME_W * 2, GAME_H * 2, "Петька и Василий Иванович");
     s_turbo = getenv("PETKA_TURBO") != NULL;
@@ -1918,10 +2022,19 @@ int main(int argc, char **argv) {
         }
         // The pointer in background pixels: where it is in the room.
         float mx = mouse.x / scale + g->camera_x, my = mouse.y / scale;
-        // A new game was asked for: nothing of this frame holds the old one yet.
-        if (g->restart_wanted) {
-            g->restart_wanted = 0;
-            game_restart(g);
+        // Another part was asked for -- by "new game", the script's PART or
+        // a saved game. Nothing of this frame holds the old one yet.
+        if (g->switch_part) {
+            int to_part = g->switch_part, to_chapter = g->switch_chapter > 0 ? g->switch_chapter : 1;
+            g->switch_part = 0;
+            game_switch(g, to_part, to_chapter);
+            if (g->pending_load[0]) {
+                char save_file[64];
+                snprintf(save_file, sizeof(save_file), "%s", g->pending_load);
+                g->pending_load[0] = 0;
+                // Only if the part is the save's now: no going round in circles.
+                if (g->part_number == to_part && game_load(g, save_file)) set_status(g, "(игра загружена)");
+            }
         }
         PetkaScriptVM *vm = g->vm;
 
@@ -2293,34 +2406,11 @@ int main(int argc, char **argv) {
         }
     }
 
-    for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
-    visual_free(&g->cursor);
-    saves_unload(g);
-    visual_free(&g->case_body);
-    visual_free(&g->case_exit);
-    visual_free(&g->case_strip);
-    for (int i = 0; i < 6; i++) visual_free(&g->case_button[i]);
-    free(g->visuals);
-    for (uint32_t i = 0; i < g->script->object_count; i++) free(g->names[i]);
-    free(g->names);
-    free(g->colors);
-    for (int i = 0; i < g->gait_count; i++) petka_gait_close(g->gaits[i].gait);
+    part_close(g);
     if (g->bg_tex.id) UnloadTexture(g->bg_tex);
-    petka_walkmesh_close(g->mesh);
-    if (g->voice.frameCount > 0) UnloadSound(g->voice);
     for (int i = 0; i < MAX_SOUNDS; i++) if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
-    if (g->music.frameCount > 0) UnloadMusicStream(g->music);
-    if (g->ambience.frameCount > 0) UnloadMusicStream(g->ambience);
     if (font.texture.id != GetFontDefault().texture.id) UnloadFont(font);
     CloseAudioDevice();
     CloseWindow();
-
-    petka_scriptvm_close(g->vm);
-    petka_script_close(g->script);
-    if (g->dtree) petka_dialoguetree_close(g->dtree);
-    if (g->phrases) petka_phrasetable_close(g->phrases);
-    if (g->topo) petka_topology_close(g->topo);
-    for (int i = 0; i < 65536; i++) free(g->qrc[i]);
-    for (int i = 0; i < g->store_count; i++) petka_store_close(g->stores[i]);
     return 0;
 }

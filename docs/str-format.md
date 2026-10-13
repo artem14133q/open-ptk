@@ -827,6 +827,33 @@ in hundredths of a decibel. The curve is steep: the default music, 47 %,
 is 13.4 dB down (a gain of 0.21), the default effects, 73 %, 5.6 dB down
 (0.53), and 10 % is all but silent.
 
+**Loading a part** (`sub_412040(part)`, a method of the application
+object) is what "new game", the script's `PART` and a saved game of another
+part come to. It keeps nothing of the running game:
+
+1. `sub_412320(part)` first -- not decompiled; by the `DiskID` lines of
+   `PARTS.INI`, the check that the part's disc is there -- and nothing
+   happens if it says no;
+2. the part number is stored (`+196` of the application, the global
+   `dword_4DE87C`);
+3. `QSystem`, the object at `dword_4DE8E8`, the resource manager
+   (`dword_4DE8C8`), the dialogue manager (`dword_4D416C`) and the object at
+   `dword_4D4178` are destroyed;
+4. the stores are opened again: `patch.str` **first**, then `main.str`
+   (`sub_41EDC0`); `PARTS.INI` is read (`sub_4121E0`) and the part's own
+   stores opened (`sub_411450`); the sound manager is reset (`sub_40F060`);
+5. a new dialogue manager, resource manager, `dword_4DE8E8` object and
+   `QSystem` are made, and `sub_405D00` loads the script -- which sends
+   `TOTALINIT` round and builds the screens.
+
+`patch.str` is a store looked in before any other; the copy of the game
+examined has none. The launcher does the same in `game_switch`
+(`part_close`, `part_open`): everything of the old part is let go and the
+new one opened, and since the game writes into its script and dialogue code
+as it goes, that is also how a part is started over. `CHAPTER`
+(`chapter_open`) only changes the chapter's store and reads the names and
+colours again.
+
 **The save/load screen** (`QSystem+552`; constructor `sub_41D940`, which
 only sets the vtable, `0x4B9E70`) is a third screen of the same kind. Its
 room is 513 `SAVELOAD`, which has a picture (`SET 4990`, `LOAD1.BMP`; the
@@ -963,9 +990,8 @@ The launcher saves and loads in this format (`core/src/save.c`:
 directory it is run from, like the exe. The panel's "restore" and "save"
 lead to the screen, a click on a slot loads or saves, the corners turn the
 page; the right button or `O` leaves it. It takes the slot picture itself,
-by shrinking the frame on screen when the panel comes up. Not done: a save
-from another part is refused rather than followed, and the chapter is
-always written as 1.
+by shrinking the frame on screen when the panel comes up. A save from
+another part makes the launcher load that part and then the save.
 
 Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
@@ -975,9 +1001,8 @@ start at the exe's defaults and work: the three volumes, on the exe's
 curve (the ambience counts as an effect), and the walking speed. Nothing
 is saved between runs, and unlike the original the launcher starts with the
 subtitles on. "Restore" and "save" lead to the save/load screen (below).
-"New game" starts the part the launcher is running over again, from freshly
-read script and dialogue code -- not, as the original would, part 1 whatever
-part is running, since the launcher cannot change parts.
+"New game" loads the part and chapter `PARTS.INI` names, as the original
+does.
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`
@@ -1274,7 +1299,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 55 | `SHAKE`* | screen shake on (1) / off |
 | 57 | `RANDOM`* | see above |
 | 58 / 59 | `JUMP`* / `JUMPVICH`* | place Petka / Chapayev instantly |
-| 60 / 61 | `PART`* / `CHAPTER`* | switch part / chapter |
+| 60 / 61 | `PART`* / `CHAPTER`* | load another part (`PART 2` ends part 1, `PART 3` part 2) / open another chapter's store (part 2 only: `CHAPTER 2`, `CHAPTER 1`); see "Loading a part" |
 | 62 | `AVI`* | play a video by resource id |
 
 A **sequence** is a cutscene built as a room: 68 of the 104 uses name a room
