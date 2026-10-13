@@ -25,6 +25,11 @@ typedef struct {
     uint32_t cursor;     // byte offset of the next frame chunk to decode
 
     uint8_t palette[256][3];
+    // The palette as the exe holds it (a 6-bit chunk's values times four,
+    // not spread to 255), and whether the last palette chunk was a 6-bit
+    // one: what petka_flic_keyed() goes by.
+    uint8_t exe_palette[256][3];
+    int key_is_fixed;
     uint8_t *indices;    // width*height, current frame as palette indices
     uint8_t *rgb;         // width*height*3, derived from indices+palette
 } PetkaFlic;
@@ -41,10 +46,10 @@ void petka_flic_close(PetkaFlic *flic);
 // Returns 0 on success, -1 on error.
 int petka_flic_advance(PetkaFlic *flic);
 
-// Whether a palette entry is the clip's transparent colour. The exe turns
-// every frame into 16 bits a pixel and keys out the *colour* of palette
-// entry 0 there, so an entry is transparent when its colour falls on the
-// same 16-bit one -- entry 0 itself, and any other entry within the low
+// Whether a palette entry is the clip's transparent colour. The exe keeps
+// a 16-bit colour for every palette entry, draws with those, and keys out
+// the one of entry 0. So an entry is transparent when its colour falls on
+// the same 16 bits: entry 0 itself, and any other entry within the low
 // bits of it. Clips do rely on that: PROVODA.FLC is filled with entry 31
 // (252,252,252) beside a key of 255,255,255, and STOL.FLC has no pixel of
 // entry 0 at all.

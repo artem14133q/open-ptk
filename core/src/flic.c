@@ -113,7 +113,9 @@ static void decode_ss2(Reader *r, uint8_t *indices, int width, int height) {
     }
 }
 
-static void decode_color256(Reader *r, uint8_t palette[256][3]) {
+static void decode_color256(Reader *r, PetkaFlic *f) {
+    uint8_t (*palette)[3] = f->palette;
+    f->key_is_fixed = 0;
     uint16_t num_packets = rd_u16(r);
     int pos = 0;
     for (uint16_t p = 0; p < num_packets; p++) {
@@ -122,15 +124,15 @@ static void decode_color256(Reader *r, uint8_t palette[256][3]) {
         pos += skip;
         int n = copy == 0 ? 256 : copy;
         for (int i = 0; i < n && pos < 256; i++) {
-            palette[pos][0] = rd_u8(r);
-            palette[pos][1] = rd_u8(r);
-            palette[pos][2] = rd_u8(r);
+            for (int c = 0; c < 3; c++) palette[pos][c] = f->exe_palette[pos][c] = rd_u8(r);
             pos++;
         }
     }
 }
 
-static void decode_color64(Reader *r, uint8_t palette[256][3]) {
+static void decode_color64(Reader *r, PetkaFlic *f) {
+    uint8_t (*palette)[3] = f->palette;
+    f->key_is_fixed = 1;
     uint16_t num_packets = rd_u16(r);
     int pos = 0;
     for (uint16_t p = 0; p < num_packets; p++) {
@@ -139,10 +141,13 @@ static void decode_color64(Reader *r, uint8_t palette[256][3]) {
         pos += skip;
         int n = copy == 0 ? 256 : copy;
         for (int i = 0; i < n && pos < 256; i++) {
-            // 6-bit VGA-style channels, scale up to 8-bit.
-            palette[pos][0] = (uint8_t)(rd_u8(r) * 255 / 63);
-            palette[pos][1] = (uint8_t)(rd_u8(r) * 255 / 63);
-            palette[pos][2] = (uint8_t)(rd_u8(r) * 255 / 63);
+            // 6-bit VGA-style channels, scale up to 8-bit. (The exe just
+            // multiplies by four, in a byte.)
+            for (int c = 0; c < 3; c++) {
+                uint8_t v = rd_u8(r);
+                palette[pos][c] = (uint8_t)(v * 255 / 63);
+                f->exe_palette[pos][c] = (uint8_t)(v * 4);
+            }
             pos++;
         }
     }
@@ -180,8 +185,8 @@ static int decode_frame_at(PetkaFlic *f, uint32_t off) {
             case CHUNK_SS2: decode_ss2(&r, f->indices, f->width, f->height); break;
             case CHUNK_COPY: decode_copy(&r, f->indices, f->width, f->height); break;
             case CHUNK_BLACK: memset(f->indices, 0, (size_t)f->width * f->height); break;
-            case CHUNK_COLOR256: decode_color256(&r, f->palette); break;
-            case CHUNK_COLOR64: decode_color64(&r, f->palette); break;
+            case CHUNK_COLOR256: decode_color256(&r, f); break;
+            case CHUNK_COLOR64: decode_color64(&r, f); break;
             case CHUNK_LC: decode_ss2(&r, f->indices, f->width, f->height); break; // close enough for byte-aligned delta; rare in practice
             case CHUNK_PSTAMP:
             default: break; // unknown/ignored chunk, skip via chunk_start+csize below
@@ -255,13 +260,20 @@ static uint32_t chunk_size_at(const PetkaFlic *flic, uint32_t off) {
     return rd_u32(&hr);
 }
 
-// A palette entry as the 16 bits (5-6-5) the exe's surfaces hold.
-static unsigned rgb565(const uint8_t *rgb) {
-    return (unsigned)(rgb[0] >> 3) << 11 | (unsigned)(rgb[1] >> 2) << 5 | (unsigned)(rgb[2] >> 3);
+// A palette entry as the 16 bits the exe keeps for it. Each palette chunk's
+// handler turns the whole table into words again, in its own way:
+//  - the 8-bit chunk's (sub_410060) by the screen's own pixel format, each
+//    channel cut to that format's width -- 5-6-5 here, the usual one;
+//  - the 6-bit chunk's (sub_410280) as r5 << 11 | g5 << 6 | b5: green cut
+//    to five bits too, its low bit left clear.
+static unsigned colour16(const PetkaFlic *flic, uint8_t index) {
+    const uint8_t *rgb = flic->exe_palette[index];
+    unsigned green = flic->key_is_fixed ? (unsigned)(rgb[1] >> 3) << 6 : (unsigned)(rgb[1] >> 2) << 5;
+    return (unsigned)(rgb[0] >> 3) << 11 | green | (unsigned)(rgb[2] >> 3);
 }
 
 int petka_flic_keyed(const PetkaFlic *flic, uint8_t index) {
-    return index == 0 || rgb565(flic->palette[index]) == rgb565(flic->palette[0]);
+    return index == 0 || colour16(flic, index) == colour16(flic, 0);
 }
 
 int petka_flic_advance(PetkaFlic *flic) {

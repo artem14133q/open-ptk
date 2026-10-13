@@ -1284,20 +1284,42 @@ just that rect (its corner is `QFlic+1656`, `+1660`), and on it the point
 The first one that falls on the surface and is not the transparent colour
 (`QFlic+40`) makes it a hit: one pixel of slack all round.
 
-**The transparent colour is a colour, not a palette entry.** The exe's
-surfaces are 16 bits a pixel, and what is keyed out -- in drawing as in
-these tests -- is every pixel of the 16-bit colour of the clip's key. Going
-by the data the key is the colour of palette entry 0, and clips count on
-other entries falling on it: of the 983 clips of `MAIN.STR` and `FLC1.STR`,
-17 have such pixels in their first frame. `PROVODA.FLC` (the wires at the
-dump, shown once the magnet has pulled the rubbish up) has a key of
-255,255,255 and is filled with entry 31, 252,252,252 -- 301375 pixels of
-it; `SHWARC.BG\STOL.FLC` has no pixel of entry 0 at all, its magenta fill
-being another entry; `INVENTOR.1\PRICELL.FLC` is nothing but such pixels.
-The launcher does the same (`petka_flic_keyed`: an entry is transparent
-when its colour, cut to 5-6-5, is entry 0's), for the picture and for the
-hit tests. Where `QFlic+40` gets its value has not been read; the 5-6-5
-split is the one the saved games' pictures use.
+**The transparent colour is a colour, not a palette entry.** `QFlic+40` is
+not a field of its own. The FLC decoder's state sits inside the `QFlic` from
+`+8`, and holds two palettes: 256 four-byte entries at `+0x220` and 256
+16-bit ones at `+0x20` -- so `QFlic+40` is **the 16-bit colour of palette
+entry 0**. The frame's chunks are dispatched by `sub_4104B0` (types 4, 7,
+11, 15 and 16), and each of the two palette chunks has a handler that
+stores its triples and then turns **all 256** entries into words again:
+
+- type 4, the 8-bit palette (`sub_410060`): the triples as they are, and
+  the words by the screen's own pixel format -- each channel shifted down to
+  that format's width and up to its place, from the widths at `0x4CA45C`,
+  `0x4CA460`, `0x4CA464` and the shifts at `0x4E1EE8`, `0x4CA468`,
+  `0x4CA46C`. On the usual 5-6-5 screen that is
+  `(r >> 3) << 11 | (g >> 2) << 5 | (b >> 3)`;
+- type 11, the 6-bit palette (`sub_410280`): every component multiplied by
+  four, in a byte (so white is 252), and the words by a formula of its own,
+  `(r >> 3) << 11 | (g >> 3) << 6 | (b >> 3)` -- laid out 5-6-5 whatever the
+  screen is, with green cut to five bits and its low bit clear.
+
+Both do the words only when the screen is 16 bits a pixel (decoder
+`+0x634`); in a palettised mode the 6-bit one makes a DirectDraw palette of
+the table instead. The clip's loader hands the word at `+40` to the
+surface's vtable `+0x74` (`0x40F84B`; `SetColorKey` by its place), and the
+hit test above compares against the same word. So every pixel whose entry
+falls on entry 0's word is transparent, and clips count on it. All 2339
+clips of `MAIN.STR` and `FLC1-3.STR` have the 8-bit palette (the 6-bit
+handler is never reached with this data), and 22 of them have such pixels
+in their first frame under another entry. `PROVODA.FLC` (the wires at the
+dump, shown once the magnet has pulled the rubbish up) has an 8-bit palette
+with a key of 255,255,255 and is filled with entry 31, 252,252,252 --
+301375 pixels; `SHWARC.BG\STOL.FLC` has no pixel of entry 0 at all, its
+magenta fill being another entry; the four `BUDUAR.BG\ANKA\SHIRMA0x.FLC`
+of part 2 are the same; `INVENTOR.1\PRICELL.FLC` is nothing but such
+pixels. The launcher does the same (`petka_flic_keyed`, by the palette as
+the exe holds it and the kind of the last palette chunk, for a 5-6-5
+screen), for the picture and for the hit tests.
 
 A hero overrides this with `sub_4086B0`, which has no slack. It answers
 yes when
