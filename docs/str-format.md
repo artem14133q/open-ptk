@@ -979,18 +979,22 @@ does with each part of it matters as much as the format:
 
 Nothing is done to the message queue, and `TOTALINIT` is not sent.
 
-Not decompiled: mouse move `0x41E2B0`, leave `0x41E590`, and `sub_41E230`
-(which the panel's start calls before it draws anything of its own -- it
-must be what fills the 108x82 surface at `+96` of this screen, which the
-saving writes out).
+**The slot picture** is taken by `sub_41E230`, which the panel's start
+calls before it draws anything of its own: a fresh 108x82 surface is made
+(kept at `+96` of this screen, the one the saving writes out) and the
+frame just drawn -- the back buffer, all 640x480 of it -- is stretched by
+DirectDraw into its rect 0,0 - 107,81. So the picture is the room as it
+was, cursor and all, 107x81 with one column and one row to spare.
+
+Not decompiled: mouse move `0x41E2B0`, leave `0x41E590`.
 
 The launcher saves and loads in this format (`core/src/save.c`:
 `petka_save_encode`, `petka_save_decode`, `petka_save_peek`; `game_save`,
 `game_load` and the screen in the launcher), to `save<n>.dat` in the
 directory it is run from, like the exe. The panel's "restore" and "save"
 lead to the screen, a click on a slot loads or saves, the corners turn the
-page; the right button or `O` leaves it. It takes the slot picture itself,
-by shrinking the frame on screen when the panel comes up. A save from
+page; the right button or `O` leaves it. The slot picture is taken as the
+exe takes it, from the launcher's own window (so with its bar of text). A save from
 another part makes the launcher load that part and then the save.
 
 Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same

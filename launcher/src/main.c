@@ -1316,17 +1316,24 @@ static uint8_t *read_whole_file(const char *path, size_t *len) {
     return data;
 }
 
-// The picture a save is shown by: the frame on screen, brought down to
-// 108x82 pixels of 5:6:5. The exe takes it as the panel comes up.
+// The picture a save is shown by, taken as the panel comes up (the exe's
+// sub_41E230): the whole frame stretched, with no smoothing, into the
+// 107x81 corner of a fresh 108x82 surface of 5:6:5 pixels -- the last
+// column and row are left as they were made.
 static void take_thumb(Game *g) {
+    const int w = PETKA_SAVE_THUMB_W - 1, h = PETKA_SAVE_THUMB_H - 1;
     Image shot = LoadImageFromScreen();
-    ImageResize(&shot, PETKA_SAVE_THUMB_W, PETKA_SAVE_THUMB_H);
+    ImageResizeNN(&shot, w, h);
     ImageFormat(&shot, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
     const uint8_t *px = (const uint8_t *)shot.data;
-    for (int i = 0; px && i < PETKA_SAVE_THUMB_W * PETKA_SAVE_THUMB_H; i++) {
-        uint16_t p = (uint16_t)((px[4 * i] >> 3) << 11 | (px[4 * i + 1] >> 2) << 5 | px[4 * i + 2] >> 3);
-        g->thumb[2 * i] = (uint8_t)p;
-        g->thumb[2 * i + 1] = (uint8_t)(p >> 8);
+    memset(g->thumb, 0, sizeof(g->thumb));
+    for (int y = 0; px && y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const uint8_t *c = px + 4 * (y * w + x);
+            uint16_t p = (uint16_t)((c[0] >> 3) << 11 | (c[1] >> 2) << 5 | c[2] >> 3);
+            g->thumb[2 * (y * PETKA_SAVE_THUMB_W + x)] = (uint8_t)p;
+            g->thumb[2 * (y * PETKA_SAVE_THUMB_W + x) + 1] = (uint8_t)(p >> 8);
+        }
     }
     UnloadImage(shot);
 }
