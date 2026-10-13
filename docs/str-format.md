@@ -2028,6 +2028,18 @@ to restore in step 2: its dialogue
 never touches the cursor's state or the chosen action, it only takes the
 input while a phrase or a menu is up.
 
+A pause may be the last thing in a dialogue, and then `CONTINUE` ends it.
+The launcher tells the script of that end at once, inside the `CONTINUE`,
+not on the next frame: the reaction that the pause set off may still have a
+`TALK` to come, and its `DIALOG` parks a new tail in the one slot there is
+for "the rest after the dialogue". Told late, the old dialogue's end ran
+that new tail after the new dialogue's first phrase. Part 2 has the case:
+the lieutenant in the restaurant ends on `USERMSG 5`, Chapayev passes
+`USERMSG 3` on to him and `CONTINUE`s, and the lieutenant's reaction is
+`SETSEQ` (Anka at the door of the S&M room), `TALK` to `SpDialog23`, whose
+tail starts the clip of her walking in -- which the next phrase then
+replaced, so its `END` never came and the game stood still in the corridor.
+
 **Who moves a dialogue on.** The step has seven callers (found by their
 call instructions; the last four read from the disassembly):
 

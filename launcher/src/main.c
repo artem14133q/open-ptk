@@ -1224,6 +1224,18 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
             g->paused = 0;
             g->talking = 1;
             next_phrase(g);
+            // A pause can be the dialogue's last instruction, and then it is
+            // over here, in the middle of the script's turn. The script must
+            // hear of it now: the messages still waiting may start another
+            // dialogue (in part 2 the lieutenant's USERMSG reaction goes
+            // straight on to TALK), and an end told a frame later would be
+            // taken for that one's.
+            if (g->dialogue_done) {
+                g->dialogue_done = 0;
+                uint16_t talker = g->talker;
+                g->talker = PETKA_NONE;
+                petka_scriptvm_dialogue_ended(vm, talker);
+            }
         }
         break;
     case PETKA_OP_SYSTEM:
