@@ -549,10 +549,31 @@ The clips sit in `RESOURCE.QRC` in the order of the actions:
 | 5006 | `MAIN\STAR\ROT-2.FLC` | action 4, talk |
 | 5007 | `MAIN\STAR\CHIP-KUR.FLC` | action 5, send Chapayev |
 
-That the clip is `5002 + action` is read off this order and the
-constructor's pair (action 0, clip 5002); the code that changes the action
-was not decompiled (the cursor's vtable is at `0x4B9268`: update
-`0x402480`, slot `+44` `0x4026E0`).
+The action is changed by six `WM_COMMAND` handlers (`0x417E80` ...
+`0x418100`, found by their writes to cursor `+128`; they sit in an MFC
+message map with command ids 32780-32785). Each does the same: if the panel
+object (`QSystem+148`) is active (`+60`) and the main screen is the current
+one, hide the cursor, give it the clip `5002 + action`, set the action, show
+it again. The keys come from the exe's accelerator table (resource 130):
+
+| key | command | |
+|---|---:|---|
+| `1`, `L` | 32780 | action 0, look |
+| `2`, `W` | 32781 | action 1, walk |
+| `3`, `G` | 32783 | action 3, take |
+| `4`, `U` | 32782 | action 2, use |
+| `5`, `T` | 32784 | action 4, talk |
+| `6`, `C` | 32785 | action 5, send Chapayev |
+| `I` | 32779 | not traced (inventory, by the letter) |
+| `M`, `Tab` | 32776 | not traced (map) |
+| `O` | 32777 | not traced (options) |
+| `Esc` | 32786 | not traced |
+| `F2`, `F3` | 32771, 32772 | not traced (save and load, by the `SAVE`/`LOAD` pictures) |
+| `Alt+R` | 32787 | not traced |
+
+The launcher takes the twelve action keys, on the same condition. (The
+cursor's vtable is at `0x4B9268`; its slot `+44`, `sub_4026E0`, is "show or
+hide": it marks the cursor's rect for redrawing and sets `+44`.)
 
 Where the clip goes:
 

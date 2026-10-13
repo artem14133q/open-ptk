@@ -1238,7 +1238,19 @@ int main(int argc, char **argv) {
         PetkaScriptVM *vm = g->vm;
 
         if (IsKeyPressed(KEY_F1)) debug = !debug;
-        for (int k = 0; k < VERB_COUNT && !g->menu_count; k++) if (IsKeyPressed(KEY_ONE + k)) g->verb = k;
+        // The cursor's action keys, from the exe's accelerator table: a digit
+        // and a letter each (note 3 is "take" and 4 is "use"). The exe's
+        // handlers do nothing unless the panel is switched on, and they put
+        // the action's own clip on the cursor, dropping an item it carried.
+        static const struct { int digit, letter, action; } kActionKeys[] = {
+            {KEY_ONE, KEY_L, 0}, {KEY_TWO, KEY_W, 1}, {KEY_THREE, KEY_G, 3},
+            {KEY_FOUR, KEY_U, 2}, {KEY_FIVE, KEY_T, 4}, {KEY_SIX, KEY_C, 5},
+        };
+        for (int k = 0; k < 6 && !g->menu_count && vm->interface_enabled; k++) {
+            if (!IsKeyPressed(kActionKeys[k].digit) && !IsKeyPressed(kActionKeys[k].letter)) continue;
+            g->verb = kActionKeys[k].action;
+            vm->cursor_object = vm->cursor_resource = PETKA_NONE;
+        }
 
         frame++;
         s_clock += 1.0 / 60.0;
