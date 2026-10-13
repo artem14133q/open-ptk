@@ -2329,10 +2329,12 @@ int main(int argc, char **argv) {
 
         if (g->panel_open) panel_show_state(g);
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
-        // A description stays up until a click, which it takes.
+        // A description stays up until a click, which it takes. Shutting
+        // it (sub_414AC0) switches the panel on, whatever it was before.
         int desc_shown = g->desc[0] != 0;
         if (desc_shown && (clicked || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_SPACE))) {
             g->desc[0] = 0;
+            vm->interface_enabled = 1;
             clicked = 0;
         }
         int can_act = vm->cursor_visible && !g->talking && (g->seq_room == PETKA_NONE || g->map_open) &&

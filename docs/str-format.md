@@ -870,8 +870,11 @@ on frame `n` -- a wooden board along the bottom of the screen with the
 thing's picture -- and over it the text, drawn with GDI in **black**, with
 word breaks, in the rect **160,275 - 598,376**, in a font kept at
 `0x4E1EE0`. Its hit test answers yes for every point and its click calls
-the screen's slot `+68` (`0x414AC0`, not decompiled), which takes it down:
-any click anywhere shuts a description. The launcher shows it the same way
+the screen's slot `+68`, `sub_414AC0`: the flag `+104` is cleared, so is the
+object under the cursor, the panel object is made **active** -- always, not
+"as it was before" -- and the screen's slot `+36` is called (not decompiled;
+by its place what takes the object off the list). Any click anywhere shuts
+a description. The launcher shows it the same way
 (`draw_description`), in its own font.
 
 **Films.** The script plays one: `AVI 50000` in the `INITBG` reaction of
