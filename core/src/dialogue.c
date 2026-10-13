@@ -292,6 +292,12 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 for (uint32_t option = 0; option < choice_count(word); option++)
                     open += (uint32_t)choice_enabled(word, option);
                 if (!open) { vm->done = 1; return 0; } // nothing left to say
+                // A menu is only put up for a real choice (sub_40B6E0): the
+                // last line left is taken without asking.
+                if (open == 1) {
+                    if (petka_dialoguevm_choose(vm, 0) != 0) { vm->done = 1; return 0; }
+                    break;
+                }
                 return 3;
             }
             case PETKA_DLG_OP_DISABLE:

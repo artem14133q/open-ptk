@@ -1103,7 +1103,25 @@ once after a start, flag `+16`) and acts on what it stopped at
 | 1, phrase | stops the previous voice clip; loads the new one (speech folder + the phrase's wav name) and remembers whether there is one (`+12`); pans it by the speaker (`sub_40E0D0`, below) and plays it. If the speaker is not the previous phrase's, the old speaker (`+44`) gets `SAID` and the new one `SAY`. The subtitle is set on the current screen (slot `+44`). |
 | 2, menu | stops the voice clip; the speaker gets `SAID` and is forgotten; the lines go to the main screen (slot `+60`) with three colours, `0xFFFFFF`, `0x0A0A0A`, `0xFF0000`; the cursor is shown again; state 2. With no lines to offer nothing more is done. |
 | 3, end | `sub_4165A0` (above). |
-| 4 | stops the voice clip, forgets the speaker **without** a `SAID`, clears the subtitle; state 1. By elimination this is the `USERMSG` pause; `sub_40B6E0` was not decompiled. |
+| 4 | stops the voice clip, forgets the speaker **without** a `SAID`, clears the subtitle; state 1. This is the `USERMSG` pause (below). |
+
+The kind comes from `sub_40B6E0`, which looks at the instruction the VM
+stands on and moves it along until there is something to show:
+
+| instruction | answer |
+|---|---|
+| no position, or `STOP` (6) | 3, end |
+| `PHRASE` (7), `SKIPN` (8) | 1, phrase |
+| `USERMSG` (9) | 4, pause |
+| `CHOICE` (2) with **more than one** line switched on | 2, menu |
+| `CHOICE` with one line or none switched on | advance with pick 0 and look again |
+| anything else (`DELIM`, `GOTO`, `DISABLE`, `ENABLE`) | advance and look again |
+
+So a menu is only put up for a real choice: when all but one of its lines
+have been said and switched off, the last one is taken without asking.
+`petka_dialoguevm_next` does the same. (What the advance does with a menu
+that has no line left is in `sub_40B790`, not decompiled; the port ends the
+dialogue there.)
 
 `SAY` and `SAID` are handed to the object's handler directly (vtable slot
 `+52`), not queued, with no arguments and no sender.
