@@ -464,6 +464,20 @@ none); `z` is the draw order. In memory this is the list the engine draws
 from: `loadRoom` (`sub_413870`) puts the room and its attached objects on
 screen and removes the previous room's.
 
+The file is read by the main screen's constructor (`sub_413250`,
+`Intrface.cpp`), straight into the objects: `x` -> `+12`, `y` -> `+16`,
+`z` -> `+8`, `walk_x` -> `+20`, `walk_y` -> `+24`; the room keeps only the
+list of ids (28-byte records at screen `+40`, `room_count` at `+36`). `x`
+and `y` are an object's position on the background, the offset its clip is
+drawn at and the one the hit test and the z update work from -- and they
+are **0 in every one of the 1613 entries** of the three parts: every clip
+is a full frame already in place. Only the heroes ever stand anywhere else.
+
+The same constructor starts the screen's object list (`+4`) with three
+objects that are on every screen of the game: the cursor (`QSystem+140`)
+and the two panel objects (`+144`, `+148`); and it builds the dialogue
+object inside the screen, at `+44`.
+
 ### How a message is executed
 
 Everything goes through one queue in `QSystem`:
