@@ -1332,9 +1332,11 @@ static float draw_wrapped(Font font, const char *text, float x, float y, float w
     return y + size + 4;
 }
 
-// A thing's description: the description clip (resource 6008, a frame for
-// each thing) with the text from INVNTR.TXT. The exe's own drawing of it was
-// not decompiled; where the words go is read off the picture.
+// A thing's description, as the exe's description object draws it
+// (sub_421370): the description clip (resource 6008) on the frame the
+// message names -- a board with the thing's picture -- and the text from
+// INVNTR.TXT in black, broken into lines, in the rect 160,275 - 598,376.
+// The object takes every point of the screen, and a click on it shuts it.
 #define DESCRIPTION_CLIP 6008
 static void draw_description(Game *g, Font font, float scale) {
     Visual *v = &g->desc_clip;
@@ -1350,10 +1352,7 @@ static void draw_description(Game *g, Font font, float scale) {
         DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
                        (Rectangle){0, 0, v->flic->width * scale, v->flic->height * scale}, (Vector2){0, 0}, 0, WHITE);
     }
-    // The frame is a wooden board along the bottom: the thing's picture on
-    // the left and, right of it, an empty field -- about 160,274 to 600,378
-    // -- for the words.
-    draw_wrapped(font, g->desc, 165 * scale, 278 * scale, 430 * scale, 8.5f * scale, (Color){60, 25, 10, 255});
+    draw_wrapped(font, g->desc, 160 * scale, 275 * scale, 438 * scale, 8.5f * scale, BLACK);
 }
 
 // ---- the case ----
@@ -2243,7 +2242,8 @@ int main(int argc, char **argv) {
             {KEY_ONE, KEY_L, 0}, {KEY_TWO, KEY_W, 1}, {KEY_THREE, KEY_G, 3},
             {KEY_FOUR, KEY_U, 2}, {KEY_FIVE, KEY_T, 4}, {KEY_SIX, KEY_C, 5},
         };
-        for (int k = 0; k < 6 && !g->menu_count && vm->interface_enabled && !g->map_open; k++) {
+        // (A description on screen switches the panel off, too.)
+        for (int k = 0; k < 6 && !g->menu_count && vm->interface_enabled && !g->map_open && !g->desc[0]; k++) {
             if (!IsKeyPressed(kActionKeys[k].digit) && !IsKeyPressed(kActionKeys[k].letter)) continue;
             g->verb = kActionKeys[k].action;
             drop_item(g);

@@ -854,6 +854,20 @@ as it goes, that is also how a part is started over. `CHAPTER`
 (`chapter_open`) only changes the chapter's store and reads the names and
 colours again.
 
+**A thing's description.** `sub_4147A0(text, n)` marks the main screen as
+showing one (`+104` = 1), makes the panel object **inactive** -- so no
+action keys, case or map while it is up -- clears the object under the
+cursor, and puts a new object on the screen's list (`sub_421370`, vtable
+`0x4BA010`). That object has `z` 999, just under the cursor, and a surface
+of its own, 640x480: the clip 6008 (`MAIN\INVENTOR.1\T-01.FLC`, 40 frames)
+on frame `n` -- a wooden board along the bottom of the screen with the
+thing's picture -- and over it the text, drawn with GDI in **black**, with
+word breaks, in the rect **160,275 - 598,376**, in a font kept at
+`0x4E1EE0`. Its hit test answers yes for every point and its click calls
+the screen's slot `+68` (`0x414AC0`, not decompiled), which takes it down:
+any click anywhere shuts a description. The launcher shows it the same way
+(`draw_description`), in its own font.
+
 **Films.** The script plays one: `AVI 50000` in the `INITBG` reaction of
 the room `Seq - INTRO0`, the first thing a new game does. Resource 50000 is
 `INTRO.AVI`, and it is **not in the stores**: `sub_4124A0(path)` opens it as
@@ -1315,7 +1329,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 29 / 30 | `SETSEQ` / `ENDSEQ` | (room) put this room on screen as a cutscene sequence / go back to the game, see below |
 | 31, 32 | `CHECK`, `IF` | conditions, see above |
 | 34 | `HALF` | a clip reached its middle frame (a reaction trigger; used once) |
-| 33 | `SHOWDESCRIPTION` | the object's line in `[all]` of `INVNTR.TXT`, looked up by its script name, is handed to the main screen (slot `+64`, `0x4147A0`, not decompiled) with `arg1` -- a number 1-40 in `PART_1`, one per thing, matching the 40 frames of `MAIN\INVENTOR.1\T-01.FLC` (6008): a wooden board with the thing's picture and an empty field for the words |
+| 33 | `SHOWDESCRIPTION` | the object's line in `[all]` of `INVNTR.TXT`, looked up by its script name, is handed to the main screen (slot `+64`, `sub_4147A0`) with `arg1`, a number 1-40 in `PART_1`, one per thing; see "A thing's description" |
 | 35 | `QM_WALKED` | (hero) resume the tail parked by a walk |
 | 36 / 37 | `WALKTO` / `WALKVICH` | Petka / Chapayev walks to (`arg1`,`arg2`) or the object's walk point |
 | 38 | `INITBG` | broadcast when a room is entered, sender = that room |
