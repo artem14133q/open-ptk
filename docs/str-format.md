@@ -776,7 +776,7 @@ that is the number in the table above plus one:
 
 | list # | object | what the click does |
 |---:|---|---|
-| 1 | новая игра | `sub_418260`, the handler of command 32789 (not decompiled) |
+| 1 | новая игра | `sub_418260`, the handler of command 32789: reads `Part` and `Chapter` from `[All]` of `PARTS.INI` (both 1 there, and 1 if absent), sets the chapter global and loads that part with `sub_412040` (not decompiled), then redraws |
 | 2 | загрузить | leaves the panel; the screen at `QSystem+552` is set up with 0 (its slot `+60`) and made current |
 | 3 | продолжить | leaves the panel (its own slot `+56`) |
 | 4 | выход | leaves the panel, then a call on the application object that the disassembler takes for a library routine -- by the button, closing the game |
@@ -974,8 +974,10 @@ is not written out, and one without a voice is not waited for. The dials
 start at the exe's defaults and work: the three volumes, on the exe's
 curve (the ambience counts as an effect), and the walking speed. Nothing
 is saved between runs, and unlike the original the launcher starts with the
-subtitles on. "Restore" and "save" lead to the save/load screen (below);
-new game only says it is not there yet.
+subtitles on. "Restore" and "save" lead to the save/load screen (below).
+"New game" starts the part the launcher is running over again, from freshly
+read script and dialogue code -- not, as the original would, part 1 whatever
+part is running, since the launcher cannot change parts.
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`

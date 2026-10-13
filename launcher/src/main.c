@@ -105,6 +105,12 @@ typedef struct {
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
+    // What a new game is made from: the part's script and dialogue files as
+    // they are in the stores -- the running copies get written to.
+    const uint8_t *script_data, *bg_data, *fix_data;
+    size_t script_len, bg_len, fix_len;
+    PetkaScriptHost host;
+    int restart_wanted; // start the part over at the top of the next frame
     // Saved games.
     int part_number;
     int save_mode;   // the save screen is up: 1 loading, 2 saving
@@ -1553,7 +1559,7 @@ static void panel_click(Game *g, const PetkaObject *hit) {
     for (uint32_t i = 0; panel && i < panel->attached_count; i++)
         if (panel->attached[i].obj_id == hit->id) n = (int)i;
     switch (n) {
-    case 0: set_status(g, "(новая игра пока не сделана: перезапустите игру)"); break;
+    case 0: map_leave(g); g->restart_wanted = 1; break; // "new game"
     case 1: map_leave(g); saves_open(g, 1); break; // "restore"
     case 2: map_leave(g); break;                 // "continue"
     case 3: map_leave(g); g->quit = 1; break;    // the door: out of the game
@@ -1737,6 +1743,53 @@ static int run_menu(const Game *g, Font font) {
     return start;
 }
 
+// Sets the script going from its beginning: TOTALINIT, then the first room.
+static void game_start(Game *g) {
+    g->vm->rng = (uint32_t)(GetTime() * 1e6) | 1u;
+    petka_scriptvm_init(g->vm);
+    const PetkaObject *start = g->topo && g->topo->start_room
+        ? petka_script_find_name(g->script, g->topo->start_room) : NULL;
+    if (!start) {
+        for (uint32_t i = 0; i < g->script->object_count && !start; i++)
+            if (g->script->objects[i].is_room) start = &g->script->objects[i];
+    }
+    if (start) petka_scriptvm_enter_room(g->vm, start->id, 0);
+}
+
+// "New game" (the panel's first button; the exe's sub_418260 reads the part
+// and chapter to start with from PARTS.INI and loads that part). The launcher
+// runs one part, so it starts that part over: the script and the dialogue
+// code are read afresh -- the game writes into both as it goes -- and
+// everything the launcher keeps of the old game is dropped.
+static void game_restart(Game *g) {
+    map_leave(g);
+    saves_close(g);
+    if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
+    for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
+    petka_scriptvm_close(g->vm);
+    petka_script_close(g->script);
+    g->script = petka_script_open(g->script_data, g->script_len, g->bg_data, g->bg_len);
+    if (g->dtree && g->fix_data) {
+        petka_dialoguetree_close(g->dtree);
+        g->dtree = petka_dialoguetree_open(g->fix_data, g->fix_len);
+    }
+    g->vm = petka_scriptvm_open(g->script, &g->host);
+
+    g->dialogue = NULL;
+    g->talking = g->paused = g->menu_count = g->dialogue_done = 0;
+    g->line[0] = 0;
+    g->talker = PETKA_NONE;
+    g->seq_room = PETKA_NONE;
+    g->shown_room = g->bg_resource = g->mesh_resource = PETKA_NONE;
+    g->walk[0].active = g->walk[1].active = 0;
+    g->case_open = g->case_first = 0;
+    g->case_lit = -1;
+    g->verb = 0;
+    g->camera_x = g->camera_target = 0;
+    g->camera_snap = 1;
+    game_start(g);
+}
+
 int main(int argc, char **argv) {
     const char *game_dir = argc > 1 ? argv[1] : ".";
     const char *part = argc > 2 ? argv[2] : "PART_1";
@@ -1776,6 +1829,10 @@ int main(int argc, char **argv) {
     const uint8_t *script_data = part_file(g, part, "SCRIPT.DAT", &script_len);
     const uint8_t *bg_data = part_file(g, part, "BACKGRND.BG", &bg_len);
     g->script = script_data && bg_data ? petka_script_open(script_data, script_len, bg_data, bg_len) : NULL;
+    g->script_data = script_data;
+    g->script_len = script_len;
+    g->bg_data = bg_data;
+    g->bg_len = bg_len;
     if (!g->script) { fprintf(stderr, "no script for %s under %s\n", part, game_dir); return 1; }
 
     const uint8_t *bytes = part_file(g, part, "RESOURCE.QRC", &len);
@@ -1792,19 +1849,20 @@ int main(int argc, char **argv) {
     if (lod && fix) {
         g->phrases = petka_phrasetable_open(lod, lod_len);
         g->dtree = petka_dialoguetree_open(fix, fix_len);
+        g->fix_data = fix;
+        g->fix_len = fix_len;
     }
     if (!g->phrases || !g->dtree) fprintf(stderr, "dialogue data unavailable for %s\n", part);
 
-    PetkaScriptHost host = {0};
-    host.user = g;
-    host.has_dialogue = host_has_dialogue;
-    host.select_dialogue = host_select_dialogue;
-    host.start_dialogue = host_start_dialogue;
-    host.walk = host_walk;
-    host.stop = host_stop;
-    host.room_changed = host_room_changed;
-    host.message = host_message;
-    g->vm = petka_scriptvm_open(g->script, &host);
+    g->host.user = g;
+    g->host.has_dialogue = host_has_dialogue;
+    g->host.select_dialogue = host_select_dialogue;
+    g->host.start_dialogue = host_start_dialogue;
+    g->host.walk = host_walk;
+    g->host.stop = host_stop;
+    g->host.room_changed = host_room_changed;
+    g->host.message = host_message;
+    g->vm = petka_scriptvm_open(g->script, &g->host);
     load_names(g, part);
     g->visuals = (Visual *)calloc(g->script->object_count, sizeof(Visual));
     for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].resource = PETKA_NONE;
@@ -1834,15 +1892,7 @@ int main(int argc, char **argv) {
     long frame = 0;
     if (!shot_path && !run_menu(g, font)) { CloseWindow(); return 0; }
 
-    g->vm->rng = (uint32_t)(GetTime() * 1e6) | 1u;
-    petka_scriptvm_init(g->vm);
-    const PetkaObject *start = g->topo && g->topo->start_room
-        ? petka_script_find_name(g->script, g->topo->start_room) : NULL;
-    if (!start) {
-        for (uint32_t i = 0; i < g->script->object_count && !start; i++)
-            if (g->script->objects[i].is_room) start = &g->script->objects[i];
-    }
-    if (start) petka_scriptvm_enter_room(g->vm, start->id, 0);
+    game_start(g);
 
     int debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
     Drawable scene[256];
@@ -1868,6 +1918,11 @@ int main(int argc, char **argv) {
         }
         // The pointer in background pixels: where it is in the room.
         float mx = mouse.x / scale + g->camera_x, my = mouse.y / scale;
+        // A new game was asked for: nothing of this frame holds the old one yet.
+        if (g->restart_wanted) {
+            g->restart_wanted = 0;
+            game_restart(g);
+        }
         PetkaScriptVM *vm = g->vm;
 
         if (IsKeyPressed(KEY_F1)) debug = !debug;
