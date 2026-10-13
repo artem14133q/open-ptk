@@ -876,20 +876,56 @@ objects:
   the screen is left and set up again in the same mode;
 - in the next-page corner, on page 0 or 1: the same, a page up.
 
-So a saved game begins
+**A saved game** is written by `sub_406EB0(name)`, a method of `QSystem`,
+in one pass and with no compression or check:
 
 ```
-bytes 0-7     not read here (8 bytes)
-bytes 8-37    the name shown under the slot, a C string (30 bytes)
-bytes 38-     the picture: 82 rows of 108 16-bit pixels, in the surface's
-              own row length (216 bytes a row if it is not padded)
-then          the game's state, not decompiled
+u32        dword_4DE87C   } the two globals the part and chapter are kept
+u32        dword_4DE884   } in (which is which was not traced)
+char[30]   the name shown under the slot: the time of saving, formatted
+           "%X   %d %B %Y" (the locale's time, day, month name, year)
+pixels     the slot picture: 82 rows of 108 16-bit pixels, in the surface's
+           own row length -- 17,712 bytes if a row is not padded
+u32        n, the length of QSystem's object list: every object and room of
+           SCRIPT.DAT, in its order, and then the cursor, the case and the
+           panel object
+(n - 3) x  one record per script object (the last three are not saved):
+             u32 len, bytes   its script name            (+80)
+             u32 len, bytes   its shown name             (+84)
+             u32              busy                       (+56)
+             u8               status                     (+76)
+             u32              resource                   (+4)
+             u32              z                          (+8)
+             u32              x                          (+12)
+             u32              y                          (+16)
+             u32              visible                    (+44)
+             u32              active                     (+60)
+             u32              animate                    (+48)
+u32        number of things in the case, then that many u16 ids
+u32 len, bytes   the current room's script name
+i32 x, y   Petka:    x + frame_width * scale / 2,  y + frame_height * scale
+i32 x, y   Chapayev: the same -- for both, the point between the feet
+u32        number of words of dialogue code, then all of them (sub_40C1B0)
+u32        the cursor's resource (+4)
+u32        the cursor's action (+128)
+i32        id of the thing on the cursor (+124), or -1
+u32        Petka's +148
+u32        Chapayev's +148
+8 x i32    -1, room for more
 ```
+
+What is **not** in it: the message queue and the tails of reactions waiting
+on a clip, a walk or a dialogue; an object's automatic-z flag, its clip's
+frame, its sound flags; a room's map flag, music and ambience; the view's
+scroll. The whole of the dialogue code is, because that is where the
+dialogues keep their state: the menu lines switched off and the `SKIPN`
+turns live in the instruction words. A hero is saved twice -- as object 0
+or 1 with his sprite's corner, and again by his feet.
 
 Not decompiled: mouse move `0x41E2B0`, leave `0x41E590`, `sub_41E230`
-(which the panel's start calls before it draws anything of its own -- with
-a 108x82 picture in every file, surely the taking of it), and the saving
-and loading themselves, `sub_406EB0` and `sub_407410`. The launcher has no
+(which the panel's start calls before it draws anything of its own -- it
+must be what fills the 108x82 surface at `+96` of this screen, which the
+saving writes out), and the loading, `sub_407410`. The launcher has no
 saved games yet.
 
 Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same
