@@ -663,12 +663,12 @@ static void camera_update(Game *g, float dt) {
 // Both heroes stop where they are. The exe does this on every click on an
 // object, before posting the click's message.
 static void stop_heroes(Game *g) {
-    for (uint16_t id = 0; id < 2; id++) {
-        PetkaObjectState *st = petka_scriptvm_state(g->vm, id);
-        if (!st || !g->walk[id].active) continue;
-        g->walk[id].active = 0;
-        petka_scriptvm_walk_ended(g->vm, id);
-    }
+    petka_scriptvm_stop_hero(g->vm, PETKA_ID_PETKA);
+    petka_scriptvm_stop_hero(g->vm, PETKA_ID_CHAPAYEV);
+}
+
+static void host_stop(void *user, uint16_t hero_id) {
+    if (hero_id < 2) ((Game *)user)->walk[hero_id].active = 0;
 }
 
 // One step of a walking hero, taken when his walk clip moves on a frame
@@ -811,10 +811,8 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     load_perspective(g, room->name);
     load_mesh(g);
     g->camera_snap = 1;
-    // Whoever is still on his way stops and stands, as the exe does before
-    // loading a room. Chapayev follows Petka to an exit and is usually a few
-    // steps behind when Petka's arrival changes the room.
-    stop_heroes(g);
+    // (Both heroes were stopped by the VM before the room changed.)
+    g->walk[0].active = g->walk[1].active = 0;
 
     const PetkaRoom *section = g->topo ? petka_topology_find_room(g->topo, room->name) : NULL;
     const PetkaObject *entry = NULL;
@@ -1049,6 +1047,7 @@ int main(int argc, char **argv) {
     host.select_dialogue = host_select_dialogue;
     host.start_dialogue = host_start_dialogue;
     host.walk = host_walk;
+    host.stop = host_stop;
     host.room_changed = host_room_changed;
     host.message = host_message;
     g->vm = petka_scriptvm_open(g->script, &host);
@@ -1238,6 +1237,8 @@ int main(int argc, char **argv) {
                                         op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)hover->id);
                 } else if (my < inv_y / scale) {
                     PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+                    // Sent somewhere else: whatever he was walking for is off.
+                    petka_scriptvm_forget_walk(vm, PETKA_ID_PETKA);
                     if (petka && host_walk(g, PETKA_ID_PETKA, (int32_t)mx, (int32_t)my)) petka->busy = 1;
                 }
             }

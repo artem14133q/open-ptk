@@ -327,6 +327,8 @@ static void hero_wait_walk(PetkaScriptVM *vm, uint16_t hero_id, const PetkaMessa
                            uint32_t count, uint32_t index, int sender) {
     PetkaObjectState *hero = petka_scriptvm_state(vm, hero_id);
     if (!hero) return;
+    // Whatever he was walking for before is off.
+    petka_scriptvm_stop_hero(vm, hero_id);
     petka_scriptvm_post(vm, hero_id, PETKA_OP_WALKED, 0, 0, 0, hero_id);
     tail_set(&hero->walk_tail, msgs, count, index + 1);
     hero->walk_sender = sender;
@@ -612,6 +614,8 @@ static int process_room(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
     PetkaObjectState *st = state_of(vm, obj);
     switch (q->msg.opcode) {
     case PETKA_OP_GOTO:
+        petka_scriptvm_stop_hero(vm, PETKA_ID_PETKA);
+        petka_scriptvm_stop_hero(vm, PETKA_ID_CHAPAYEV);
         petka_scriptvm_enter_room(vm, obj->id, 0);
         break;
     case PETKA_OP_MAP:
@@ -710,6 +714,26 @@ int petka_scriptvm_init(PetkaScriptVM *vm) {
 
 void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t resource) {
     petka_scriptvm_post(vm, obj_id, PETKA_OP_END, resource, 0, 0, -1);
+}
+
+void petka_scriptvm_forget_walk(PetkaScriptVM *vm, uint16_t hero_id) {
+    PetkaObjectState *hero = petka_scriptvm_state(vm, hero_id);
+    if (!hero) return;
+    // The exe readdresses the queued WALKED to nobody; run() drops those.
+    for (uint32_t i = 0; i < vm->queue_count; i++)
+        if (vm->queue[i].msg.opcode == PETKA_OP_WALKED && vm->queue[i].msg.obj_id == hero_id)
+            vm->queue[i].msg.obj_id = PETKA_NONE;
+    tail_clear(&hero->walk_tail);
+}
+
+void petka_scriptvm_stop_hero(PetkaScriptVM *vm, uint16_t hero_id) {
+    PetkaObjectState *hero = petka_scriptvm_state(vm, hero_id);
+    if (!hero) return;
+    hero->busy = 0;
+    if (vm->host.stop) vm->host.stop(vm->host.user, hero_id);
+    petka_scriptvm_forget_walk(vm, hero_id);
+    if (!hero->rest_after_loop && hero->costume != PETKA_NONE)
+        petka_scriptvm_send(vm, hero_id, PETKA_OP_SET, hero->costume, 1, 0, -1);
 }
 
 // The end of a hero's walk step routine (sub_408EF0).

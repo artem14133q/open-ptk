@@ -555,6 +555,18 @@ and gets one of three answers:
   is then cleared, which is what releases the `QM_WALKED` queued behind the
   walk.
 
+**Stopping a hero** (`sub_408D80`, vtable slot `+80`) is not arriving. It
+clears the walking and busy flags, readdresses any `QM_WALKED` queued for
+the hero to nobody, and **throws away the reaction parked on the walk** (the
+debug build traces "after_walk is lost!"); then, unless the hero is in his
+resting state (`+124`), puts him in the idle pose with `SET costume 1`. It
+is called for both heroes when an object is clicked (`sub_401B30`) and
+before a room is loaded (`GOTO`), and for the hero concerned when a reaction
+is about to send him walking (`sub_408080`). So clicking an exit and then
+something else calls the exit off: the parked `GOTO` is discarded, not run.
+(Treating a stop as an arrival does the opposite -- the hero halts and the
+room changes on the spot.) Implemented as `petka_scriptvm_stop_hero`.
+
 The launcher reproduces the resting clip, the re-armed sound, the arrival
 (`petka_scriptvm_walk_ended`) and the step per clip frame (see "Gait"
 below); the walk-speed slider is not.

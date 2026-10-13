@@ -207,6 +207,8 @@ typedef struct {
     // the hero is then busy until petka_scriptvm_walk_ended(). Returning 0
     // (already there, hero hidden) lets the script continue at once.
     int (*walk)(void *user, uint16_t hero_id, int32_t x, int32_t y);
+    // The hero must stop walking where he stands (petka_scriptvm_stop_hero).
+    void (*stop)(void *user, uint16_t hero_id);
 
     // The current room changed; prev_room is PETKA_NONE for the first one.
     // The host places the heroes at the entry point named by BGS.INI.
@@ -285,6 +287,17 @@ void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t
 // walk through. If the reaction parked on that walk goes on to leave the
 // room, he instead freezes in mid-stride and takes the idle pose after it.
 void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id);
+// Stops a hero in his tracks (the exe's sub_408D80): he is no longer busy,
+// the WALKED queued behind his walk is cancelled and the reaction parked on
+// the walk is thrown away -- it will not run -- and unless he was resting he
+// takes his idle pose. The exe does this to both heroes when an object is
+// clicked and before a room is entered, and to the hero about to walk for a
+// reaction. This is what makes "click the exit, then click something else"
+// call the exit off rather than trigger it.
+void petka_scriptvm_stop_hero(PetkaScriptVM *vm, uint16_t hero_id);
+// Only the forgetting: for when the player sends the hero somewhere else
+// by clicking the floor.
+void petka_scriptvm_forget_walk(PetkaScriptVM *vm, uint16_t hero_id);
 // talker is the object that spoke last, or PETKA_NONE.
 void petka_scriptvm_dialogue_ended(PetkaScriptVM *vm, uint16_t talker);
 
