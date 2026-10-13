@@ -860,6 +860,18 @@ as it goes, that is also how a part is started over. `CHAPTER`
 (`chapter_open`) only changes the chapter's store and reads the names and
 colours again.
 
+**Fonts.** The game has two, both made at start-up by `sub_410CD0` with
+`CFont::CreateFont`: **Arial, weight 700 (bold)**, default character set,
+TrueType precision, **20** pixels high (`0x4E1ED8`) and **16** pixels high
+(`0x4E1EE0`). The 20-pixel one writes the labels of the saved games, the
+16-pixel one a thing's description; which the captions and subtitles use was
+not traced. The same start-up reads the registry value `CD path` under
+`HKLM\SOFTWARE\SKIF\Petka` -- the path a film is looked for under when it
+is not in the current directory -- opens `patch.str` and `main.str`, and
+refuses to run twice (`PreventSecondInstance`). The launcher writes its text
+in bold Arial too where the system has it, at those sizes for the two uses
+that are known.
+
 **A thing's description.** `sub_4147A0(text, n)` marks the main screen as
 showing one (`+104` = 1), makes the panel object **inactive** -- so no
 action keys, case or map while it is up -- clears the object under the
@@ -868,8 +880,8 @@ cursor, and puts a new object on the screen's list (`sub_421370`, vtable
 of its own, 640x480: the clip 6008 (`MAIN\INVENTOR.1\T-01.FLC`, 40 frames)
 on frame `n` -- a wooden board along the bottom of the screen with the
 thing's picture -- and over it the text, drawn with GDI in **black**, with
-word breaks, in the rect **160,275 - 598,376**, in a font kept at
-`0x4E1EE0`. Its hit test answers yes for every point and its click calls
+word breaks, in the rect **160,275 - 598,376**, in the 16-pixel font
+(below). Its hit test answers yes for every point and its click calls
 the screen's slot `+68`, `sub_414AC0`: the flag `+104` is cleared, so is the
 object under the cursor, the panel object is made **active** -- always, not
 "as it was before" -- and the screen's slot `+36` is called (not decompiled;
@@ -894,11 +906,13 @@ a plain file, first as named and then with a path of the application's
 4. `close film`, the queue is emptied of those four kinds of message, and
    the sounds resume (`sub_40DB00`).
 
-So a film is a pause in everything, and any key or click ends it.
+So a film is a pause in everything, and any key or click ends it. Three
+more are played when the program starts, before anything else is shown
+(`sub_410CD0`, the application's start-up): `buka.avi`, `skif.avi` and
+`adv.avi`, in that order.
 `INTRO.AVI` is 640x480 Indeo 3 video at about 24 frames a second with
 MS-ADPCM sound, three and a half minutes long (the copy examined also has
-`skif.avi`, `Buka.avi`, `adv.avi` and `credits.avi`, which the script never
-names). The launcher does what the exe does -- gives the file to someone
+`credits.avi`, which nothing found so far plays). The launcher does what the exe does -- gives the file to someone
 else: `ffmpeg`, if it is installed, decodes it, and the launcher shows the
 frames in its window at 24 a second with the sound alongside, until it ends
 or a key or button is pressed (`play_film`). Without `ffmpeg`, and in

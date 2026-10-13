@@ -230,7 +230,13 @@ static const char *utf8_name(const char *cp1251) {
 // with Cyrillic coverage for desktop testing; TODO ship a bundled font for
 // a platform-independent release (including Switch).
 static Font load_cyrillic_font(void) {
+    // The exe draws all its text in bold Arial (two fonts made at start-up,
+    // sub_410CD0: 20 and 16 pixels high); take that where it is to be had.
     static const char *candidates[] = {
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "C:\\Windows\\Fonts\\arialbd.ttf",
+        "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Supplemental/Tahoma.ttf",
         "/System/Library/Fonts/SFNS.ttf",
@@ -1310,8 +1316,10 @@ static const PetkaObject *listed_object_at(Game *g, float x, float y) {
     return NULL;
 }
 
-// Draws text broken into lines no wider than `width`; returns the y below it.
-static float draw_wrapped(Font font, const char *text, float x, float y, float width, float size, Color ink) {
+// Draws text broken into lines no wider than `width`, `leading` apart;
+// returns the y below it.
+static float draw_wrapped(Font font, const char *text, float x, float y, float width, float size, float leading,
+                          Color ink) {
     char row[1024] = "";
     const char *p = text;
     while (*p) {
@@ -1321,7 +1329,7 @@ static float draw_wrapped(Font font, const char *text, float x, float y, float w
         snprintf(trial, sizeof(trial), "%s%.*s", row, (int)word, p);
         if (row[0] && MeasureTextEx(font, trial, size, 1).x > width) {
             DrawTextEx(font, row, (Vector2){x, y}, size, 1, ink);
-            y += size + 4;
+            y += leading;
             row[0] = 0;
             continue;
         }
@@ -1329,7 +1337,7 @@ static float draw_wrapped(Font font, const char *text, float x, float y, float w
         p += word;
     }
     DrawTextEx(font, row, (Vector2){x, y}, size, 1, ink);
-    return y + size + 4;
+    return y + leading;
 }
 
 // A thing's description, as the exe's description object draws it
@@ -1352,7 +1360,8 @@ static void draw_description(Game *g, Font font, float scale) {
         DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
                        (Rectangle){0, 0, v->flic->width * scale, v->flic->height * scale}, (Vector2){0, 0}, 0, WHITE);
     }
-    draw_wrapped(font, g->desc, 160 * scale, 275 * scale, 438 * scale, 8.5f * scale, BLACK);
+    // The exe's font for this is the 16-pixel one.
+    draw_wrapped(font, g->desc, 160 * scale, 275 * scale, 438 * scale, 16 * scale, 16 * scale, BLACK);
 }
 
 // ---- the case ----
@@ -1751,9 +1760,10 @@ static void draw_saves(Game *g, Font font, float scale) {
         Rectangle r = kSaveSlot[i];
         DrawTexturePro(g->save_slot[i].tex, (Rectangle){0, 0, PETKA_SAVE_THUMB_W, PETKA_SAVE_THUMB_H},
                        (Rectangle){r.x * scale, r.y * scale, r.width * scale, r.height * scale}, (Vector2){0, 0}, 0, WHITE);
-        // The label, in the exe's dark green, a pixel below the picture.
-        DrawTextEx(font, g->save_slot[i].label, (Vector2){r.x * scale, (r.y + r.height + 1) * scale}, 9 * scale, 1,
-                   (Color){0, 127, 0, 255});
+        // The label, in the exe's dark green and its 20-pixel font, in a
+        // box 240 wide a pixel below the picture.
+        draw_wrapped(font, g->save_slot[i].label, r.x * scale, (r.y + r.height + 1) * scale, 240 * scale, 20 * scale,
+                     20 * scale, (Color){0, 127, 0, 255});
     }
 }
 
@@ -2189,7 +2199,14 @@ int main(int argc, char **argv) {
     const char *post_plan = getenv("PETKA_POST");
     long shot_frame = getenv("PETKA_SHOT_FRAME") ? atol(getenv("PETKA_SHOT_FRAME")) : 120;
     long frame = 0;
-    if (!shot_path && !run_menu(g, font)) { CloseWindow(); return 0; }
+    // The exe opens with three films, one after another (sub_410CD0): the
+    // publisher's and the developer's marks and an advertisement.
+    if (!shot_path) {
+        play_film(g, "buka.avi");
+        play_film(g, "skif.avi");
+        play_film(g, "adv.avi");
+    }
+    if (g->quit || (!shot_path && !run_menu(g, font))) { CloseWindow(); return 0; }
 
     game_start(g);
 
@@ -2514,7 +2531,7 @@ int main(int argc, char **argv) {
             // Each speaker's lines are in his own colour.
             const PetkaObject *talker = petka_script_find(g->script, g->talker);
             Color ink = talker ? g->colors[obj_index(g, talker)] : WHITE;
-            draw_wrapped(font, g->line, 20, y, box_w, 24, ink);
+            draw_wrapped(font, g->line, 20, y, box_w, 24, 28, ink);
         }
         if (g->desc[0]) draw_description(g, font, scale);
 
