@@ -1084,8 +1084,7 @@ and `SubRecord.verb_id` is the message opcode (1 `USE`, 4 `LOOK`, 6 `TAKE`,
 ### The dialogue step (`sub_415F80`)
 
 One function moves a running dialogue on. Its argument is `-1` for "go on"
-(a click with the cursor hidden; presumably also the end of the voice clip)
-or the number of the menu line picked. The dialogue object keeps a state
+or the number of the menu line picked (who calls it is listed below). The dialogue object keeps a state
 (`+24`): 1 while a phrase is up, 2 while a menu is, 3 otherwise -- its
 constructor (`sub_415E00`), its start and its end (`sub_4165A0`) all write
 3, the first and the last with `-1` for the dialogue's id (`+20`). The
@@ -1133,6 +1132,39 @@ on its `USERMSG n` instruction, before the step gets to row 4:
 to restore in step 2: its dialogue
 never touches the cursor's state or the chosen action, it only takes the
 input while a phrase or a menu is up.
+
+**Who moves a dialogue on.** The step has seven callers (found by their
+call instructions; the last four read from the disassembly):
+
+- the click function `0x414320`, with the cursor hidden: `-1`;
+- the message handler `sub_403270` and the dialogue's start (`0x415F20`);
+- `0x420C70`, a click on the menu: the number of the line under the cursor
+  (`+72` of the menu object), if it is one of its lines;
+- `0x421310`: stops the voice clip and steps with `-1` -- "skip this
+  phrase";
+- `0x4164D0`: unless a menu is up, stops the voice clip, gives the speaker
+  his `SAID`, and steps for as long as the VM stands on a phrase -- "skip to
+  the next menu, pause or end". Nothing calls it directly, so it is reached
+  through a table (a key, probably);
+- `0x421170`, the subtitle object's update, called with the milliseconds
+  since the last frame. This is what ends a phrase by itself:
+  - a phrase **with a voice clip** (dialogue `+12`) ends when the clip does:
+    the dialogue's handle (`+28`, given to the clip when it is started, see
+    `sub_413FA0`) is polled through an import called as `f(handle, 0)` --
+    by its use `WaitForSingleObject` -- and the step is taken on the first
+    frame it returns 0;
+  - a phrase **without one** is timed: the step is taken once
+
+    ```
+    elapsed > 1000 + 30 * strlen(text)      milliseconds
+    ```
+
+    or at once, if a flag of the settings object (`+60` of `QSystem+544`)
+    is clear -- by its effect "show subtitles": with no voice and no text
+    there is nothing to wait for.
+
+`sub_413FA0(name, a, b)` itself only finds the loaded clip by name and, if
+it is not already playing (`+44` of the clip), starts it with `(a, b)`.
 
 **Voice panning** (`sub_40E0D0(name, x, w)`): if the clip is loaded, its
 DirectSound pan is set to

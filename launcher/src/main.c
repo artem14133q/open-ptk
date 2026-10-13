@@ -806,8 +806,9 @@ static void next_phrase(Game *g) {
     const PetkaPhrase *ph = &g->phrases->phrases[idx];
     set_talker(g, ph->speaker <= 0xFFFE ? (uint16_t)ph->speaker : PETKA_NONE);
     cp1251_to_utf8(ph->text, g->line, sizeof(g->line));
-    // Without a voice clip the line stays up for a reading-speed guess.
-    g->line_until = game_now() + 1.2 + 0.05 * (double)strlen(ph->text);
+    // Without a voice clip the line stays up for a second plus 30 ms a
+    // character, as the exe's subtitle update has it (0x421170).
+    g->line_until = game_now() + 1.0 + 0.03 * (double)strlen(ph->text);
     if (g->fast) {
         g->line_until = game_now() + 0.1;
         const PetkaObject *who = petka_script_find(g->script, g->talker);
