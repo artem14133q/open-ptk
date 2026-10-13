@@ -747,11 +747,13 @@ frame's `.LEG` point on the position.
 `gaittest` walks 4000 random legs per hero and scale: the hero ends 1-5
 pixels from the leg's end on average and always within one step, with all
 eight clips in use -- which a wrong sign in the turn or swapped tables
-would not survive. Not seen in the exe: how the position is applied to the
-sprite (`0x4089A0`; drawing by the `.LEG` point is the reading that makes
-the sprite move by exactly `.OFF`) and how a clip without a `.LEG` is
-anchored (the launcher uses the bottom centre of its MSK rect). The route
-itself is described under `.CVX` above.
+would not survive. Where a walking hero's sprite goes is `sub_424190`: its
+top-left corner is the position minus the current frame's `.LEG` point times
+the hero scale at that row -- so the foothold stays on the position and the
+sprite moves by exactly `.OFF`. Not seen in the exe: how a clip without a
+`.LEG` (standing, talking, acting) is placed -- that is the heroes' set-
+position method, `0x4087D0`; the launcher uses the bottom centre of the
+clip's MSK rect. The route itself is described under `.CVX` above.
 
 `CHAPTER n` (`sub_411C00`) opens the store named by `[Part P Chapter n]` in
 `PARTS.INI` (`chap21.str`, `chap22.str`) and re-reads `NAMES.INI`/`CAST.INI`

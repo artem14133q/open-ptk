@@ -504,10 +504,12 @@ static void load_names(Game *g, const char *part) {
 static const char *display_name(const Game *g, const PetkaObject *obj);
 
 // Where a hero's clip goes on screen. While he walks, the frame's foothold
-// (from the clip's .LEG file) sits on his position, so the feet do not
-// slide. A clip with no .LEG -- standing, talking, acting -- is placed by
-// the bottom centre of its MSK rect instead, which is our assumption, so he
-// may shift by a few pixels when a walk starts or ends.
+// (from the clip's .LEG file) sits on his position, scaled, so the feet do
+// not slide -- the exe's sub_424190. A clip with no .LEG -- standing,
+// talking, acting -- is placed by the bottom centre of its MSK rect
+// instead, which is our assumption (the exe's rule is in its set-position
+// method, not decompiled), so he may shift by a few pixels when a walk
+// starts or ends.
 static Rectangle hero_dest(const Game *g, uint16_t hero_id, const PetkaObjectState *st, const Visual *v) {
     const Walk *w = &g->walk[hero_id];
     if (w->active) {
