@@ -920,11 +920,23 @@ caption, `sub_420CA0` for a phrase (the object whose update times a phrase,
    drawn on it in the first, with `DT_WORDBREAK` for a caption and
    `DT_WORDBREAK | DT_CENTER` for a phrase.
 
+The **menu of a dialogue** is a third object of the kind. The main
+screen's slot `+60` (`sub_4144C0(lines, colour, fill, lit)`) clears the
+object under the cursor, takes the old text down and makes it
+(`sub_420020`): the lines one under another in the same 20-pixel font, each
+measured and broken in the rect `5,2 - 630,...`, on a surface as wide as the
+screen that rests on row 479 like the others, with `z` 3000. The dialogue
+step passes white for the lines (`0xFFFFFF`), `0x0A0A0A` for the fill and
+`0xFF0000` -- **blue**, as a `COLORREF` -- for the line under the pointer;
+the object keeps the line's number at `+72`, which is what a click sends to
+the step. There are no numbers before the lines and nothing behind them.
+
 So the "second colour" passed with every caption and subtitle (see the
 dialogue step) is the surface's fill, which by the calls after it is keyed
 out -- a background chosen to differ from the text, not an outline: the
 words stand straight on the picture with nothing behind them. The launcher
-draws both this way (`draw_bottom_text`); it keeps a bar of its own along
+draws all three this way (`draw_bottom_text`, `menu_lines`); a menu line can
+still be picked by its number on the keyboard, which the original has not; it keeps a bar of its own along
 the top, with the cursor's action and the room's name, which the original
 has not. The same start-up reads the registry value `CD path` under
 `HKLM\SOFTWARE\SKIF\Petka` -- the path a film is looked for under when it

@@ -67,6 +67,7 @@ typedef struct {
 } Visual;
 
 #define SAVE_SLOTS 6
+#define BLUE_LINE ((Color){0, 0, 255, 255}) // the menu line under the pointer, the exe's 0xFF0000
 #define MAX_WAYPOINTS 32
 #define MAX_GAITS 8
 
@@ -1351,27 +1352,33 @@ static float draw_wrapped(Font font, const char *text, float x, float y, float w
 // as a block in the middle of the bottom of the screen, its lower edge on
 // row 479, with nothing behind it. A phrase's lines are centred in the
 // block; a name's are not.
-static void draw_bottom_text(Font font, const char *text, Color ink, int centre_lines, float scale) {
-    enum { MAX_LINES = 12 };
-    static char lines[MAX_LINES][512];
-    float size = 20 * scale, limit = 625 * scale, widest = 0;
+// Breaks text at spaces into lines no wider than `limit`; returns how many.
+static int wrap_text(Font font, const char *text, float size, float limit, char lines[][512], int max) {
     int count = 0;
     char row[512] = "";
     const char *p = text;
-    while (*p && count < MAX_LINES) {
+    while (*p && count < max) {
         const char *space = strchr(p, ' ');
         size_t word = space ? (size_t)(space - p) + 1 : strlen(p);
         char trial[512];
         snprintf(trial, sizeof(trial), "%s%.*s", row, (int)word, p);
         if (row[0] && MeasureTextEx(font, trial, size, 1).x > limit) {
-            snprintf(lines[count++], sizeof(lines[0]), "%s", row);
+            snprintf(lines[count++], 512, "%s", row);
             row[0] = 0;
             continue;
         }
         snprintf(row, sizeof(row), "%s", trial);
         p += word;
     }
-    if (row[0] && count < MAX_LINES) snprintf(lines[count++], sizeof(lines[0]), "%s", row);
+    if (row[0] && count < max) snprintf(lines[count++], 512, "%s", row);
+    return count;
+}
+
+static void draw_bottom_text(Font font, const char *text, Color ink, int centre_lines, float scale) {
+    enum { MAX_LINES = 12 };
+    static char lines[MAX_LINES][512];
+    float size = 20 * scale, widest = 0;
+    int count = wrap_text(font, text, size, 625 * scale, lines, MAX_LINES);
     for (int i = 0; i < count; i++) {
         float w = MeasureTextEx(font, lines[i], size, 1).x;
         if (w > widest) widest = w;
@@ -2041,10 +2048,33 @@ static void draw_case(Game *g, float scale) {
         DrawTexturePro(g->case_strip.tex, (Rectangle){0, 0, GAME_W, GAME_H}, screen, (Vector2){0, 0}, 0, WHITE);
 }
 
-// Row of the line menu, in window pixels; the menu sits at the bottom.
-static Rectangle menu_row(const Game *g, int row) {
-    float top = (float)GetScreenHeight() - 16 - 34.0f * (float)g->menu_count;
-    return (Rectangle){10, top + 34.0f * (float)row, (float)GetScreenWidth() - 20, 32};
+// The dialogue's menu, as the exe's menu object lays it out (sub_420020):
+// the lines one under another in the 20-pixel font, each broken at 625
+// pixels, starting 5 from the left edge, the whole block resting on row 479
+// like any other text over the picture -- white, the line under the pointer
+// in blue, and nothing behind them. Fills `rects` (window pixels) with each
+// line's place and, if asked, draws them.
+#define MENU_MAX 16
+static void menu_lines(const Game *g, Font font, float scale, Rectangle *rects, int hover, int draw) {
+    enum { MAX_ROWS = 6 };
+    static char lines[MENU_MAX][MAX_ROWS][512];
+    int rows[MENU_MAX], total = 0;
+    float size = 20 * scale;
+    int count = g->menu_count < MENU_MAX ? g->menu_count : MENU_MAX;
+    for (int i = 0; i < count; i++) {
+        char text[512];
+        cp1251_to_utf8(g->menu[i] < g->phrases->count ? g->phrases->phrases[g->menu[i]].text : "?", text, sizeof(text));
+        rows[i] = wrap_text(font, text, size, 625 * scale, lines[i], MAX_ROWS);
+        if (rows[i] < 1) rows[i] = 1;
+        total += rows[i];
+    }
+    float y = 479 * scale - (total * size + 4 * scale);
+    for (int i = 0; i < count; i++) {
+        rects[i] = (Rectangle){5 * scale, y, 630 * scale, rows[i] * size};
+        for (int r = 0; draw && r < rows[i]; r++)
+            DrawTextEx(font, lines[i][r], (Vector2){5 * scale, y + r * size}, size, 1, i == hover ? BLUE_LINE : WHITE);
+        y += rows[i] * size;
+    }
 }
 
 // The name the player sees, "" for an object that has none. Inventory
@@ -2542,8 +2572,10 @@ int main(int argc, char **argv) {
                                  : object_at(g, scene, scene_count, mx, my);
 
         int menu_hover = -1;
-        for (int i = 0; i < g->menu_count; i++)
-            if (CheckCollisionPointRec(mouse, menu_row(g, i))) menu_hover = i;
+        Rectangle menu_rects[MENU_MAX];
+        if (g->menu_count > 0) menu_lines(g, font, scale, menu_rects, -1, 0);
+        for (int i = 0; i < g->menu_count && i < MENU_MAX; i++)
+            if (CheckCollisionPointRec(mouse, menu_rects[i])) menu_hover = i;
         if (g->menu_count > 0) {
             // The dialogue waits for the player's line: click it or press
             // its number.
@@ -2687,16 +2719,7 @@ int main(int argc, char **argv) {
         }
         if (g->desc[0]) draw_description(g, font, scale);
 
-        for (int i = 0; i < g->menu_count; i++) {
-            Rectangle row = menu_row(g, i);
-            char text[512];
-            cp1251_to_utf8(g->menu[i] < g->phrases->count ? g->phrases->phrases[g->menu[i]].text : "?",
-                           text, sizeof(text));
-            DrawRectangleRec(row, Fade(BLACK, i == menu_hover ? 0.9f : 0.7f));
-            if (i == menu_hover) DrawRectangleLinesEx(row, 1, ORANGE);
-            DrawTextEx(font, TextFormat("%d. %s", i + 1, text), (Vector2){row.x + 10, row.y + 5}, 22, 1,
-                       i == menu_hover ? ORANGE : WHITE);
-        }
+        if (g->menu_count > 0) menu_lines(g, font, scale, menu_rects, menu_hover, 1);
 
         if (g->status[0] && game_now() < g->status_until)
             DrawTextEx(font, g->status, (Vector2){10, 36}, 18, 1, YELLOW);
