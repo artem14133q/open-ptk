@@ -831,9 +831,15 @@ is 13.4 dB down (a gain of 0.21), the default effects, 73 %, 5.6 dB down
 object) is what "new game", the script's `PART` and a saved game of another
 part come to. It keeps nothing of the running game:
 
-1. `sub_412320(part)` first -- not decompiled; by the `DiskID` lines of
-   `PARTS.INI`, the check that the part's disc is there -- and nothing
-   happens if it says no;
+1. `sub_412320(part)` first, the check that the part's disc is in the
+   drive: it tries to open `disk<part>.id` (a marker file; `disk1.id`,
+   `disk2.id` and `disk3.id` lie next to the stores). Found, it resets the
+   sound manager and says yes. Not found, it shows the system cursor, sends
+   MCI `set cdaudio door open`, and asks `Insert Disk <part> and press OK.`
+   in a message box, over and over until the file is there or the player
+   cancels -- and on a cancel either quits the game (if `+252` of the
+   application is set) or lets the sound go on, and says no, in which case
+   nothing more happens;
 2. the part number is stored (`+196` of the application, the global
    `dword_4DE87C`);
 3. `QSystem`, the object at `dword_4DE8E8`, the resource manager
