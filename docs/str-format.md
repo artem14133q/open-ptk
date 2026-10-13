@@ -1460,6 +1460,14 @@ and gets one of three answers:
   is then cleared, which is what releases the `QM_WALKED` queued behind the
   walk.
 
+  The launcher gives a walk of no length -- the hero already stands on the
+  point -- the same arrival. Without it a second click on a door while it
+  was opening parked the exit's reaction again with no "stand up" at its
+  end, and the hero, frozen by the first arrival, stayed frozen in the next
+  room: he took the walk commands and did not move, a hero's step being
+  made per frame of his walk clip. For the same reason starting a walk
+  switches his animation on.
+
 **Stopping a hero** (`sub_408D80`, vtable slot `+80`) is not arriving. It
 clears the walking and busy flags, readdresses any `QM_WALKED` queued for
 the hero to nobody, and **throws away the reaction parked on the walk** (the

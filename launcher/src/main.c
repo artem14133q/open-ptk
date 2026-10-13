@@ -772,6 +772,9 @@ static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
     }
     w->active = 1;
     st->rest_after_loop = 0; // the walk clip loops, as when the exe starts a walk
+    // A walking hero is animated, whatever held him still before: he takes
+    // a step for each frame of the walk clip, so a frozen one never moves.
+    st->animate = 1;
     if (g->trace) {
         fprintf(stderr, "walk %u: from %d,%d to %d,%d; route:", hero_id, st->x, st->y, x, y);
         for (int i = 0; i < w->walker.count; i++) fprintf(stderr, " (%d,%d)", w->walker.route[i].x, w->walker.route[i].y);
@@ -2539,6 +2542,7 @@ static void game_switch(Game *g, int part, int chapter) {
 //                                       (vich: "send Chapayev")
 //   item <item id> <id>                 a thing from the case on an object
 //   go <x> <y>                          "walk" on the bare floor at a point
+//   near <x> <y>                        check that Petka stands about there
 //   map <id>                            open the map and pick a place
 //   pick <n> [<n>...]                   the lines to answer the coming
 //                                       menus with, from 0
@@ -2686,8 +2690,11 @@ static void play_tick(Game *g, int can_act) {
         s_play.rest = 0;
         return;
     }
-    int at_rest = can_act && vm->interface_enabled && !g->paused && vm->queue_count == 0 && !g->walk[0].active &&
-                  !g->walk[1].active && !g->save_mode && (!g->map_open || s_play.phase);
+    // PETKA_PLAY_HASTY=1: a walk under way does not hold the next step back,
+    // for clicking again before the hero is there.
+    int walking = (g->walk[0].active || g->walk[1].active) && !getenv("PETKA_PLAY_HASTY");
+    int at_rest = can_act && vm->interface_enabled && !g->paused && vm->queue_count == 0 && !walking &&
+                  !g->save_mode && (!g->map_open || s_play.phase);
     s_play.rest = at_rest ? s_play.rest + 1 : 0;
     if (s_play.hold > 0) { s_play.hold--; return; }
     if (s_play.rest < PLAY_REST) {
@@ -2734,6 +2741,15 @@ static void play_tick(Game *g, int can_act) {
             return;
         }
         petka->busy = 1;
+    } else if (!strcmp(st->verb, "near")) {
+        const PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+        int dx = petka->x - st->a, dy = petka->y - st->b;
+        if (dx * dx + dy * dy > 40 * 40) {
+            snprintf(why, sizeof(why), "Petka is at %d,%d, not near %d,%d (animate %d, walking %d)", petka->x, petka->y,
+                     st->a, st->b, petka->animate, g->walk[0].active);
+            play_fail(g, why);
+            return;
+        }
     } else if (!strcmp(st->verb, "map")) {
         if (!s_play.phase) {
             if (!g->map_open) map_command(g);

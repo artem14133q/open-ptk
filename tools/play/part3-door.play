@@ -1,0 +1,14 @@
+# Part 3, the saucer: the cabin's door clicked again while it is opening,
+# then a walk in the next room.
+wait 500
+room 401
+go 300 400          # away from the door first, so that he really walks to it
+wait 600
+walk 138            # the way out: Petka walks to the door, it starts to open
+walk 138            # and is clicked again
+wait 2500
+room 400
+go 290 455
+wait 900
+near 290 455
+shot door.png
