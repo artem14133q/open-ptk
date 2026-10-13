@@ -558,9 +558,25 @@ the disassembly (the hit test is vtable slot `+32`, the click slot `+40`,
 the mouse, whatever is behind it gets nothing. A hero standing in a doorway
 does cover the exit behind him.
 
-- `0x414020`, mouse move: only while the cursor is shown (cursor `+44`); the
-  first hit gets slot `+36`, and the rest of the function draws the name of
-  the object under the cursor.
+- `0x414020`, mouse move: it clears the screen's "object under the cursor"
+  (`+24` of `QSystem+536`), then, only while the cursor is shown (cursor
+  `+44`), gives the first hit slot `+36` -- `sub_401A60`, which does nothing
+  but write the object back into that field. The cursor is told whether it
+  is over something (cursor `+48`) and moved (its slot `+64`). If the object
+  under the cursor changed and the screen's `+68` is 3 (meaning not known),
+  the caption is set through the screen's slot `+40`:
+  - the object's shown name (`+84`, from `NAMES.INI`) in `0xFFFFC0`
+    (COLORREF: R 192, G 255, B 255) if it differs from the string at
+    `0x4D417C`;
+  - otherwise the string at object `+80` in `0x000080` (R 128, a dark red);
+  - with nothing under the cursor, the string at `0x4D417C` itself.
+
+  All three with `0x0A0A0A` as a second colour (an outline or shadow). The
+  string at `0x4D417C` is filled at run time; being what the caption is
+  cleared to, it must be empty. Object `+80` was not traced -- by its place
+  next to the shown name it should be the script name, which would mean the
+  original labels objects absent from `NAMES.INI` with their script names
+  in dark red. The launcher shows nothing for those until that is checked.
 - `0x414320`, click: with the cursor hidden the click goes to the dialogue
   instead (`sub_415F80(-1)` on `QSystem+536`: skip the phrase). Otherwise
   the first hit gets slot `+40` (`sub_401B30`, above). With **nothing** hit,
