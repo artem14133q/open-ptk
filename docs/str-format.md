@@ -294,6 +294,17 @@ first point (identical points pass at once). Two segments intersect
 (`sub_424AE0`) if their lines cross at a point lying on both, ends included
 -- touching counts -- and never if they are parallel, even on one line.
 
+Whether a point is off the floor (`sub_424F10`) is decided by a vote: the
+point is joined to eight points on the edge of the 640x480 screen -- the
+three on the left edge at rows 0, y and 480 (the last one twice), the three
+on the right edge, and the one straight above at row 0 -- and each line
+whose crossings with the outline (`sub_425000`) come to an odd number votes
+"inside"; fewer than four such votes means off the floor. The implementation
+instead asks whether the point is in one of the mesh's polygons, which
+agrees except on the outline itself, and does not inherit the vote's blind
+spot in rooms wider than the screen, where some of those eight points lie
+on the floor.
+
 Moving an off-floor point onto the floor (`sub_425120`): the nearest point
 of every outline edge is found (`sub_4252F0`), the closest of them replaces
 the point (truncated to whole pixels), and the polygon is the one that lists
