@@ -1345,6 +1345,45 @@ static float draw_wrapped(Font font, const char *text, float x, float y, float w
     return y + leading;
 }
 
+// The exe's two kinds of text over the picture -- the name of the object
+// under the cursor (sub_41F8E0) and a phrase being spoken (sub_420CA0) -- are
+// made alike: the 20-pixel bold Arial, broken into lines no wider than 625,
+// as a block in the middle of the bottom of the screen, its lower edge on
+// row 479, with nothing behind it. A phrase's lines are centred in the
+// block; a name's are not.
+static void draw_bottom_text(Font font, const char *text, Color ink, int centre_lines, float scale) {
+    enum { MAX_LINES = 12 };
+    static char lines[MAX_LINES][512];
+    float size = 20 * scale, limit = 625 * scale, widest = 0;
+    int count = 0;
+    char row[512] = "";
+    const char *p = text;
+    while (*p && count < MAX_LINES) {
+        const char *space = strchr(p, ' ');
+        size_t word = space ? (size_t)(space - p) + 1 : strlen(p);
+        char trial[512];
+        snprintf(trial, sizeof(trial), "%s%.*s", row, (int)word, p);
+        if (row[0] && MeasureTextEx(font, trial, size, 1).x > limit) {
+            snprintf(lines[count++], sizeof(lines[0]), "%s", row);
+            row[0] = 0;
+            continue;
+        }
+        snprintf(row, sizeof(row), "%s", trial);
+        p += word;
+    }
+    if (row[0] && count < MAX_LINES) snprintf(lines[count++], sizeof(lines[0]), "%s", row);
+    for (int i = 0; i < count; i++) {
+        float w = MeasureTextEx(font, lines[i], size, 1).x;
+        if (w > widest) widest = w;
+    }
+    float top = 479 * scale - (count * size + 4 * scale);
+    float left = (GAME_W * scale - widest) / 2;
+    for (int i = 0; i < count; i++) {
+        float x = centre_lines ? (GAME_W * scale - MeasureTextEx(font, lines[i], size, 1).x) / 2 : left;
+        DrawTextEx(font, lines[i], (Vector2){x, top + i * size}, size, 1, ink);
+    }
+}
+
 // A thing's description, as the exe's description object draws it
 // (sub_421370): the description clip (resource 6008) on the frame the
 // message names -- a board with the thing's picture -- and the text from
@@ -2606,17 +2645,11 @@ int main(int argc, char **argv) {
             const PetkaObject *item = petka_script_find(g->script, vm->cursor_object);
             action = TextFormat("%s -> %s", item ? display_name(g, item) : "?", hover ? "" : "...");
         } else {
-            action = TextFormat("%s%s", kVerbs[g->verb].label, hover ? ": " : "");
+            action = kVerbs[g->verb].label;
         }
         DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
         DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
-        if (caption[0]) {
-            // The bar is dark: lift the dark red off it with a light plate.
-            Vector2 at = {10 + MeasureTextEx(font, action, 20, 1).x, 5};
-            Vector2 size = MeasureTextEx(font, caption, 20, 1);
-            if (caption_color.r == 128) DrawRectangle((int)at.x - 2, 3, (int)size.x + 4, 24, Fade(RAYWHITE, 0.75f));
-            DrawTextEx(font, caption, at, 20, 1, caption_color);
-        }
+        if (caption[0]) draw_bottom_text(font, caption, caption_color, 0, scale);
         if (room) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
@@ -2624,12 +2657,10 @@ int main(int argc, char **argv) {
         }
 
         if (g->talking && g->line[0] && g->subtitles) {
-            float box_w = (float)GetScreenWidth() - 40, y = (float)GetScreenHeight() - 150;
-            DrawRectangle(10, (int)y - 10, GetScreenWidth() - 20, 110, Fade(BLACK, 0.7f));
             // Each speaker's lines are in his own colour.
             const PetkaObject *talker = petka_script_find(g->script, g->talker);
             Color ink = talker ? g->colors[obj_index(g, talker)] : WHITE;
-            draw_wrapped(font, g->line, 20, y, box_w, 24, 28, ink);
+            draw_bottom_text(font, g->line, ink, 1, scale);
         }
         if (g->desc[0]) draw_description(g, font, scale);
 

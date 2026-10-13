@@ -900,8 +900,32 @@ colours again.
 `CFont::CreateFont`: **Arial, weight 700 (bold)**, default character set,
 TrueType precision, **20** pixels high (`0x4E1ED8`) and **16** pixels high
 (`0x4E1EE0`). The 20-pixel one writes the labels of the saved games, the
-16-pixel one a thing's description; which the captions and subtitles use was
-not traced. The same start-up reads the registry value `CD path` under
+name of the object under the cursor and the phrases of a dialogue; the
+16-pixel one a thing's description.
+
+**Text over the picture.** A screen's slot `+40` (`0x412C20`, the caption)
+and slot `+44` (`0x412F50`, the subtitle) each take down the text object
+that was up and, unless the new text is empty, make one: `sub_41F8E0` for a
+caption, `sub_420CA0` for a phrase (the object whose update times a phrase,
+`0x421170`). Both are built the same way, read from the disassembly:
+
+1. the text is measured in the 20-pixel font with word breaks in a rect 625
+   wide (`5,2 - 630,...`, `DT_CALCRECT | DT_WORDBREAK`);
+2. the object gets a surface of that size plus 10 across and 4 down,
+   `z` **3000** -- over the cursor and everything else -- and the place
+   `left = (640 - width) / 2`, `top = 479 - height`, `right = 639 - left`,
+   `bottom = 479`: **the middle of the bottom edge of the screen**;
+3. the surface is filled with the second colour the caller gave and the text
+   drawn on it in the first, with `DT_WORDBREAK` for a caption and
+   `DT_WORDBREAK | DT_CENTER` for a phrase.
+
+So the "second colour" passed with every caption and subtitle (see the
+dialogue step) is the surface's fill, which by the calls after it is keyed
+out -- a background chosen to differ from the text, not an outline: the
+words stand straight on the picture with nothing behind them. The launcher
+draws both this way (`draw_bottom_text`); it keeps a bar of its own along
+the top, with the cursor's action and the room's name, which the original
+has not. The same start-up reads the registry value `CD path` under
 `HKLM\SOFTWARE\SKIF\Petka` -- the path a film is looked for under when it
 is not in the current directory -- opens `patch.str` and `main.str`, and
 refuses to run twice (`PreventSecondInstance`). The launcher writes its text
