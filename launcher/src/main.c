@@ -1162,6 +1162,15 @@ static void map_command(Game *g) {
     petka_scriptvm_broadcast(g->vm, PETKA_OP_INITBG, 0, 0, 0, map->id);
 }
 
+// The panel command (sub_417D20; key O and the case's diskette button): it
+// shuts the case and goes to the game's panel screen -- options, saving and
+// loading -- which is not built yet.
+static void panel_command(Game *g) {
+    if (!g->vm->interface_enabled || g->map_open) return;
+    g->case_open = 0;
+    set_status(g, "(панель настроек и сохранений пока не сделана)");
+}
+
 // What the pointer (screen pixels of the game) is over while the case is
 // open. The things come first -- they are above the case in z; the case
 // itself takes every other point of the screen (its hit test is just "am I
@@ -1210,7 +1219,7 @@ static void case_click(Game *g) {
         drop_item(g);
         g->verb = 5;
         break;
-    case 1: set_status(g, "(сохранение и загрузка пока не сделаны)"); break;
+    case 1: panel_command(g); break;
     case 2: map_command(g); break;
     case 3: g->case_open = 0; break;
     case 4:
@@ -1526,6 +1535,7 @@ int main(int argc, char **argv) {
         int map_key = IsKeyPressed(KEY_M) || IsKeyPressed(KEY_TAB) ||
                       (getenv("PETKA_MAP") && atol(getenv("PETKA_MAP")) == frame);
         if (map_key && can_act && !g->menu_count) map_command(g);
+        if (IsKeyPressed(KEY_O) && can_act && !g->menu_count) panel_command(g);
         int in_case = g->case_open && can_act;
         if (!in_case) g->case_lit = -1;
         const PetkaObject *hover = !can_act ? NULL

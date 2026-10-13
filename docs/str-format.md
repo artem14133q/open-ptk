@@ -566,7 +566,7 @@ it again. The keys come from the exe's accelerator table (resource 130):
 | `6`, `C` | 32785 | action 5, send Chapayev |
 | `I` | 32779 | opens and shuts the case (below) |
 | `M`, `Tab` | 32776 | `sub_417D80`, also the case's map button: to the map and back (below) |
-| `O` | 32777 | `sub_417D20`, also the case's diskette button; not decompiled |
+| `O` | 32777 | `sub_417D20`, also the case's diskette button: to the panel screen and back (below) |
 | `Esc` | 32786 | not traced |
 | `F2`, `F3` | 32771, 32772 | not traced (save and load, by the `SAVE`/`LOAD` pictures) |
 | `Alt+R` | 32787 | not traced |
@@ -645,7 +645,7 @@ case picture is all of them unlit.
 | button | | |
 |---:|---|---|
 | 0 | `CHIPPER` | the "send Chapayev" command (`sub_418100`, the same as keys `6` and `C`) |
-| 1 | `DISKETA` | command 32777 (`sub_417D20`, the same as key `O`; not decompiled -- by the picture, the save and load screen) |
+| 1 | `DISKETA` | command 32777 (`sub_417D20`, the same as key `O`): the panel screen |
 | 2 | `MAP-CASE` | command 32776 (`sub_417D80`, the same as keys `M` and `Tab`; not decompiled -- the map) |
 | 3 | `QUIT` | hides the case (its own slot `+44` with 0): it quits the case, not the game |
 | 4 | `SKROLL-R` | if there is a thing at `first + 6`, `first += 6`; lay the things out again (`sub_415900`) and redraw |
@@ -714,6 +714,25 @@ case and then, on the main screen, clears the caption under the cursor and
 starts the map screen (`QSystem+548`, its slot `+24`); on the map screen, it
 leaves it (that screen's slot `+56`). So `M` goes to the map and back. The
 launcher does the same (`map_command`).
+
+**The panel command** (`sub_417D20`: 32777, key `O`, and the case's
+diskette button) has the map command's shape: nothing on the start-up
+screen or with the panel object inactive; otherwise the case is hidden and,
+on the main screen, the screen at `QSystem+544` is started (its slot `+24`),
+or, on that screen, it is left (slot `+56`). There is no "on the map"
+condition here.
+
+That screen (constructor `sub_41C020`, vtable `0x4B9DF0`) is the object the
+walk-speed slider and the subtitle flag are read from, and its pictures are
+the `MAIN\INTRFACE.BG` set: the background `INTRFASE.BMP` (4900), the
+pointers `KURSOR1`/`KURSOR2` (4901, 4902), `NEW-GAME`, `LOADING`,
+`CONTINUE`, `DOOR-E`, `SAVER` (4903-4907), the sliders and switches
+`EFFEKTS`, `MUSIKA`, `CUBTITRA`, `SPEAKE`, `SPEED` (4909, 4913-4916) with
+their end marks `SL1MIN` ... `SL4MAX` (4921-4928), and the slot pictures
+`LOAD1-3`, `SAVE1-3` (4990-4997). So it is the game's menu, options and
+save/load in one. Its methods, not decompiled: start `0x41C170`, click
+`0x41CAE0`, mouse move `0x41C8D0`, leave `0x41CE00`. The launcher takes the
+key and the button, shuts the case, and says the screen is not there yet.
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`
