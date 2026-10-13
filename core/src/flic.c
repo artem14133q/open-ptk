@@ -255,6 +255,15 @@ static uint32_t chunk_size_at(const PetkaFlic *flic, uint32_t off) {
     return rd_u32(&hr);
 }
 
+// A palette entry as the 16 bits (5-6-5) the exe's surfaces hold.
+static unsigned rgb565(const uint8_t *rgb) {
+    return (unsigned)(rgb[0] >> 3) << 11 | (unsigned)(rgb[1] >> 2) << 5 | (unsigned)(rgb[2] >> 3);
+}
+
+int petka_flic_keyed(const PetkaFlic *flic, uint8_t index) {
+    return index == 0 || rgb565(flic->palette[index]) == rgb565(flic->palette[0]);
+}
+
 int petka_flic_advance(PetkaFlic *flic) {
     if (!flic) return -1;
     if (flic->frame_count <= 1) return 0; // nothing to animate

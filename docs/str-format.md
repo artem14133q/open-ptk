@@ -1284,6 +1284,21 @@ just that rect (its corner is `QFlic+1656`, `+1660`), and on it the point
 The first one that falls on the surface and is not the transparent colour
 (`QFlic+40`) makes it a hit: one pixel of slack all round.
 
+**The transparent colour is a colour, not a palette entry.** The exe's
+surfaces are 16 bits a pixel, and what is keyed out -- in drawing as in
+these tests -- is every pixel of the 16-bit colour of the clip's key. Going
+by the data the key is the colour of palette entry 0, and clips count on
+other entries falling on it: of the 983 clips of `MAIN.STR` and `FLC1.STR`,
+17 have such pixels in their first frame. `PROVODA.FLC` (the wires at the
+dump, shown once the magnet has pulled the rubbish up) has a key of
+255,255,255 and is filled with entry 31, 252,252,252 -- 301375 pixels of
+it; `SHWARC.BG\STOL.FLC` has no pixel of entry 0 at all, its magenta fill
+being another entry; `INVENTOR.1\PRICELL.FLC` is nothing but such pixels.
+The launcher does the same (`petka_flic_keyed`: an entry is transparent
+when its colour, cut to 5-6-5, is entry 0's), for the picture and for the
+hit tests. Where `QFlic+40` gets its value has not been read; the 5-6-5
+split is the one the saved games' pictures use.
+
 A hero overrides this with `sub_4086B0`, which has no slack. It answers
 yes when
 

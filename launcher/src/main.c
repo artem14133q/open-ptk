@@ -365,12 +365,14 @@ static void swap_ext(const char *path, const char *ext, char *out, size_t out_sz
 static uint8_t *flic_to_rgba(const PetkaFlic *flic) {
     int n = flic->width * flic->height;
     uint8_t *rgba = (uint8_t *)malloc((size_t)n * 4);
+    // The colour key is palette entry 0's colour, not the entry itself.
+    uint8_t alpha[256];
+    for (int i = 0; i < 256; i++) alpha[i] = petka_flic_keyed(flic, (uint8_t)i) ? 0 : 255;
     for (int i = 0; i < n; i++) {
-        uint8_t idx = flic->indices[i];
         rgba[i * 4 + 0] = flic->rgb[i * 3 + 0];
         rgba[i * 4 + 1] = flic->rgb[i * 3 + 1];
         rgba[i * 4 + 2] = flic->rgb[i * 3 + 2];
-        rgba[i * 4 + 3] = (idx == 0) ? 0 : 255; // palette index 0 is the color key
+        rgba[i * 4 + 3] = alpha[flic->indices[i]];
     }
     return rgba;
 }
@@ -1343,7 +1345,7 @@ static int clip_hit(const Visual *v, int x, int y) {
     for (int k = 0; k < 9; k++) {
         int px = x + kDx[k], py = y + kDy[k];
         if (px < r.left || py < r.top || px >= r.right || py >= r.bottom) continue;
-        if (v->flic->indices[py * v->flic->width + px] != 0) return 1;
+        if (!petka_flic_keyed(v->flic, v->flic->indices[py * v->flic->width + px])) return 1;
     }
     return 0;
 }
@@ -1366,7 +1368,7 @@ static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float
         int px = (int)((x - d.x) * v->flic->width / d.width);
         int py = (int)((y - d.y) * v->flic->height / d.height);
         if (px < 0 || py < 0 || px >= v->flic->width || py >= v->flic->height) continue;
-        if (v->flic->indices[py * v->flic->width + px] != 0) return obj;
+        if (!petka_flic_keyed(v->flic, v->flic->indices[py * v->flic->width + px])) return obj;
     }
     return NULL;
 }
@@ -2100,7 +2102,8 @@ static const PetkaObject *case_hover(Game *g, int px, int py) {
     g->case_lit = -1;
     clip_show(g, &g->case_exit, CASE_EXIT, 0);
     const PetkaFlic *mask = g->case_exit.flic;
-    if (mask && px >= 0 && py >= 0 && px < mask->width && py < mask->height && mask->indices[py * mask->width + px]) {
+    if (mask && px >= 0 && py >= 0 && px < mask->width && py < mask->height &&
+        !petka_flic_keyed(mask, mask->indices[py * mask->width + px])) {
         g->case_lit = 3;
         return NULL;
     }

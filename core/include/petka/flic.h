@@ -41,6 +41,15 @@ void petka_flic_close(PetkaFlic *flic);
 // Returns 0 on success, -1 on error.
 int petka_flic_advance(PetkaFlic *flic);
 
+// Whether a palette entry is the clip's transparent colour. The exe turns
+// every frame into 16 bits a pixel and keys out the *colour* of palette
+// entry 0 there, so an entry is transparent when its colour falls on the
+// same 16-bit one -- entry 0 itself, and any other entry within the low
+// bits of it. Clips do rely on that: PROVODA.FLC is filled with entry 31
+// (252,252,252) beside a key of 255,255,255, and STOL.FLC has no pixel of
+// entry 0 at all.
+int petka_flic_keyed(const PetkaFlic *flic, uint8_t index);
+
 #ifdef __cplusplus
 }
 #endif
