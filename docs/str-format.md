@@ -594,8 +594,8 @@ does cover the exit behind him.
 Where the other engine-sent messages come from: `END` and `HALF` from the
 object update (below), `TOTALINIT` from `sub_405D00` at load; and, read off
 the constants at the call sites without decompiling the functions,
-`SAY`/`SAID` from the dialogue step at `0x4160E0` and `USERMSG` from
-`sub_409610`.
+`USERMSG` from `sub_409610`. `SAY`/`SAID` come from the dialogue step,
+`sub_415F80` (see "The dialogue step" below).
 
 ### Object update: `END`, `HALF` and clip sounds
 
@@ -1063,6 +1063,40 @@ object id (topic 89 is object 89 "Аквариум", topic 95 is "Кровать
 and `SubRecord.verb_id` is the message opcode (1 `USE`, 4 `LOOK`, 6 `TAKE`,
 10 `TALK`, 26 `OBJECTUSE`). `processMessage` looks the pair up with
 `sub_40BEB0` and the `DIALOG` message plays the entry it found.
+
+### The dialogue step (`sub_415F80`)
+
+One function moves a running dialogue on. Its argument is `-1` for "go on"
+(a click with the cursor hidden; presumably also the end of the voice clip)
+or the number of the menu line picked. The dialogue object keeps a state
+(`+24`): 1 while a phrase is up, 2 while a menu is. "Go on" is ignored in
+state 2 and a pick in state 1, so a phrase cannot be answered and a menu
+cannot be clicked away. Nothing happens either while the dialogue is paused
+(`+4`).
+
+Every step hides the cursor, advances the bytecode VM (`sub_40B790`; skipped
+once after a start, flag `+16`) and acts on what it stopped at
+(`sub_40B6E0`):
+
+| kind | what the step does |
+|---:|---|
+| 1, phrase | stops the previous voice clip; loads the new one (speech folder + the phrase's wav name) and remembers whether there is one (`+12`); pans it by the speaker (`sub_40E0D0`: the middle of his clip's `.MSK` rect plus his x, against the view offset `QSystem+112`) and plays it. If the speaker is not the previous phrase's, the old speaker (`+44`) gets `SAID` and the new one `SAY`. The subtitle is set on the current screen (slot `+44`). |
+| 2, menu | stops the voice clip; the speaker gets `SAID` and is forgotten; the lines go to the main screen (slot `+60`) with three colours, `0xFFFFFF`, `0x0A0A0A`, `0xFF0000`; the cursor is shown again; state 2. With no lines to offer nothing more is done. |
+| 3, end | `sub_4165A0` (above). |
+| 4 | stops the voice clip, forgets the speaker **without** a `SAID`, clears the subtitle; state 1. By elimination this is the `USERMSG` pause; `sub_40B6E0` was not decompiled. |
+
+`SAY` and `SAID` are handed to the object's handler directly (vtable slot
+`+52`), not queued, with no arguments and no sender.
+
+Subtitle colours (COLORREF, `B<<16 | G<<8 | R`): a speaker with a `CAST.INI`
+colour gets it, with `0x00007F` as the second colour; a speaker without one
+gets `0x0A0A0A` on `0xFFFFFF`. A phrase whose speaker is not an object only
+traces `DLG: No speaker`.
+
+The launcher follows the first three rows. It differs on the fourth: it
+sends the speaker `SAID` before the pause, so that he does not stand there
+talking through whatever the script does next. Whether the original leaves
+him talking, or `sub_409610` sees to it, is open. Panning is not done.
 
 ## Room topology — SOLVED: `BGS.INI` is the room graph, plain text
 
