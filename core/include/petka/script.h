@@ -70,7 +70,7 @@ typedef enum {
     PETKA_OP_OFF = 52,
     PETKA_OP_PLAY = 53,
     PETKA_OP_LEAVEBG = 54,
-    PETKA_OP_55 = 55, // sets a flag on the screen object; meaning unknown
+    PETKA_OP_SHAKE = 55,
     PETKA_OP_RANDOM = 57,
     PETKA_OP_JUMP = 58,
     PETKA_OP_JUMPVICH = 59,
@@ -244,6 +244,7 @@ struct PetkaScriptVM {
     // the middle must not give the player his clicks back.
     int cursor_visible;
     int interface_enabled;
+    int shake; // SHAKE: the picture jumps 3 pixels sideways every 30 ms
     uint16_t cursor_resource; // PETKA_NONE = default cursor
     uint16_t cursor_object;   // inventory object carried by the cursor
 

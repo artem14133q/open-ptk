@@ -647,6 +647,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 51 / 52 | `ON`* / `OFF`* | active and visible / neither |
 | 53 | `PLAY`* | `SET`, then wait for the animation to end |
 | 54 | `LEAVEBG`* | broadcast when a room is left, sender = that room |
+| 55 | `SHAKE`* | screen shake on (1) / off |
 | 57 | `RANDOM`* | see above |
 | 58 / 59 | `JUMP`* / `JUMPVICH`* | place Petka / Chapayev instantly |
 | 60 / 61 | `PART`* / `CHAPTER`* | switch part / chapter |
@@ -762,8 +763,20 @@ is described under `.CVX` above.
 from it for every object -- which is why those two files live in the chapter
 stores.
 
-Not understood: opcode 55 (sets a flag on the screen object; used twice in
-`PART_3`).
+`SHAKE` sets a flag (`+8`) on the screen object (`*(dword_4DE8E4 + 60)`).
+While it is set, the frame function (`sub_422140`) puts the finished frame on
+screen shifted right by 0 or 3 pixels, switching every 30 ms, and blacks out
+the 3-pixel strip it leaves. Used twice, in one `PART_3` cutscene.
+
+That frame function is the game's main loop body, and shows the order of a
+frame: every object's update (vtable slot 6) with the milliseconds since the
+last frame; then every object's slot `+48` (`0x401810` for scene objects,
+`0x409530` for heroes; not decompiled -- by its place, the recalculation of
+`z`); then the sort of the screen's objects by `z` ascending (`sub_422580`,
+a selection sort); then every object's draw (slot `+20`). It is also where
+the view scrolls: 8 pixels a frame towards the requested offset.
+
+With that, every opcode the three parts use is accounted for.
 
 ### Scene object state variants — solved by the script
 
@@ -1062,8 +1075,8 @@ it on the entry point (`walk_x - 320`, clamped to the background).
 Afterwards, whenever the followed hero is positioned within 160 pixels of
 either side of the screen, the view is asked to centre on him (`x - 320`,
 clamped; `sub_4087D0` writes it to `QSystem+108`, the view itself is
-`QSystem+104`). How fast the view then moves there was not traced; the
-launcher scrolls at a fixed speed.
+`QSystem+104`). The frame function (`sub_422140`) then moves the view 8
+pixels a frame towards it.
 
 `tools/looptest/main.c` — decodes every multi-frame `.FLC` of the given
 stores twice round and fails if the second loop differs from the first:

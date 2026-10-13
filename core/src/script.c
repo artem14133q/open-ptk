@@ -20,7 +20,7 @@ static const char *const kOpcodeNames[] = {
     [41] = "QM_RESERVED1", [42] = "CONTINUE", [43] = "MAP", [44] = "PASSIVE",
     [45] = "NOMAP", [46] = "SETINV", [47] = "BGSFX", [48] = "MUSIC",
     [49] = "IMAGE", [50] = "STAND", [51] = "ON", [52] = "OFF", [53] = "PLAY",
-    [54] = "LEAVEBG", [57] = "RANDOM", [58] = "JUMP", [59] = "JUMPVICH",
+    [54] = "LEAVEBG", [55] = "SHAKE", [57] = "RANDOM", [58] = "JUMP", [59] = "JUMPVICH",
     [60] = "PART", [61] = "CHAPTER", [62] = "AVI",
 };
 
@@ -523,6 +523,9 @@ static void apply_builtin(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued
         // This object takes the sender's place in the inventory.
         for (uint32_t i = 0; i < vm->inventory_count; i++)
             if ((int)vm->inventory[i] == q->sender) vm->inventory[i] = obj->id;
+        break;
+    case PETKA_OP_SHAKE:
+        vm->shake = m->arg1 == 1;
         break;
     case PETKA_OP_ON:
         st->active = 1;

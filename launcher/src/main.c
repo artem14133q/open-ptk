@@ -36,8 +36,8 @@
 #define MAX_SOUNDS 8
 // Scrolling of backgrounds wider than the screen: when Petka comes within
 // SCROLL_MARGIN of either side of the screen the view is asked to centre on
-// him (the exe's rule and number). SCROLL_SPEED, how fast it gets there, is
-// ours.
+// him (the exe's rule and number). The view then moves there 8 pixels a
+// frame (the exe's frame function, sub_422140), i.e. SCROLL_SPEED at 60 fps.
 #define SCROLL_MARGIN 160.0f
 #define SCROLL_SPEED 480.0f // px/s
 // A hero's idle or PLAY clip stops on its first frame after one loop: the
@@ -659,7 +659,6 @@ static void camera_update(Game *g, float dt) {
     if (g->camera_target < 0) g->camera_target = 0;
     if (g->camera_target > max_x) g->camera_target = max_x;
 
-    // How fast the view then moves to where it was asked is ours.
     float step = g->camera_snap ? max_x + GAME_W : SCROLL_SPEED * dt;
     g->camera_snap = 0;
     if (g->camera_target > g->camera_x + step) g->camera_x += step;
@@ -1177,6 +1176,9 @@ int main(int argc, char **argv) {
         camera_update(g, game_dt());
         // Everything in the room is drawn through this; the HUD is not.
         Camera2D view = {.offset = {0, 0}, .target = {roundf(g->camera_x) * scale, 0}, .rotation = 0, .zoom = 1};
+        // SHAKE: the exe puts the finished frame on screen 3 pixels to the
+        // right on alternate 30 ms ticks, with a black strip where it was.
+        if (vm->shake && ((long)(game_now() * 1000.0 / 30.0) & 1)) view.target.x -= 3 * scale;
 
         for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].live = 0;
         for (uint32_t i = 0; room && i < room->attached_count; i++) {
