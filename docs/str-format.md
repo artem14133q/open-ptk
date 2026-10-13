@@ -559,6 +559,27 @@ The launcher reproduces the resting clip, the re-armed sound, the arrival
 (`petka_scriptvm_walk_ended`) and the step per clip frame (see "Gait"
 below); the walk-speed slider is not.
 
+### The cursor and the panel are separate switches
+
+Whether the player can click is whether the cursor is shown (the cursor
+object, `QSystem+140`); only message 24 changes that. The panel object
+(`QSystem+148`) has an active flag of its own, switched by 24 as well, by
+`SYSTEM` 0/1, and switched back on when a dialogue ends (`sub_4165A0`).
+
+They must not be merged. A cutscene is typically written
+
+```
+on TAKE:  STOP 0, SpDialog34 TALK          -- cursor off, then talk
+SpDialog34 on TALK:  DIALOG, WALKTO, PLAY 1737, ..., ADDINV, STOP 1
+```
+
+so the dialogue ends in the middle, and the cursor comes back only with the
+final `STOP 1`. With one flag for both, the end of the dialogue hands the
+clicks back early and the player can start the same cutscene again on top of
+itself. Of the verb reactions that play a clip or walk a hero, the ones not
+opening with `STOP 0` are nearly all room exits (`WALKTO`, `GOTO`), where
+clicking again while walking is meant to work.
+
 ### Hidden is not inactive
 
 `HIDE` only stops an object being drawn; `OFF` also makes it inactive. An
@@ -595,7 +616,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 20 | `ANIMATE` | `+48` = `arg1` |
 | 21 | `STATUS` | object status = `arg1` |
 | 22 / 23 / 46 | `ADDINV` / `DELINV` / `SETINV` | inventory add / remove / replace the sender with this object |
-| 24 | (exe: `SYSTEM`) | show/hide cursor and enable/disable the interface |
+| 24 | (exe: `SYSTEM`) | show/hide the cursor, and switch the panel with it |
 | 25 | `CURSOR` | cursor carries this item; `-1` = default cursor (5002) |
 | 26 | `OBJECTUSE` | an inventory item was used on this object |
 | 27 / 44 | `ACTIVE` / `PASSIVE` | `+60` |
@@ -606,7 +627,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 35 | `QM_WALKED` | (hero) resume the tail parked by a walk |
 | 36 / 37 | `WALKTO` / `WALKVICH` | Petka / Chapayev walks to (`arg1`,`arg2`) or the object's walk point |
 | 38 | `INITBG` | broadcast when a room is entered, sender = that room |
-| 40 | `SYSTEM` | 0/1 = interface off/on, 242 = quit |
+| 40 | `SYSTEM` | 0/1 = panel off/on (not the cursor), 242 = quit |
 | 43 / 45 | `MAP` / `NOMAP` | (room) flag `+144` |
 | 47 / 48 | `BGSFX`* / `MUSIC`* | (room) ambience / music resource id |
 | 49 | `IMAGE`* | (hero) costume base id: +1 talking, +10..17 walking in 8 directions |

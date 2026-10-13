@@ -145,9 +145,9 @@ int main(int argc, char **argv) {
             // As a click does it: no arguments, the object is its own sender.
             petka_scriptvm_post(vm, obj_id, opcode, 0, 0, 0, obj_id);
             run_all(vm, &host);
-            printf("status now %u, visible %d, resource %d, interface %s, room %u \"%s\"\n",
+            printf("status now %u, visible %d, resource %d, cursor %s, room %u \"%s\"\n",
                    st->status, st->visible, (int16_t)st->resource,
-                   vm->interface_enabled ? "on" : "off", vm->room, obj_name(script, vm->room));
+                   vm->cursor_visible ? "on" : "off", vm->room, obj_name(script, vm->room));
             printf("inventory:");
             for (uint32_t i = 0; i < vm->inventory_count; i++)
                 printf(" %u[%s]", vm->inventory[i], obj_name(script, vm->inventory[i]));

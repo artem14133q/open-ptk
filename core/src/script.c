@@ -215,6 +215,7 @@ PetkaScriptVM *petka_scriptvm_open(PetkaScript *script, const PetkaScriptHost *h
     vm->room = PETKA_NONE;
     vm->dialog_sender = -1;
     vm->interface_enabled = 1;
+    vm->cursor_visible = 1;
     vm->cursor_resource = PETKA_NONE;
     vm->cursor_object = PETKA_NONE;
     vm->rng = 0x12345678u;
@@ -463,7 +464,8 @@ static void apply_builtin(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued
         inventory_remove(vm, obj->id);
         break;
     case PETKA_OP_STOP:
-        // Shows/hides the cursor and switches the interface with it.
+        // Shows/hides the cursor and switches the panel with it.
+        vm->cursor_visible = m->arg1 != 0;
         vm->interface_enabled = m->arg1 != 0;
         break;
     case PETKA_OP_CURSOR:

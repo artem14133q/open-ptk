@@ -234,6 +234,13 @@ struct PetkaScriptVM {
     uint16_t *inventory; // owned, object ids in pickup order
     uint32_t inventory_count, inventory_cap;
 
+    // Two switches the exe keeps apart. The cursor being shown is what lets
+    // the player click; only message 24 changes it. The panel being active
+    // is also switched by SYSTEM, and switched back on when a dialogue
+    // ends. A cutscene typically hides the cursor, talks, plays its clips
+    // and only then shows the cursor again -- so the end of the dialogue in
+    // the middle must not give the player his clicks back.
+    int cursor_visible;
     int interface_enabled;
     uint16_t cursor_resource; // PETKA_NONE = default cursor
     uint16_t cursor_object;   // inventory object carried by the cursor

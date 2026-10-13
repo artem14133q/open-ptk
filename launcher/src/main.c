@@ -811,7 +811,10 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     load_perspective(g, room->name);
     load_mesh(g);
     g->camera_snap = 1;
-    g->walk[0].active = g->walk[1].active = 0;
+    // Whoever is still on his way stops and stands, as the exe does before
+    // loading a room. Chapayev follows Petka to an exit and is usually a few
+    // steps behind when Petka's arrival changes the room.
+    stop_heroes(g);
 
     const PetkaRoom *section = g->topo ? petka_topology_find_room(g->topo, room->name) : NULL;
     const PetkaObject *entry = NULL;
@@ -1187,7 +1190,7 @@ int main(int argc, char **argv) {
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
 
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
-        int can_act = vm->interface_enabled && !g->talking && g->seq_room == PETKA_NONE;
+        int can_act = vm->cursor_visible && !g->talking && g->seq_room == PETKA_NONE;
         const PetkaObject *hover = can_act ? object_at(g, scene, scene_count, mx, my) : NULL;
 
         // Inventory strip along the bottom edge.
@@ -1267,7 +1270,7 @@ int main(int argc, char **argv) {
 
         // Top bar: what a click would do.
         const char *action;
-        if (!vm->interface_enabled || g->seq_room != PETKA_NONE) action = "...";
+        if (!vm->cursor_visible || g->seq_room != PETKA_NONE) action = "...";
         else if (vm->cursor_object != PETKA_NONE) {
             const PetkaObject *item = petka_script_find(g->script, vm->cursor_object);
             action = TextFormat("%s -> %s", item ? display_name(g, item) : "?",
