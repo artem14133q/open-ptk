@@ -533,6 +533,30 @@ cursor's current action (`+128` of the cursor object, `QSystem+140`):
 | 5 | `OBJECTUSE` | x, y of the click | Chapayev |
 | 6 | `OBJECTUSE` | 0, 0, 0 | the inventory object on the cursor (`+124`) |
 
+The cursor is an object like the others, made by `sub_402280` after
+`TOTALINIT` has gone round: id 4097, name `Cursor`, placed at the mouse,
+`z` 1000 so that it is drawn over everything, **action 0** and clip 5002.
+The clips sit in `RESOURCE.QRC` in the order of the actions:
+
+| resource | clip | |
+|---:|---|---|
+| 5000 | `MAIN\STAR\SUPRSTAR.FLC` | |
+| 5001 | `MAIN\STAR\KURSOR1.FLC` | a plain pointer |
+| 5002 | `MAIN\STAR\EYES.FLC` | action 0, look |
+| 5003 | `MAIN\STAR\RUN0.FLC` | action 1, walk |
+| 5004 | `MAIN\STAR\HAND11.FLC` | action 2, use |
+| 5005 | `MAIN\STAR\HAND21.FLC` | action 3, take |
+| 5006 | `MAIN\STAR\ROT-2.FLC` | action 4, talk |
+| 5007 | `MAIN\STAR\CHIP-KUR.FLC` | action 5, send Chapayev |
+
+That the clip is `5002 + action` is read off this order and the
+constructor's pair (action 0, clip 5002); the code that changes the action
+was not decompiled (the cursor's vtable is at `0x4B9268`: draw `0x4023D0`,
+update `0x402480`, slot `+44` `0x4026E0`, slot `+64` -- the one the mouse
+functions call with the pointer's position -- `0x402570`). The launcher
+keeps its actions in this order and starts on "look"; it draws no cursor
+clip yet.
+
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
 message switches the cursor to. The arguments matter because a reaction's
@@ -1334,7 +1358,9 @@ along the route by the game's own gait (one step per walk-clip frame, from
 quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
 `PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels),
-`PETKA_CLICK=<frame>:<x>:<y>[:<verb>],...` (left-click there),
+`PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the
+cursor's action number as in the table under "How a click becomes a
+message"),
 `PETKA_TURBO=1` (a fixed 60-steps-a-second clock run as fast as the machine
 goes: the intro in seconds, and runs repeat exactly),
 `PETKA_SHOT_SERIES=<start>:<step>:<count>` (more screenshots), `PETKA_TRACE=1`

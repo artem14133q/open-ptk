@@ -143,9 +143,12 @@ typedef struct {
 // The last action sends Chapayev over: OBJECTUSE with him as the sender and
 // the clicked point. (A seventh, using an inventory item, is OBJECTUSE with
 // the item as the sender; it is picked from the inventory, not from here.)
+// They are in the exe's own order -- the index is the cursor's action number
+// (+128), and its clip is resource 5002 + action -- and, like the exe's
+// cursor (sub_402280), the game starts on the first one, "look".
 static const struct { uint16_t op; const char *label; } kVerbs[] = {
-    {PETKA_OP_WALK, "ИДТИ"}, {PETKA_OP_LOOK, "СМОТРЕТЬ"}, {PETKA_OP_TAKE, "ВЗЯТЬ"},
-    {PETKA_OP_USE, "ПРИМЕНИТЬ"}, {PETKA_OP_TALK, "ГОВОРИТЬ"}, {PETKA_OP_OBJECTUSE, "ЧАПАЕВ"},
+    {PETKA_OP_LOOK, "СМОТРЕТЬ"}, {PETKA_OP_WALK, "ИДТИ"}, {PETKA_OP_USE, "ПРИМЕНИТЬ"},
+    {PETKA_OP_TAKE, "ВЗЯТЬ"}, {PETKA_OP_TALK, "ГОВОРИТЬ"}, {PETKA_OP_OBJECTUSE, "ЧАПАЕВ"},
 };
 #define VERB_COUNT ((int)(sizeof(kVerbs) / sizeof(kVerbs[0])))
 
