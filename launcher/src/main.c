@@ -1265,11 +1265,26 @@ int main(int argc, char **argv) {
                     stop_heroes(g);
                     petka_scriptvm_post(vm, hover->id, op, point ? (uint16_t)mx : 0, point ? (uint16_t)my : 0, 0,
                                         op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)hover->id);
-                } else if (my < inv_y / scale) {
-                    PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
-                    // Sent somewhere else: whatever he was walking for is off.
-                    petka_scriptvm_forget_walk(vm, PETKA_ID_PETKA);
-                    if (petka && host_walk(g, PETKA_ID_PETKA, (int32_t)mx, (int32_t)my)) petka->busy = 1;
+                } else if (my < inv_y / scale && vm->cursor_object == PETKA_NONE) {
+                    // Nothing under the click (the end of sub_414320): only
+                    // two of the cursor's actions do anything.
+                    uint16_t op = kVerbs[g->verb].op;
+                    if (op == PETKA_OP_WALK) {
+                        PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+                        // Sent somewhere else: whatever he was walking for is
+                        // off, and if that was a way out of the room,
+                        // Chapayev stops following him there.
+                        int leaving = 0;
+                        for (uint32_t i = 0; petka && i < petka->walk_tail.count; i++)
+                            if (petka->walk_tail.messages[i].opcode == PETKA_OP_GOTO) leaving = 1;
+                        if (leaving) petka_scriptvm_stop_hero(vm, PETKA_ID_CHAPAYEV);
+                        petka_scriptvm_forget_walk(vm, PETKA_ID_PETKA);
+                        if (petka && host_walk(g, PETKA_ID_PETKA, (int32_t)mx, (int32_t)my)) petka->busy = 1;
+                    } else if (op == PETKA_OP_OBJECTUSE) {
+                        // "Send Chapayev" at the floor: he walks there.
+                        PetkaObjectState *chapayev = petka_scriptvm_state(vm, PETKA_ID_CHAPAYEV);
+                        if (chapayev && host_walk(g, PETKA_ID_CHAPAYEV, (int32_t)mx, (int32_t)my)) chapayev->busy = 1;
+                    }
                 }
             }
         }

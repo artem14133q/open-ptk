@@ -533,10 +533,31 @@ yes when
 - the pixel there on the hero's own surface (`+144`, the frame already
   scaled, 16 bits a pixel) is not the clip's transparent colour (`QFlic+40`).
 
-So a hero is hit pixel-exactly, on the scaled picture. It says nothing about
-which object wins when several are under the point: that is the caller's
-loop, not yet found. The launcher asks the same three questions
-(`object_at`), top of the z order first.
+So a hero is hit pixel-exactly, on the scaled picture. The launcher asks
+the same three questions (`object_at`).
+
+Which object wins is decided by the screen's two mouse functions, read from
+the disassembly (the hit test is vtable slot `+32`, the click slot `+40`,
+"the cursor is over you" slot `+36`). Both walk the screen's object array
+(`+8`, count `+12`) -- the one the frame function keeps sorted by `z` --
+**from its end down and stop at the first hit**: the topmost object takes
+the mouse, whatever is behind it gets nothing. A hero standing in a doorway
+does cover the exit behind him.
+
+- `0x414020`, mouse move: only while the cursor is shown (cursor `+44`); the
+  first hit gets slot `+36`, and the rest of the function draws the name of
+  the object under the cursor.
+- `0x414320`, click: with the cursor hidden the click goes to the dialogue
+  instead (`sub_415F80(-1)` on `QSystem+536`: skip the phrase). Otherwise
+  the first hit gets slot `+40` (`sub_401B30`, above). With **nothing** hit,
+  only two actions do anything:
+  - action 1 (`WALK`): if Petka's parked walk tail (`+172`) holds a `GOTO`,
+    Chapayev is stopped (slot `+80`, `sub_408D80`) -- he was following Petka
+    out of the room; the tail is deleted; Petka walks to the point (slot
+    `+72`, `sub_408BB0`);
+  - action 5 ("send Chapayev"): Chapayev walks to the point.
+
+  Petka is `QSystem+160`, Chapayev `QSystem+344`.
 
 Where the other engine-sent messages come from: `END` and `HALF` from the
 object update (below), `TOTALINIT` from `sub_405D00` at load; and, read off
