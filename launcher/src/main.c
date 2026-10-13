@@ -2295,6 +2295,9 @@ int main(int argc, char **argv) {
     if (!part_open(g, atoi(digit), 1)) return 1;
 
     InitWindow(GAME_W * 2, GAME_H * 2, "Петька и Василий Иванович");
+    // Esc belongs to the game (it backs out of things); the window's own
+    // close button ends the program.
+    SetExitKey(KEY_NULL);
     s_turbo = getenv("PETKA_TURBO") != NULL;
     SetTargetFPS(s_turbo ? 0 : 60);
     InitAudioDevice();
@@ -2464,18 +2467,30 @@ int main(int argc, char **argv) {
 
         if (g->panel_open) panel_show_state(g);
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
+        // Esc (the exe's command 32786, 0x418190): the case is shut, and
+        // the screen that is up is left -- the map, the panel and the save
+        // screen go back to the game; the game's own screen only takes a
+        // description down. dev: PETKA_ESC=<frame> presses it.
+        int escape = IsKeyPressed(KEY_ESCAPE) || (getenv("PETKA_ESC") && atol(getenv("PETKA_ESC")) == frame);
+        int desc_shown = g->desc[0] != 0;
+        int shut_desc = 0;
+        if (escape) {
+            g->case_open = 0;
+            if (g->save_mode) saves_close(g);
+            else if (g->map_open) map_leave(g);
+            else if (desc_shown) shut_desc = 1;
+        }
         // A description stays up until a click, which it takes. Shutting
         // it (sub_414AC0) switches the panel on, whatever it was before.
-        int desc_shown = g->desc[0] != 0;
-        if (desc_shown && (clicked || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_SPACE))) {
+        if (desc_shown && (shut_desc || clicked || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_SPACE))) {
             g->desc[0] = 0;
             vm->interface_enabled = 1;
             clicked = 0;
         }
         int can_act = vm->cursor_visible && !g->talking && (g->seq_room == PETKA_NONE || g->map_open) &&
                       !g->save_mode && !desc_shown;
-        // The save screen takes the mouse to itself; the right button or O
-        // leaves it (ours -- its own way out was not decompiled).
+        // The save screen takes the mouse to itself. Esc leaves it, as in
+        // the original; so, here, do the right button and O.
         if (g->save_mode) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_O)) saves_close(g);
             else if (clicked) saves_click(g, (Vector2){mouse.x / scale, mouse.y / scale});

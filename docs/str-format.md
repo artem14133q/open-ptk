@@ -569,7 +569,7 @@ it again. The keys come from the exe's accelerator table (resource 130):
 | `I` | 32779 | opens and shuts the case (below) |
 | `M`, `Tab` | 32776 | `sub_417D80`, also the case's map button: to the map and back (below) |
 | `O` | 32777 | `sub_417D20`, also the case's diskette button: to the panel screen and back (below) |
-| `Esc` | 32786 | not traced |
+| `Esc` | 32786 | `0x418190`: hides the case, then, unless the current screen is the sequence screen (`QSystem+540`) or the start-up one (`+556`), calls its "leave" (slot `+56`). For the main screen that is `0x413860`, which only takes a description down if one is up (`+104`); for the map, the panel and the save/load screen it is the way back to the game -- all three leaves are the same: scroll, width, cursor clip and action restored, the previous screen made current |
 | `F2`, `F3` | 32771, 32772 | not traced (save and load, by the `SAVE`/`LOAD` pictures) |
 | `Alt+R` | 32787 | not traced |
 
@@ -1110,18 +1110,20 @@ frame just drawn -- the back buffer, all 640x480 of it -- is stretched by
 DirectDraw into its rect 0,0 - 107,81. So the picture is the room as it
 was, cursor and all, 107x81 with one column and one row to spare.
 
-Not decompiled: mouse move `0x41E2B0`, leave `0x41E590`.
+Not decompiled: mouse move `0x41E2B0`. (Its leave, `0x41E590`, and the
+panel's, `0x41CE00`, were read from the disassembly: the same as the
+map's.)
 
 The launcher saves and loads in this format (`core/src/save.c`:
 `petka_save_encode`, `petka_save_decode`, `petka_save_peek`; `game_save`,
 `game_load` and the screen in the launcher), to `save<n>.dat` in the
 directory it is run from, like the exe. The panel's "restore" and "save"
 lead to the screen, a click on a slot loads or saves, the corners turn the
-page; the right button or `O` leaves it. The slot picture is taken as the
+page; `Esc` leaves it (and so, in the launcher, do the right button and `O`). The slot picture is taken as the
 exe takes it, from the launcher's own window (so with its bar of text). A save from
 another part makes the launcher load that part and then the save.
 
-Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same
+Not decompiled: the panel's mouse move `0x41C8D0`. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
 switch and the four dials (`panel_click`); with the subtitles off a phrase
 is not written out, and one without a voice is not waited for. The dials
