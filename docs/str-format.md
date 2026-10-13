@@ -768,7 +768,12 @@ base screen's leave (`sub_412A80`) called. Nothing in it places the heroes:
 after a `GOTO` from the map they arrive as from anywhere else, both on the
 room's entry point.
 
-Not decompiled: click `0x41D690`.
+Its **click** (`sub_41D690`) goes down the list the same way -- from the
+end to the entry after the room -- and gives the click (vtable slot `+40`,
+`sub_401B30` for a place) to the first object whose hit test takes the
+point. With the cursor's action being "look" that posts `LOOK` to the
+place, whose reaction is the `GOTO`. A click on nothing does nothing: there
+is no walking on the map.
 
 The launcher shows the map the way it shows a sequence -- the room `КАРТА`
 in place of the current one, no heroes, no scroll -- with the pointer and
