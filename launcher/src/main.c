@@ -964,9 +964,11 @@ static int build_scene(Game *g, Drawable *out, int max) {
         if (state->auto_z && state->animate && state->visible) {
             if (hero_here) {
                 // A hero (sub_409530): the bottom edge of his scaled frame
-                // when standing, the walk's point when walking -- his feet
-                // either way, which is where the launcher keeps him.
-                state->z = st->y;
+                // when standing, which is where the launcher keeps him; the
+                // walk's own point, cut to whole pixels (sub_424210), when
+                // walking.
+                const Walk *walk = &g->walk[obj->id];
+                state->z = walk->active ? (int32_t)walk->walker.y : st->y;
             } else {
                 // A scene object (sub_401810): the lowest edge of its
                 // current frame's MSK rects (its sprite sits at y 0), never

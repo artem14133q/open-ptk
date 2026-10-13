@@ -264,8 +264,9 @@ The heroes have their own z update (`sub_409530`), under the same three
 conditions (animated, visible, automatic z):
 
 ```
-walking (+164):  z = y of the point returned by sub_424210 (not decompiled;
-                 by its neighbour sub_424190, the walk's current point)
+walking (+164):  z = y of the point returned by sub_424210: the walk's
+                 current position (two doubles, +352 and +360 of the walk
+                 object), each cut to an integer
 otherwise:       z = sprite_y + (i16)(frame_height * scale)
 ```
 
