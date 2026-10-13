@@ -2785,7 +2785,16 @@ int main(int argc, char **argv) {
                           : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
                           : (uint16_t)(CURSOR_ACTION0 + g->verb);
             HideCursor();
-            draw_cursor(g, clip, hover != NULL, !g->map_open && !g->save_mode, mouse, scale);
+            // On the save screen the pointer runs while it is on a slot or
+            // a page corner (its mouse function, sub_41E2B0); nothing else
+            // there marks what it is over.
+            int lively = hover != NULL;
+            if (g->save_mode) {
+                Vector2 p = {mouse.x / scale, mouse.y / scale};
+                lively = CheckCollisionPointRec(p, kSavePrev) || CheckCollisionPointRec(p, kSaveNext);
+                for (int i = 0; i < SAVE_SLOTS; i++) lively = lively || CheckCollisionPointRec(p, kSaveSlot[i]);
+            }
+            draw_cursor(g, clip, lively, !g->map_open && !g->save_mode, mouse, scale);
         } else {
             ShowCursor();
         }

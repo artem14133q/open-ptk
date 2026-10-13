@@ -1123,9 +1123,10 @@ frame just drawn -- the back buffer, all 640x480 of it -- is stretched by
 DirectDraw into its rect 0,0 - 107,81. So the picture is the room as it
 was, cursor and all, 107x81 with one column and one row to spare.
 
-Not decompiled: mouse move `0x41E2B0`. (Its leave, `0x41E590`, and the
-panel's, `0x41CE00`, were read from the disassembly: the same as the
-map's.)
+Its **mouse move** (`sub_41E2B0`) marks nothing on the page: it sets the
+cursor's animate flag to "the pointer is in a slot or in a page corner" and
+moves the cursor without centring. (Its leave, `0x41E590`, and the panel's,
+`0x41CE00`, were read from the disassembly: the same as the map's.)
 
 The launcher saves and loads in this format (`core/src/save.c`:
 `petka_save_encode`, `petka_save_decode`, `petka_save_peek`; `game_save`,
