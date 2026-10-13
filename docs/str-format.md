@@ -1140,6 +1140,13 @@ dialogues keep their state: the menu lines switched off and the `SKIPN`
 turns live in the instruction words. A hero is saved twice -- as object 0
 or 1 with his sprite's corner, and again by his feet.
 
+The launcher's load therefore drops both (`petka_scriptvm_drop_pending`)
+and switches the cursor and the panel on, which a game being saved always
+has. Without that a save of another part came up wrong: that part is
+started first, its opening scene is queued by the first room's `INITBG`
+(in part 2: cursor off, heroes off, the undressing clips), and the queue
+then ran over the loaded game.
+
 **Loading** (`sub_407410(name)`) reads the same file back, and what it
 does with each part of it matters as much as the format:
 

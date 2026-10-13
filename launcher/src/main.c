@@ -1847,6 +1847,18 @@ static int game_load(Game *g, const char *path) {
     g->line[0] = 0;
     if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
     g->walk[0].active = g->walk[1].active = 0;
+    // Nothing the script had in hand outlasts a load: a save holds neither
+    // the queue nor the parked reactions. It matters most for a save of
+    // another part, which is loaded after that part has been started --
+    // the opening scene of the part was still in the queue and ran over the
+    // loaded game, hiding the cursor and the heroes. And a game can only
+    // be saved with the cursor and the panel on, so on they go.
+    petka_scriptvm_drop_pending(vm);
+    g->dialogue_done = 0;
+    g->talker = PETKA_NONE;
+    g->seq_room = PETKA_NONE;
+    vm->cursor_visible = 1;
+    vm->interface_enabled = 1;
 
     for (uint32_t i = 0; i < save->object_count; i++) {
         const PetkaSaveObject *in = &save->objects[i];

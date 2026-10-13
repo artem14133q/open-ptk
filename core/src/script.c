@@ -731,6 +731,16 @@ void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t
     petka_scriptvm_post(vm, obj_id, PETKA_OP_END, resource, 0, 0, -1);
 }
 
+void petka_scriptvm_drop_pending(PetkaScriptVM *vm) {
+    vm->queue_count = 0;
+    for (uint32_t i = 0; i < vm->script->object_count; i++) {
+        tail_clear(&vm->state[i].play_tail);
+        tail_clear(&vm->state[i].walk_tail);
+    }
+    tail_clear(&vm->dialog_tail);
+    vm->dialog_sender = -1;
+}
+
 void petka_scriptvm_forget_walk(PetkaScriptVM *vm, uint16_t hero_id) {
     PetkaObjectState *hero = petka_scriptvm_state(vm, hero_id);
     if (!hero) return;

@@ -303,6 +303,11 @@ void petka_scriptvm_stop_hero(PetkaScriptVM *vm, uint16_t hero_id);
 // Only the forgetting: for when the player sends the hero somewhere else
 // by clicking the floor.
 void petka_scriptvm_forget_walk(PetkaScriptVM *vm, uint16_t hero_id);
+
+// Drops everything the script still has in hand: the queued messages and
+// the rests of reactions parked on a clip, a walk or a dialogue. A saved
+// game holds none of that, so a loaded one starts with none.
+void petka_scriptvm_drop_pending(PetkaScriptVM *vm);
 // talker is the object that spoke last, or PETKA_NONE.
 void petka_scriptvm_dialogue_ended(PetkaScriptVM *vm, uint16_t talker);
 
