@@ -1541,10 +1541,11 @@ waits -- music, ambience, clip sounds, a voice -- and only what the sequence
 starts is heard. (A film uses a different pair, `sub_40DAC0` and
 `sub_40DB00`.)
 
-The launcher's sequences behave the same (`sequence_sounds`, and the hushed
-streams): what was playing is paused and goes on afterwards, and what the
-sequence started is stopped when it ends. The one difference left is that a
-sequence with music of its own replaces the room's, which then starts over. Nothing is broadcast: the sequence runs
+The launcher's sequences behave the same (`sequence_sounds`, and two pairs
+of streams): what was playing is paused and goes on afterwards, what the
+sequence started is stopped when it ends, and the sequence's own music and
+ambience are kept apart from the room's -- going on if the next sequence
+names the same ones, as on the exe's screen. Nothing is broadcast: the sequence runs
 on its clips' `END` reactions -- each sets the next clip -- and the last one
 posts `ENDSEQ`, usually together with a `GOTO` for where the game continues:
 

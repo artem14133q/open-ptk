@@ -110,7 +110,7 @@ typedef struct {
                      // the map, or the panel
     int panel_open;  // ... and it is the panel
     int panel_hover; // which of the panel's objects the pointer is on, -1 = none
-    int music_hushed, ambience_hushed; // paused for a sequence with no track of its own
+    int tracks_hushed; // the room's music and ambience are paused for a sequence
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
@@ -180,6 +180,11 @@ typedef struct {
 
     Music music, ambience;
     uint16_t music_id, ambience_id;
+    // A sequence's own tracks, apart from the room's (the sequence screen
+    // keeps what it last played, +36 and +40).
+    Music seq_music, seq_ambience;
+    uint16_t seq_music_id, seq_ambience_id;
+    int seq_tracks_paused;
     Sound sounds[MAX_SOUNDS];
     unsigned char sound_paused[MAX_SOUNDS]; // stopped for a sequence, to go on after it
     int voice_paused;
@@ -1117,8 +1122,9 @@ static void play_film(Game *g, const char *name) {
         return;
     }
 
-    if (g->music.frameCount > 0) PauseMusicStream(g->music);
-    if (g->ambience.frameCount > 0) PauseMusicStream(g->ambience);
+    Music *tracks[4] = {&g->music, &g->ambience, &g->seq_music, &g->seq_ambience};
+    for (int i = 0; i < 4; i++)
+        if (tracks[i]->frameCount > 0) PauseMusicStream(*tracks[i]);
     Music sound = {0};
     if (have_sound) {
         sound = LoadMusicStream(sound_file);
@@ -1164,8 +1170,11 @@ static void play_film(Game *g, const char *name) {
     pclose(frames);
     free(pixels);
     remove(sound_file);
-    if (g->music.frameCount > 0) ResumeMusicStream(g->music);
-    if (g->ambience.frameCount > 0) ResumeMusicStream(g->ambience);
+    // Back to what each was doing: a sequence may have had some paused.
+    for (int i = 0; i < 4; i++) {
+        int held = i < 2 ? g->tracks_hushed : g->seq_tracks_paused;
+        if (tracks[i]->frameCount > 0 && !held) ResumeMusicStream(*tracks[i]);
+    }
 }
 
 static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
@@ -2263,6 +2272,9 @@ static void part_close(Game *g) {
     if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
     set_stream(g, &g->music, &g->music_id, PETKA_NONE);
     set_stream(g, &g->ambience, &g->ambience_id, PETKA_NONE);
+    set_stream(g, &g->seq_music, &g->seq_music_id, PETKA_NONE);
+    set_stream(g, &g->seq_ambience, &g->seq_ambience_id, PETKA_NONE);
+    g->tracks_hushed = g->seq_tracks_paused = 0;
     for (uint32_t i = 0; g->script && g->visuals && i < g->script->object_count; i++) visual_free(&g->visuals[i]);
     free(g->visuals);
     g->visuals = NULL;
@@ -2430,6 +2442,7 @@ int main(int argc, char **argv) {
     static Game game;
     Game *g = &game;
     g->bg_resource = g->shown_room = g->music_id = g->ambience_id = g->mesh_resource = PETKA_NONE;
+    g->seq_music_id = g->seq_ambience_id = PETKA_NONE;
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;
     g->cursor.resource = PETKA_NONE;
@@ -2599,35 +2612,46 @@ int main(int argc, char **argv) {
         if (room_st) {
             // The map and the panel leave the room's tracks playing. A
             // sequence does not (its set-up, sub_416860): the game's sounds
-            // are paused and only the sequence room's own music and ambience
-            // are started -- so one with none of its own is silent, and the
-            // room's tracks go on from where they stopped when it ends.
+            // are paused where they are, and the sequence room's own music
+            // and ambience play instead -- kept going if they are the ones
+            // the last sequence played, started if they are others. When
+            // it ends the room's tracks go on from where they stopped.
             int sequence = g->seq_room != PETKA_NONE && !g->map_open;
-            const PetkaObjectState *under = g->map_open ? petka_scriptvm_state(vm, vm->room) : NULL;
-            uint16_t music = room_st->music, ambience = room_st->bgsfx;
-            if (under && music == PETKA_NONE) music = under->music;
-            if (under && ambience == PETKA_NONE) ambience = under->bgsfx;
-            int hush_music = sequence && music == PETKA_NONE, hush_ambience = sequence && ambience == PETKA_NONE;
-            if (hush_music != g->music_hushed && g->music.frameCount > 0) {
-                if (hush_music) PauseMusicStream(g->music);
-                else ResumeMusicStream(g->music);
+            if (sequence != g->tracks_hushed) {
+                if (g->music.frameCount > 0) { if (sequence) PauseMusicStream(g->music); else ResumeMusicStream(g->music); }
+                if (g->ambience.frameCount > 0) {
+                    if (sequence) PauseMusicStream(g->ambience);
+                    else ResumeMusicStream(g->ambience);
+                }
+                g->tracks_hushed = sequence;
             }
-            if (hush_ambience != g->ambience_hushed && g->ambience.frameCount > 0) {
-                if (hush_ambience) PauseMusicStream(g->ambience);
-                else ResumeMusicStream(g->ambience);
+            if (sequence) {
+                set_stream(g, &g->seq_music, &g->seq_music_id, room_st->music);
+                set_stream(g, &g->seq_ambience, &g->seq_ambience_id, room_st->bgsfx);
+                if (g->seq_tracks_paused) {
+                    if (g->seq_music.frameCount > 0) ResumeMusicStream(g->seq_music);
+                    if (g->seq_ambience.frameCount > 0) ResumeMusicStream(g->seq_ambience);
+                    g->seq_tracks_paused = 0;
+                }
+            } else {
+                if (!g->seq_tracks_paused) {
+                    if (g->seq_music.frameCount > 0) PauseMusicStream(g->seq_music);
+                    if (g->seq_ambience.frameCount > 0) PauseMusicStream(g->seq_ambience);
+                    g->seq_tracks_paused = 1;
+                }
+                const PetkaObjectState *under = g->map_open ? petka_scriptvm_state(vm, vm->room) : NULL;
+                uint16_t music = room_st->music, ambience = room_st->bgsfx;
+                if (under && music == PETKA_NONE) music = under->music;
+                if (under && ambience == PETKA_NONE) ambience = under->bgsfx;
+                set_stream(g, &g->music, &g->music_id, music);
+                set_stream(g, &g->ambience, &g->ambience_id, ambience);
             }
-            g->music_hushed = hush_music;
-            g->ambience_hushed = hush_ambience;
-            if (!hush_music) set_stream(g, &g->music, &g->music_id, music);
-            if (!hush_ambience) set_stream(g, &g->ambience, &g->ambience_id, ambience);
         }
-        if (g->music.frameCount > 0) {
-            SetMusicVolume(g->music, dial_gain(g, DIAL_MUSIC));
-            UpdateMusicStream(g->music);
-        }
-        if (g->ambience.frameCount > 0) {
-            SetMusicVolume(g->ambience, dial_gain(g, DIAL_SFX));
-            UpdateMusicStream(g->ambience);
+        Music *streams[4] = {&g->music, &g->seq_music, &g->ambience, &g->seq_ambience};
+        for (int i = 0; i < 4; i++) {
+            if (streams[i]->frameCount <= 0) continue;
+            SetMusicVolume(*streams[i], dial_gain(g, i < 2 ? DIAL_MUSIC : DIAL_SFX));
+            UpdateMusicStream(*streams[i]);
         }
 
         camera_update(g, game_dt());
