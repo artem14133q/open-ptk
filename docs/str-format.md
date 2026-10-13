@@ -1189,9 +1189,12 @@ way (`panel_command`) and takes "continue", the door and the subtitle
 switch and the four dials (`panel_click`); with the subtitles off a phrase
 is not written out, and one without a voice is not waited for. The dials
 start at the exe's defaults and work: the three volumes, on the exe's
-curve (the ambience counts as an effect), and the walking speed. Nothing
-is saved between runs, and unlike the original the launcher starts with the
-subtitles on. "Restore" and "save" lead to the save/load screen (below).
+curve (the ambience counts as an effect), and the walking speed. They are
+kept between runs in the same `Options` section, with the exe's key names,
+in a file `Petka.ini` in the directory the launcher is run from
+(`options_load`, `options_save`; the exe keeps the section in its Windows
+profile). Without that file the launcher starts with the exe's defaults,
+except that the subtitles are on. "Restore" and "save" lead to the save/load screen (below).
 "New game" loads the part and chapter `PARTS.INI` names, as the original
 does.
 
@@ -2114,6 +2117,8 @@ quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_MAP=<frame>` (the map command on that frame),
 `PETKA_PANEL=<frame>` (the panel command on that frame),
 `PETKA_SAVE=<frame>` and `PETKA_LOAD=<frame>` (write and read `save1.dat`),
+`PETKA_OPTIONS=<file>` (keep the panel's settings there; an unattended run
+without it neither reads nor writes `Petka.ini`),
 `PETKA_FILM=<seconds>:<file.png>` (play films in an unattended run, save the
 frame reached after that long and stop there),
 `PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the

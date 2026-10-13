@@ -1946,6 +1946,48 @@ static void draw_saves(Game *g, Font font, float scale) {
 // the screen's list, which is its number in the room's list plus one.
 // "New game" (sub_418260): the part and chapter to begin with are read from
 // [All] of PARTS.INI, 1 and 1 unless it says otherwise, and that part loaded.
+// ---- the panel's settings ----
+//
+// The exe keeps them in the "Options" section of its profile (sub_41C5A0
+// writes them every time one changes; the panel's constructor reads them):
+// "Speech volume", "Music volume", "Sfx volume", "Speed" and "Subtitles".
+// The launcher keeps the same section in a file, Petka.ini, in the directory
+// it is run from -- next to the saved games. dev: PETKA_OPTIONS=<file> names
+// another; an unattended run without it neither reads nor writes one.
+static const char *const kDialKey[4] = {"Speech volume", "Music volume", "Sfx volume", "Speed"};
+
+static const char *options_file(void) {
+    if (getenv("PETKA_OPTIONS")) return getenv("PETKA_OPTIONS");
+    return getenv("PETKA_SHOT") ? NULL : "Petka.ini";
+}
+
+static void options_load(Game *g) {
+    const char *file = options_file();
+    size_t len = 0;
+    uint8_t *ini = file ? read_whole_file(file, &len) : NULL;
+    if (!ini) return;
+    char value[32];
+    for (int i = 0; i < 4; i++) {
+        if (!petka_ini_get(ini, len, "Options", kDialKey[i], value, sizeof(value)) || !value[0]) continue;
+        g->dial[i] = atoi(value);
+        if (g->dial[i] < 1) g->dial[i] = 1;
+        if (g->dial[i] > kDialTop[i]) g->dial[i] = kDialTop[i];
+    }
+    if (petka_ini_get(ini, len, "Options", "Subtitles", value, sizeof(value)) && value[0])
+        g->subtitles = atoi(value) != 0;
+    free(ini);
+}
+
+static void options_save(const Game *g) {
+    const char *file = options_file();
+    FILE *f = file ? fopen(file, "w") : NULL;
+    if (!f) return;
+    fprintf(f, "[Options]\n");
+    for (int i = 0; i < 4; i++) fprintf(f, "%s=%d\n", kDialKey[i], g->dial[i]);
+    fprintf(f, "Subtitles=%d\n", g->subtitles ? 1 : 0);
+    fclose(f);
+}
+
 static void new_game(Game *g) {
     size_t len = 0;
     const uint8_t *ini = res_find(g, "PARTS.INI", &len);
@@ -1966,7 +2008,10 @@ static void panel_click(Game *g, const PetkaObject *hit) {
     case 2: map_leave(g); break;                 // "continue"
     case 3: map_leave(g); g->quit = 1; break;    // the door: out of the game
     case 4: map_leave(g); saves_open(g, 2); break; // "save"
-    case 7: g->subtitles = !g->subtitles; break; // the subtitle switch
+    case 7: // the subtitle switch
+        g->subtitles = !g->subtitles;
+        options_save(g);
+        break;
     default:
         // The hidden "min" and "MAX" marks of the four dials, in the dials'
         // own order: a notch of five either way, kept in range.
@@ -1976,6 +2021,7 @@ static void panel_click(Game *g, const PetkaObject *hit) {
             if (g->dial[which] < 1) g->dial[which] = 1;
             if (g->dial[which] > kDialTop[which]) g->dial[which] = kDialTop[which];
             if (g->voice.frameCount > 0) SetSoundVolume(g->voice, dial_gain(g, DIAL_SPEECH));
+            options_save(g);
         }
         break;
     }
@@ -2456,6 +2502,7 @@ int main(int argc, char **argv) {
     g->case_lit = -1;
     g->subtitles = 1;
     for (int i = 0; i < 4; i++) g->dial[i] = kDialDefault[i];
+    options_load(g);
 
     g->host.user = g;
     g->host.has_dialogue = host_has_dialogue;
