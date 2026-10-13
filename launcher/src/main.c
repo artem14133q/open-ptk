@@ -1007,6 +1007,13 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     g->camera_snap = 1;
     // (Both heroes were stopped by the VM before the room changed.)
     g->walk[0].active = g->walk[1].active = 0;
+    // The clips of the room that is left go, and their sounds with them:
+    // nothing of it is heard in the next one. (The voice is the dialogue's
+    // and may well go on across a door.)
+    for (int i = 0; i < MAX_SOUNDS; i++) {
+        if (g->sounds[i].frameCount > 0) StopSound(g->sounds[i]);
+        g->sound_paused[i] = 0;
+    }
 
     const PetkaRoom *section = g->topo ? petka_topology_find_room(g->topo, room->name) : NULL;
     const PetkaObject *entry = NULL;
@@ -3165,6 +3172,15 @@ int main(int argc, char **argv) {
                     stop_heroes(g);
                     drop_item(g);
                     petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, 0, 0, 0, item);
+                } else if (hover && kVerbs[g->verb].op == PETKA_OP_WALK && !is_hero(hover->id) &&
+                           !petka_scriptvm_state(vm, PETKA_ID_PETKA)->active) {
+                    // "Walk" to something while Petka is off -- a clip of
+                    // him doing something stands in his place -- is not
+                    // taken. A way out would otherwise be walked by nobody
+                    // and the room change with Petka still off: Chapayev
+                    // came into the next room alone. (It can be clicked:
+                    // in the church the cursor is back when the crypt's
+                    // door has opened, with Petka still at the brick.)
                 } else if (hover) {
                     uint16_t op = kVerbs[g->verb].op;
                     int point = op == PETKA_OP_WALK || op == PETKA_OP_OBJECTUSE;

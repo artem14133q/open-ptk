@@ -1497,6 +1497,18 @@ itself. Of the verb reactions that play a clip or walk a hero, the ones not
 opening with `STOP 0` are nearly all room exits (`WALKTO`, `GOTO`), where
 clicking again while walking is meant to work.
 
+Two things the launcher does of its own accord here, neither read from the
+exe. A click with the action "walk" on an object is not taken while Petka is
+switched off (`OFF`, a clip of him standing in his place): the exit's
+`WALKTO` would be walked by nobody and its `GOTO` leave Petka off in the
+next room, Chapayev arriving alone. Part 2 has the opening for it: in the
+church the lever hides the cursor, the crypt's door opens in a sequence that
+ends with the cursor back on, and the clip of Petka pressing the brick may
+still be going. The exe takes the click too and its walk routine
+(`sub_408080`) does not ask whether the hero is on, so the original may
+well do the same. And when the room changes the launcher stops the sounds
+of the clips of the room that is left.
+
 ### Hidden is not inactive
 
 `HIDE` only stops an object being drawn; `OFF` also makes it inactive. An
