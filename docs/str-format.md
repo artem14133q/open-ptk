@@ -716,6 +716,24 @@ leaves it (that screen's slot `+56`). So `M` goes to the map and back. The
 launcher checks the same conditions and shuts the case; it has no map
 screen yet.
 
+**The map** is two things. In the script it is a room, 512 `КАРТА`: a
+picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`
+reactions swap in `MAP-01` and `MAP-02` by its status) and one object per
+place, `Карта 1 - <place>` (19 of them in `PART_1`), each with a clip
+(4801.., `M-4WAY.FLC` ...), hidden by `TOTALINIT`, and one reaction:
+
+```
+on LOOK:   <the place's room> GOTO
+```
+
+In the exe it is a screen of its own (`QSystem+548`; constructor
+`sub_41CE90`, which only sets a flag at `+36`; vtable `0x4B9E30`). Its
+methods, not decompiled: start `0x41CF30` (slot `+24` -- it looks the room
+up by the name `КАРТА` and gives the cursor the interface pointer, resource
+4901), click `0x41D690`, mouse move `0x41D4D0`, leave `0x41D730` (slot
+`+56`). What shows a place's object -- the script never sends one `SHOW` --
+must be in the start.
+
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
 message switches the cursor to. The arguments matter because a reaction's
