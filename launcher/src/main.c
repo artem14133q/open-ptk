@@ -181,6 +181,8 @@ typedef struct {
     Music music, ambience;
     uint16_t music_id, ambience_id;
     Sound sounds[MAX_SOUNDS];
+    unsigned char sound_paused[MAX_SOUNDS]; // stopped for a sequence, to go on after it
+    int voice_paused;
 
     int verb;
     int quit;
@@ -408,7 +410,7 @@ static void play_sound(Game *g, const char *path) {
     const uint8_t *bytes = res_find(g, path, &len);
     if (!bytes) return;
     for (int i = 0; i < MAX_SOUNDS; i++) {
-        if (g->sounds[i].frameCount > 0 && IsSoundPlaying(g->sounds[i])) continue;
+        if (g->sounds[i].frameCount > 0 && (IsSoundPlaying(g->sounds[i]) || g->sound_paused[i])) continue;
         if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
         Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
         g->sounds[i] = LoadSoundFromWave(wave);
@@ -903,6 +905,7 @@ static float speaker_pan(const Game *g, uint16_t id) {
 
 static void next_phrase(Game *g) {
     if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
+    g->voice_paused = 0;
     uint32_t idx;
     int step = petka_dialoguevm_next(&g->dvm, &idx);
     if (step == 2) {
@@ -1018,6 +1021,36 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
 }
 
 static void chapter_open(Game *g, int chapter);
+
+// What a sequence does to the sounds that are playing (the exe's sound
+// manager, sub_40E2C0 and sub_40E3F0, called from the sequence screen's
+// set-up and leave): on the way in everything playing is stopped where it is
+// and marked; on the way out what the sequence itself started is stopped
+// and what was marked plays on.
+static void sequence_sounds(Game *g, int entering) {
+    for (int i = 0; i < MAX_SOUNDS; i++) {
+        if (g->sounds[i].frameCount <= 0) { g->sound_paused[i] = 0; continue; }
+        if (entering) {
+            if (!IsSoundPlaying(g->sounds[i]) || g->sound_paused[i]) continue;
+            // One sequence straight after another: the first one's sounds go.
+            if (g->seq_room != PETKA_NONE) StopSound(g->sounds[i]);
+            else { PauseSound(g->sounds[i]); g->sound_paused[i] = 1; }
+        } else if (g->sound_paused[i]) {
+            ResumeSound(g->sounds[i]);
+            g->sound_paused[i] = 0;
+        } else if (IsSoundPlaying(g->sounds[i])) {
+            StopSound(g->sounds[i]);
+        }
+    }
+    if (g->voice.frameCount <= 0) { g->voice_paused = 0; return; }
+    if (entering && g->seq_room == PETKA_NONE && IsSoundPlaying(g->voice)) {
+        PauseSound(g->voice);
+        g->voice_paused = 1;
+    } else if (!entering && g->voice_paused) {
+        ResumeSound(g->voice);
+        g->voice_paused = 0;
+    }
+}
 
 // ---- films ----
 //
@@ -1154,9 +1187,11 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         if (m->opcode == PETKA_OP_PLAY || m->arg2 == 1) g->visuals[obj_index(g, obj)].restart = 1;
         break;
     case PETKA_OP_SETSEQ:
+        sequence_sounds(g, 1);
         g->seq_room = obj->id;
         break;
     case PETKA_OP_ENDSEQ:
+        if (g->seq_room != PETKA_NONE) sequence_sounds(g, 0);
         g->seq_room = PETKA_NONE;
         g->camera_snap = 1;
         break;

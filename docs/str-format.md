@@ -1510,9 +1510,7 @@ does not leave it.
 Its **set-up** (`sub_416860(room)`), which `SETSEQ` comes to:
 
 1. the text is taken down and whatever sequence was up before is let go as
-   in the leave; **the game's sounds are paused** (`sub_40E2C0`, the call
-   the disc prompt makes before it stops the game, with `sub_40E3F0` to
-   undo it);
+   in the leave; **the game's sounds are paused** (`sub_40E2C0`, below);
 2. the room goes on the list. Its music (`+148`) is compared with the music
    this screen last played (`+36`): the same, and it is kept going
    (`sub_416D90`); different, and the old one is stopped, the new one loaded
@@ -1523,10 +1521,30 @@ Its **set-up** (`sub_416860(room)`), which `SETSEQ` comes to:
    "it has one");
 4. the screen makes itself current. Nothing is sent to the script.
 
-The launcher's sequences behave the same: the room's music and ambience are
-paused for a sequence that has none of its own and go on afterwards (one
-that has its own replaces them, and they start over). A clip's sound is
-left to play out when a sequence ends. Nothing is broadcast: the sequence runs
+**Pausing the sounds** is the sound manager's (`dword_4DE7A4`), which keeps
+every loaded sound in a map by name:
+
+- `sub_40E2C0` goes through the map and calls each sound's `sub_40EAE0`: a
+  sound that has a buffer, is playing (`+44`) and is not already paused
+  (`+48`) is marked paused and its DirectSound buffer stopped -- which
+  leaves it where it was;
+- `sub_40E3F0` calls each sound's `sub_40EB20`: a paused one is played
+  again from there, looping if it was (`+52` or `+56`), and unmarked.
+
+They are called in three places: by the sequence screen (the set-up pauses,
+and the leave, after stopping its own objects' sounds, resumes); by the
+disc prompt (pause before, resume on a cancel); and by the handler of
+command 32793 (`0x4183C0`), which flips a flag at `QSystem+76` and pauses or
+resumes accordingly -- a "pause the sound" command with no key in the
+accelerator table. So during a sequence **everything** that was sounding
+waits -- music, ambience, clip sounds, a voice -- and only what the sequence
+starts is heard. (A film uses a different pair, `sub_40DAC0` and
+`sub_40DB00`.)
+
+The launcher's sequences behave the same (`sequence_sounds`, and the hushed
+streams): what was playing is paused and goes on afterwards, and what the
+sequence started is stopped when it ends. The one difference left is that a
+sequence with music of its own replaces the room's, which then starts over. Nothing is broadcast: the sequence runs
 on its clips' `END` reactions -- each sets the next clip -- and the last one
 posts `ENDSEQ`, usually together with a `GOTO` for where the game continues:
 
