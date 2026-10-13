@@ -831,11 +831,55 @@ is 13.4 dB down (a gain of 0.21), the default effects, 73 %, 5.6 dB down
 only sets the vtable, `0x4B9E70`) is a third screen of the same kind. Its
 room is 513 `SAVELOAD`, which has a picture (`SET 4990`, `LOAD1.BMP`; the
 set goes on with `LOAD2`, `LOAD3`, `SAVE1`-`SAVE3`) and **no objects**: the
-slots must be the screen's own doing. The names it builds are `save` + a
-number + `.dat`. Its methods, none decompiled: the set-up the panel calls
-with 0 for loading and 1 for saving (slot `+60`, `0x41D9E0`), click
-`0x41E370`, mouse move `0x41E2B0`, leave `0x41E590`, and `sub_41E230`, which
-the panel's start calls before it draws anything of its own.
+slots must be the screen's own doing. Its **set-up** (`sub_41D9E0`, slot `+60`; the panel calls it with 0 for
+loading and 1 for saving):
+
+1. saves the view's scroll and width and sets them to 0 and 640; empties
+   its list; remembers "loading" (`+88`);
+2. puts the room on the list with its picture changed to
+   `4990 + page` for loading and `4995 + page` for saving -- `LOAD1`-`3`,
+   `SAVE1`-`3`; the page is the global `dword_4DE980`. So there are **three
+   pages of six slots**, 18 saved games;
+3. for each of the six slots opens `save<n>.dat`, `n = slot + 6 * page + 1`,
+   in the current directory, and notes whether it is there (`+64 + 4 *
+   slot`). If it is, it reads a 38-byte header and then the pixels of a
+   108x82 picture straight into a 16-bit surface, draws that picture **onto
+   the room's background** at the slot's place, and under it the text at
+   byte 8 of the header -- the game's name -- in the colour `0x007F00`, in
+   a 240x30 box starting one pixel below the slot;
+4. takes the cursor over as the map does (pointer 4901, action 0, not
+   animated) and makes itself the current screen.
+
+The slots, and the two page buttons, are rectangles built at start-up
+(`0x4DE8F0` and on; read from their initialisers):
+
+| | left, top - right, bottom |
+|---|---|
+| slot 1 | 43,84 - 151,166 |
+| slot 2 | 43,209 - 151,291 |
+| slot 3 | 43,335 - 151,417 |
+| slot 4 | 358,75 - 466,157 |
+| slot 5 | 360,200 - 468,282 |
+| slot 6 | 359,325 - 467,407 |
+| `0x4DE970` | 10,414 - 38,442 |
+| `0x4DE960` | 596,403 - 624,431 |
+
+(the last two by their place the "previous page" and "next page" corners).
+
+So a saved game begins
+
+```
+bytes 0-7     not read here (8 bytes)
+bytes 8-37    the name shown under the slot, a C string (30 bytes)
+bytes 38-     the picture: 82 rows of 108 16-bit pixels, in the surface's
+              own row length (216 bytes a row if it is not padded)
+then          the game's state, not decompiled
+```
+
+Not decompiled: click `0x41E370`, mouse move `0x41E2B0`, leave `0x41E590`,
+`sub_41E230` (which the panel's start calls before it draws anything of its
+own -- with a 108x82 picture in every file, surely the taking of it), and
+the writing and reading of the state. The launcher has no saved games yet.
 
 Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
