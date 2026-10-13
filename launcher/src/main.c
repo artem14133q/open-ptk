@@ -200,9 +200,17 @@ static Font load_cyrillic_font(void) {
     return GetFontDefault();
 }
 
+// The game's clock. Normally the real one; an unattended run can ask for a
+// fixed 60 steps a second with no waiting in between (PETKA_TURBO), so that
+// minutes of cutscene go by in seconds and runs repeat exactly.
+static double s_clock;
+static int s_turbo;
+static double game_now(void) { return s_turbo ? s_clock : GetTime(); }
+static float game_dt(void) { return s_turbo ? 1.0f / 60.0f : GetFrameTime(); }
+
 static void set_status(Game *g, const char *text) {
     snprintf(g->status, sizeof(g->status), "%s", text);
-    g->status_until = GetTime() + 4.0;
+    g->status_until = game_now() + 4.0;
 }
 
 // ---- resources ----
@@ -368,7 +376,7 @@ static void visual_load(Game *g, Visual *v, uint16_t resource) {
                  .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
     v->tex = LoadTextureFromImage(img);
     UnloadImage(img);
-    v->next_frame = GetTime() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+    v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
 }
 
 static int obj_index(const Game *g, const PetkaObject *obj) {
@@ -396,14 +404,18 @@ static void walk_frame(Game *g, uint16_t hero_id);
 static void visual_update(Game *g, const PetkaObject *obj) {
     Visual *v = &g->visuals[obj_index(g, obj)];
     PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
-    if (!st->visible || st->resource == PETKA_NONE) return;
+    // A hidden object that is still active is an invisible hot spot -- room
+    // exits are made this way (SET a clip, then HIDE) -- so its clip is
+    // needed for the pointer even though it is never drawn. The exe loads a
+    // clip on the same condition (visible or active).
+    if ((!st->visible && !st->active) || st->resource == PETKA_NONE) return;
     if (v->resource != st->resource || v->restart) {
         visual_load(g, v, st->resource);
         v->restart = 0;
     }
     if (!v->flic) return;
     v->live = 1;
-    if (!st->animate) return;
+    if (!st->animate || !st->visible) return;
     if (v->flic->frame_count <= 1) {
         // Ours, not the exe's: a script waiting on a one-frame clip would
         // wait forever, so that wait alone is ended.
@@ -411,8 +423,8 @@ static void visual_update(Game *g, const PetkaObject *obj) {
             petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
         return;
     }
-    if (GetTime() < v->next_frame) return;
-    v->next_frame = GetTime() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+    if (game_now() < v->next_frame) return;
+    v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
 
     if (v->sound_pending && v->flic->frame_index == 0) {
         char wav[512];
@@ -608,9 +620,16 @@ static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
     }
     w->active = 1;
     st->rest_after_loop = 0; // the walk clip loops, as when the exe starts a walk
+    if (g->trace) {
+        fprintf(stderr, "walk %u: from %d,%d to %d,%d; route:", hero_id, st->x, st->y, x, y);
+        for (int i = 0; i < w->walker.count; i++) fprintf(stderr, " (%d,%d)", w->walker.route[i].x, w->walker.route[i].y);
+        fprintf(stderr, "; dir %d steps %d\n", w->walker.dir, w->walker.steps_left);
+    }
     // Walk clips are costume+10 .. costume+17: N, NE, E, SE, S, SW, W, NW.
     st->resource = (uint16_t)(st->costume + 10 + w->walker.dir);
-    g->visuals[obj_index(g, petka_script_find(g->script, hero_id))].restart = 1;
+    // Loaded here and now: until the next frame the old clip's picture would
+    // be drawn with the new clip's foothold.
+    visual_load(g, &g->visuals[obj_index(g, petka_script_find(g->script, hero_id))], st->resource);
     return 1;
 }
 
@@ -664,7 +683,7 @@ static void walk_frame(Game *g, uint16_t hero_id) {
     if (result == 2) {
         // New direction: its clip, from the first frame.
         st->resource = (uint16_t)(st->costume + 10 + w->walker.dir);
-        g->visuals[obj_index(g, petka_script_find(g->script, hero_id))].restart = 1;
+        visual_load(g, &g->visuals[obj_index(g, petka_script_find(g->script, hero_id))], st->resource);
     } else if (result == 0) {
         w->active = 0;
         petka_scriptvm_walk_ended(g->vm, hero_id);
@@ -750,11 +769,11 @@ static void next_phrase(Game *g) {
     set_talker(g, ph->speaker <= 0xFFFE ? (uint16_t)ph->speaker : PETKA_NONE);
     cp1251_to_utf8(ph->text, g->line, sizeof(g->line));
     // Without a voice clip the line stays up for a reading-speed guess.
-    g->line_until = GetTime() + 1.2 + 0.05 * (double)strlen(ph->text);
+    g->line_until = game_now() + 1.2 + 0.05 * (double)strlen(ph->text);
     if (g->fast) {
-        g->line_until = GetTime() + 0.1;
+        g->line_until = game_now() + 0.1;
         const PetkaObject *who = petka_script_find(g->script, g->talker);
-        fprintf(stderr, "say %.1fs [%s]: %s\n", GetTime(), who ? utf8_name(who->name) : "?", g->line);
+        fprintf(stderr, "say %.1fs [%s]: %s\n", game_now(), who ? utf8_name(who->name) : "?", g->line);
     } else if (ph->wav_name[0]) {
         char wav[64];
         snprintf(wav, sizeof(wav), "%s\\%s", g->speech_prefix, ph->wav_name);
@@ -1035,7 +1054,8 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].resource = PETKA_NONE;
 
     InitWindow(GAME_W * 2, GAME_H * 2, "Петька и Василий Иванович");
-    SetTargetFPS(60);
+    s_turbo = getenv("PETKA_TURBO") != NULL;
+    SetTargetFPS(s_turbo ? 0 : 60);
     InitAudioDevice();
     Font font = load_cyrillic_font();
     // Dev hooks for unattended runs:
@@ -1045,6 +1065,9 @@ int main(int argc, char **argv) {
     //   PETKA_FAST=1           no voice-over, phrases flash by
     //   PETKA_PICK=<n>|last    dialogue menus answer themselves with that line
     //   PETKA_TRACE=1          log delivered script messages to stderr
+    //   PETKA_TURBO=1          run on a fixed clock as fast as the machine goes
+    //   PETKA_SHOT_SERIES=<start>:<step>:<count>  also save <file>-<frame>.png
+    //                          for that many frames, <step> apart
     g->fast = getenv("PETKA_FAST") != NULL;
     const char *pick = getenv("PETKA_PICK");
     g->auto_pick = !pick ? -2 : strcmp(pick, "last") == 0 ? -1 : atoi(pick);
@@ -1095,6 +1118,7 @@ int main(int argc, char **argv) {
         for (int k = 0; k < VERB_COUNT && !g->menu_count; k++) if (IsKeyPressed(KEY_ONE + k)) g->verb = k;
 
         frame++;
+        s_clock += 1.0 / 60.0;
         for (const char *p = post_plan; p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : "") {
             long at = 0;
             unsigned obj_id = 0, opcode = 0, arg1 = PETKA_NONE, arg2 = PETKA_NONE;
@@ -1140,7 +1164,7 @@ int main(int argc, char **argv) {
         if (g->music.frameCount > 0) UpdateMusicStream(g->music);
         if (g->ambience.frameCount > 0) UpdateMusicStream(g->ambience);
 
-        camera_update(g, GetFrameTime());
+        camera_update(g, game_dt());
         // Everything in the room is drawn through this; the HUD is not.
         Camera2D view = {.offset = {0, 0}, .target = {roundf(g->camera_x) * scale, 0}, .rotation = 0, .zoom = 1};
 
@@ -1157,7 +1181,7 @@ int main(int argc, char **argv) {
         // room, missing clip) would never end; end it at once instead.
         for (uint32_t i = 0; i < g->script->object_count; i++) {
             const PetkaObjectState *st = &vm->state[i];
-            if (st->play_tail.present && !g->visuals[i].live)
+            if (st->play_tail.present && (!g->visuals[i].live || !st->visible))
                 petka_scriptvm_animation_ended(vm, g->script->objects[i].id, st->play_wait);
         }
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
@@ -1189,7 +1213,7 @@ int main(int argc, char **argv) {
         } else if (g->talking) {
             int voiced = g->voice.frameCount > 0;
             if (clicked || IsKeyPressed(KEY_SPACE) ||
-                (voiced ? !IsSoundPlaying(g->voice) : GetTime() >= g->line_until))
+                (voiced ? !IsSoundPlaying(g->voice) : game_now() >= g->line_until))
                 next_phrase(g);
         } else if (can_act) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -1225,13 +1249,15 @@ int main(int argc, char **argv) {
         for (int i = 0; i < scene_count; i++) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
             Rectangle d = visual_dest(g, scene[i].obj);
-            DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
+            int shown = vm->state[obj_index(g, scene[i].obj)].visible;
+            if (shown)
+                DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
                            (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale},
                            (Vector2){0, 0}, 0, WHITE);
             if (debug && !is_hero(scene[i].obj->id)) {
                 Rectangle r = {v->rect.left * scale, v->rect.top * scale,
                                (v->rect.right - v->rect.left) * scale, (v->rect.bottom - v->rect.top) * scale};
-                DrawRectangleLinesEx(r, 1, scene[i].obj == hover ? ORANGE : Fade(LIME, 0.6f));
+                DrawRectangleLinesEx(r, 1, scene[i].obj == hover ? ORANGE : Fade(shown ? LIME : MAGENTA, 0.6f));
                 DrawTextEx(font, TextFormat("%u %s", scene[i].obj->id, utf8_name(scene[i].obj->name)),
                            (Vector2){r.x + 2, r.y + 2}, 14, 1, YELLOW);
             }
@@ -1304,7 +1330,7 @@ int main(int argc, char **argv) {
             if (item) DrawTextEx(font, display_name(g, item), (Vector2){cell.x + 4, cell.y + 4}, 16, 1, WHITE);
         }
 
-        if (g->status[0] && GetTime() < g->status_until)
+        if (g->status[0] && game_now() < g->status_until)
             DrawTextEx(font, g->status, (Vector2){10, 36}, 18, 1, YELLOW);
         if (debug) {
             // The floor's polygons, and the route each hero is following.
@@ -1338,6 +1364,15 @@ int main(int argc, char **argv) {
                        (Vector2){10, 58}, 16, 1, LIME);
         }
         EndDrawing();
+        long series_start = 0, series_step = 1, series_count = 0;
+        if (shot_path && getenv("PETKA_SHOT_SERIES") &&
+            sscanf(getenv("PETKA_SHOT_SERIES"), "%ld:%ld:%ld", &series_start, &series_step, &series_count) == 3 &&
+            series_step > 0 && frame >= series_start && (frame - series_start) % series_step == 0 &&
+            (frame - series_start) / series_step < series_count) {
+            Image shot = LoadImageFromScreen();
+            ExportImage(shot, TextFormat("%s-%ld.png", shot_path, frame));
+            UnloadImage(shot);
+        }
         if (shot_path && frame >= shot_frame) {
             // Not TakeScreenshot(): it only writes below the working directory.
             Image shot = LoadImageFromScreen();

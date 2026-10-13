@@ -36,8 +36,9 @@ PetkaFlic *petka_flic_open(const uint8_t *data, size_t len);
 
 void petka_flic_close(PetkaFlic *flic);
 
-// Decodes the next frame into ->indices/->rgb, wrapping back to the ring
-// frame (oframe2) after the last frame. Returns 0 on success, -1 on error.
+// Decodes the next frame into ->indices/->rgb. After the last frame the
+// first one comes round again (frame_index 0), exactly as it first was.
+// Returns 0 on success, -1 on error.
 int petka_flic_advance(PetkaFlic *flic);
 
 #ifdef __cplusplus

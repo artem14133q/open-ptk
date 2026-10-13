@@ -250,25 +250,38 @@ void petka_flic_close(PetkaFlic *flic) {
     free(flic);
 }
 
+static uint32_t chunk_size_at(const PetkaFlic *flic, uint32_t off) {
+    Reader hr = {flic->file_data, flic->file_len, off};
+    return rd_u32(&hr);
+}
+
 int petka_flic_advance(PetkaFlic *flic) {
     if (!flic) return -1;
     if (flic->frame_count <= 1) return 0; // nothing to animate
 
-    uint32_t off = flic->cursor;
-    int next_index = flic->frame_index + 1;
-    if (next_index >= flic->frame_count) {
-        // Loop back: the ring frame at oframe2 is a delta from the last
-        // frame back to frame 1's state.
-        off = flic->oframe2;
-        next_index = 0;
+    uint32_t second = flic->oframe1 + chunk_size_at(flic, flic->oframe1);
+    if (flic->frame_index + 1 >= flic->frame_count) {
+        // Back to the first frame, by decoding it afresh. The file does
+        // carry a "ring" chunk after the last frame for this -- the changes
+        // from the last frame to the first -- and for 1219 of the game's
+        // 1224 multi-frame clips playing it gives the very same picture;
+        // for the other five it does not quite, so a loop would drift.
+        //
+        // (This code once restarted from the *second* frame's chunk, i.e.
+        // applied "first to second" changes to the last frame's picture.
+        // Every looping clip then ran a frame ahead of its frame number and
+        // kept stray pixels from the end of the loop.)
+        memset(flic->indices, 0, (size_t)flic->width * (size_t)flic->height);
+        if (decode_frame_at(flic, flic->oframe1) != 0) return -1;
+        flic->cursor = second;
+        flic->frame_index = 0;
+        return 0;
     }
+
+    uint32_t off = flic->cursor;
     if (off + 4 > flic->file_len) return -1;
-
     if (decode_frame_at(flic, off) != 0) return -1;
-
-    Reader hr = {flic->file_data, flic->file_len, off};
-    uint32_t fsize = rd_u32(&hr);
-    flic->cursor = off + fsize;
-    flic->frame_index = next_index;
+    flic->cursor = off + chunk_size_at(flic, off);
+    flic->frame_index++;
     return 0;
 }

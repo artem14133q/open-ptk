@@ -202,6 +202,25 @@ just byte-accounted-for -- byte accounting alone falsely "validated" a
 still-broken variant (loop bound fix without the length fix) earlier in
 the investigation.
 
+**Fixed decoder bug: looping.** After a clip's last frame the decoder
+restarted from the *second* frame's chunk -- it applied the "first to
+second" changes to the last frame's picture. From the second loop on, every
+looping clip showed frame `n + 1` while reporting frame `n`, and kept stray
+pixels left over from the end of the loop. It went unnoticed for a long time
+because most scenery clips change little from frame to frame. It became
+glaring once heroes were drawn by the per-frame foothold table of their walk
+clips: a walking hero jumped by tens of pixels and left debris behind after
+his first few steps -- found by a person actually playing, not by any
+automated run.
+
+A FLIC file does carry a "ring" chunk after the last frame, the changes from
+the last frame back to the first. For 1219 of the game's 1224 multi-frame
+clips playing it reproduces the first frame exactly; for five long one-shot
+clips (`ZAKUR000`, `SVCH-1-1`, `AERO4`, `TONNEL-8`, `LABOR03`) it does not
+quite. The decoder therefore returns to the first frame by decoding it
+afresh, which is exact for all of them. `tools/looptest` checks that every
+clip's second loop matches its first pixel for pixel.
+
 ## `.MSK` mask files — rect confirmed, no real per-pixel data found
 
 Reverse-engineered from `QFlic::Init`: the **last 16 bytes** of a `.MSK`
@@ -539,6 +558,22 @@ and gets one of three answers:
 The launcher reproduces the resting clip, the re-armed sound, the arrival
 (`petka_scriptvm_walk_ended`) and the step per clip frame (see "Gait"
 below); the walk-speed slider is not.
+
+### Hidden is not inactive
+
+`HIDE` only stops an object being drawn; `OFF` also makes it inactive. An
+object that is hidden but active still answers the pointer: its clip is the
+shape of an invisible hot spot. Room exits are built this way --
+
+```
+OBJ "Выход из Комнаты Петьки во Времянку"
+    on TOTALINIT: SET 1718, HIDE
+    on WALK:      WALKTO, ВРЕМЯНКА GOTO
+```
+
+-- as are windows, cupboards and the like (10 of the 18 objects in Petka's
+room). The exe loads an object's clip if it is visible *or* active
+(`sub_413870`); a front end that only loads visible ones has no exits.
 
 ### Opcodes
 
@@ -974,7 +1009,10 @@ along the route by the game's own gait (one step per walk-clip frame, from
 quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
 `PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels),
-`PETKA_CLICK=<frame>:<x>:<y>[:<verb>],...` (left-click there), `PETKA_TRACE=1`
+`PETKA_CLICK=<frame>:<x>:<y>[:<verb>],...` (left-click there),
+`PETKA_TURBO=1` (a fixed 60-steps-a-second clock run as fast as the machine
+goes: the intro in seconds, and runs repeat exactly),
+`PETKA_SHOT_SERIES=<start>:<step>:<count>` (more screenshots), `PETKA_TRACE=1`
 and `PETKA_DEBUG=1` (start with the F1 overlay, which draws
 the walk mesh and the heroes' routes).
 
@@ -986,6 +1024,10 @@ use the same coordinates, so only the view moves. On `GOTO` the exe centres
 it on the entry point (`walk_x - 320`, clamped to the background); how it
 follows the hero afterwards was not traced, so the launcher's rule -- scroll
 when Petka comes within 200 pixels of the edge -- is its own.
+
+`tools/looptest/main.c` — decodes every multi-frame `.FLC` of the given
+stores twice round and fails if the second loop differs from the first:
+`looptest <store.str>...`.
 
 `tools/gaittest/main.c` — loads a hero's `.OFF`/`.LEG` step tables and walks
 thousands of random legs, failing if the hero does not end up next to the
