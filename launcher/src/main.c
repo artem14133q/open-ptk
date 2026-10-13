@@ -94,6 +94,7 @@ typedef struct {
     char speech_prefix[16];
 
     Visual *visuals; // parallel to script->objects
+    Visual cursor;   // the pointer's own clip
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
     float camera_target;    // where the view has been asked to move to
@@ -386,6 +387,34 @@ static void visual_load(Game *g, Visual *v, uint16_t resource) {
     v->tex = LoadTextureFromImage(img);
     UnloadImage(img);
     v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+}
+
+// The pointer. The exe's cursor is an object with a clip (sub_402280): one
+// per action, resources 5002.., or the clip a CURSOR message gave it when it
+// carries an inventory item. Moving it (sub_402570) puts the middle of the
+// clip's MSK rect on the mouse; drawing it (sub_4023D0) puts the frame's
+// corner at the cursor's position. The clip only runs while the pointer is
+// over an object, otherwise it is held on its first frame.
+#define CURSOR_POINTER 5001
+#define CURSOR_ACTION0 5002
+static void draw_cursor(Game *g, uint16_t resource, int over_object, Vector2 mouse, float scale) {
+    Visual *v = &g->cursor;
+    // Held on the first frame: a clip that has moved on is loaded afresh.
+    int rewind = !over_object && v->flic && v->flic->frame_index != 0;
+    if (v->resource != resource || rewind) visual_load(g, v, resource);
+    if (!v->flic) return;
+    if (over_object && v->flic->frame_count > 1 && game_now() >= v->next_frame) {
+        v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+        petka_flic_advance(v->flic);
+        uint8_t *rgba = flic_to_rgba(v->flic);
+        UpdateTexture(v->tex, rgba);
+        free(rgba);
+    }
+    int x = (int)(mouse.x / scale) - v->rect.left - (v->rect.right - v->rect.left) / 2;
+    int y = (int)(mouse.y / scale) - v->rect.top - (v->rect.bottom - v->rect.top) / 2;
+    DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
+                   (Rectangle){x * scale, y * scale, v->flic->width * scale, v->flic->height * scale},
+                   (Vector2){0, 0}, 0, WHITE);
 }
 
 static int obj_index(const Game *g, const PetkaObject *obj) {
@@ -1093,6 +1122,7 @@ int main(int argc, char **argv) {
     g->bg_resource = g->shown_room = g->music_id = g->ambience_id = g->mesh_resource = PETKA_NONE;
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;
+    g->cursor.resource = PETKA_NONE;
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
     // The last one is the store of the part's first chapter; only a part
@@ -1497,6 +1527,18 @@ int main(int argc, char **argv) {
                                         petka && petka->visible ? "" : "(hidden)"),
                        (Vector2){10, 58}, 16, 1, LIME);
         }
+        // The pointer goes on last, over everything (its z is 1000). It is
+        // there whenever the cursor is shown; a dialogue hides it for its
+        // phrases and brings it back for a menu.
+        if (vm->cursor_visible && g->seq_room == PETKA_NONE && (!g->talking || g->menu_count > 0)) {
+            uint16_t clip = g->menu_count > 0 ? CURSOR_POINTER
+                          : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
+                          : (uint16_t)(CURSOR_ACTION0 + g->verb);
+            HideCursor();
+            draw_cursor(g, clip, hover != NULL, mouse, scale);
+        } else {
+            ShowCursor();
+        }
         EndDrawing();
         long series_start = 0, series_step = 1, series_count = 0;
         if (shot_path && getenv("PETKA_SHOT_SERIES") &&
@@ -1517,6 +1559,7 @@ int main(int argc, char **argv) {
     }
 
     for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
+    visual_free(&g->cursor);
     free(g->visuals);
     for (uint32_t i = 0; i < g->script->object_count; i++) free(g->names[i]);
     free(g->names);

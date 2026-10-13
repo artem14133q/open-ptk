@@ -551,11 +551,28 @@ The clips sit in `RESOURCE.QRC` in the order of the actions:
 
 That the clip is `5002 + action` is read off this order and the
 constructor's pair (action 0, clip 5002); the code that changes the action
-was not decompiled (the cursor's vtable is at `0x4B9268`: draw `0x4023D0`,
-update `0x402480`, slot `+44` `0x4026E0`, slot `+64` -- the one the mouse
-functions call with the pointer's position -- `0x402570`). The launcher
-keeps its actions in this order and starts on "look"; it draws no cursor
-clip yet.
+was not decompiled (the cursor's vtable is at `0x4B9268`: update
+`0x402480`, slot `+44` `0x4026E0`).
+
+Where the clip goes:
+
+- **moving** (`0x402570(x, y, centre)`, vtable slot `+64`, called by the
+  mouse functions with `centre` = 1): the view's scroll (`QSystem+104`) is
+  taken off `x`, and then the clip is centred on the point -- the cursor's
+  position becomes `point - rect.topleft - rect.size / 2`, `rect` being the
+  clip's covering rect from its `.MSK`. If the cursor's animate flag (`+48`)
+  is clear the clip is put back on its first frame; that flag is what the
+  mouse-move function sets to "there is an object under the pointer". So
+  the pointer's picture **only moves while it is over something**;
+- **drawing** (`sub_4023D0`, slot `+20`): only if the cursor is shown
+  (`+44`); the frame's corner goes to the cursor's position, clipped to the
+  640x480 screen, with the clip's transparent colour keyed out.
+
+The launcher keeps its actions in this order, starts on "look", and draws
+the pointer this way (`draw_cursor`): the action's clip, or the clip a
+`CURSOR` message gave it for the inventory item it carries, or the plain
+pointer 5001 over a dialogue menu (that last choice is the launcher's; what
+the dialogue sets the cursor to was not decompiled).
 
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
