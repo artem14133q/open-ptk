@@ -1460,9 +1460,18 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 A **sequence** is a cutscene built as a room: 68 of the 104 uses name a room
 called "Seq - ...", whose background is the black `MAIN\BG1.BMP` (resource
 10) and whose objects are full-screen clips. `SETSEQ` hands the room to a
-separate interface object (`QSystem+540`, created by `sub_4167C0`; its
-methods are at `0x416860` and `0x416FD0`, not decompiled) which shows it
-instead of the room the game is in. Nothing is broadcast: the sequence runs
+separate screen (`QSystem+540`, created by `sub_4167C0`, vtable `0x4B9890`)
+which shows it instead of the room the game is in. That screen does very
+little, by its methods (read from the disassembly): its mouse move
+(`0x416F20`) and its right button (`0x416FC0`) do nothing at all -- no
+cursor, no captions, no star; its click (`0x416F30`) looks down its list for
+a text object (resource `-2`, a phrase on screen) and hands the click to it,
+which skips the phrase, and does nothing if there is none; its leave
+(`0x416FD0`) takes the text down and, for every object on its list, frees
+the clip, stops the object's sound (`sub_416EF0`) and forgets it; its set-up
+is `0x416860`, not decompiled. `Esc` does not leave it. The launcher's
+sequences behave the same, except that a clip's sound is left to play out
+when the sequence ends. Nothing is broadcast: the sequence runs
 on its clips' `END` reactions -- each sets the next clip -- and the last one
 posts `ENDSEQ`, usually together with a `GOTO` for where the game continues:
 
