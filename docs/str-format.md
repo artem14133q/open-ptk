@@ -1020,7 +1020,8 @@ pointed at).
 
 The launcher's menu is this screen (`run_menu`), drawn from the same
 pictures: new game, load (the save screen comes up before any room is
-entered; left without loading, the game begins as a new one), credits, and
+entered; left without loading, it gives way to this screen again, as the
+exe's screens go back to the previous one), credits, and
 exit. The launcher does what the exe does -- gives the file to someone
 else: `ffmpeg`, if it is installed, decodes it, and the launcher shows the
 frames in its window at 24 a second with the sound alongside, until it ends

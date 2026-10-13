@@ -2605,11 +2605,21 @@ int main(int argc, char **argv) {
         float mx = mouse.x / scale + g->camera_x, my = mouse.y / scale;
         // Another part was asked for -- by "new game", the script's PART or
         // a saved game. Nothing of this frame holds the old one yet.
-        // "Load" at start-up put the save screen up before any room: if it
-        // was left without loading, the game begins as a new one.
+        // "Load" at start-up put the save screen up before any room: left
+        // without loading, it gives way to the screen it came from -- the
+        // start-up one again (the exe's screens go back to the previous).
         if (g->boot_load && !g->save_mode && !g->switch_part) {
             g->boot_load = 0;
-            if (g->vm->room == PETKA_NONE) game_enter(g);
+            if (g->vm->room == PETKA_NONE) {
+                int again = run_menu(g, font);
+                if (g->quit || !again) break;
+                if (again == 2) {
+                    g->boot_load = 1;
+                    saves_open(g, 1);
+                    continue;
+                }
+                game_enter(g);
+            }
         }
         if (g->switch_part) {
             int to_part = g->switch_part, to_chapter = g->switch_chapter > 0 ? g->switch_chapter : 1;
