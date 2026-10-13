@@ -791,12 +791,36 @@ So `QSystem+552` is one screen for both loading (0) and saving (1), and the
 hidden slider marks are hot spots: a click on a dial's "min" or "MAX" moves
 it a notch. Which value is which dial is in `sub_41C740`.
 
-Not decompiled: mouse move `0x41C8D0`, leave `0x41CE00`, the sliders
-`sub_41C740`, the save/load screen. The launcher puts the panel up the same
+**The dials.** The four values are frame numbers. `sub_41C740` puts each
+dial's hand -- a clip of as many frames as the dial has positions -- on the
+frame its value names, after `sub_41C5A0` has brought the values into range,
+turned each into a percentage `(value - 1) * 100 / (top - 1)`, handed the
+three volumes to the sound manager (`sub_40E160(channel, percent)`) and
+written all of it to the `Options` section of the program's profile:
+
+| value | key in `Options` | range | default | percent at | hand (object) | marks | sound channel |
+|---|---|---|---:|---|---|---|---:|
+| `+64` | `Speech volume` | 1-31 | 31 | `+68` | 14, `SERP` | 16, 17 (`SL1MIN/MAX`) | 2 |
+| `+72` | `Music volume` | 1-41 | 20 | `+76` | 15, `MOLOTOC` | 18, 19 (`SL2`) | 0 |
+| `+80` | `Sfx volume` | 1-31 | 23 | `+84` | 8, `AROWE-1` | 20, 21 (`SL3`) | 1 |
+| `+88` | `Speed` | 1-26 | 13 | `+92` | 9, `AROWE` | 22, 23 (`SL4`) | -- |
+
+The marks are full-frame clips whose `.MSK` rects are the "min" and "MAX"
+labels round each dial. `Subtitles` is kept in the same section, and its
+default is **0**: the game starts with the subtitles off. The speed percent
+is the `n` of the walking hero's clock (see "Object update"): at the
+default, 48, he walks at `(48 + 50) / 50`, about twice the walk clip's own
+speed.
+
+Not decompiled: mouse move `0x41C8D0`, leave `0x41CE00`, the save/load
+screen, and how the sound manager turns a percent into a volume. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
-switch (`panel_click`); with the subtitles off a phrase is not written out,
-and one without a voice is not waited for. New game, loading, saving and the
-dials only say they are not there yet, or do nothing.
+switch and the four dials (`panel_click`); with the subtitles off a phrase
+is not written out, and one without a voice is not waited for. The dials
+start at the exe's defaults and work: the three volumes (taken as plain
+fractions; the ambience counts as an effect) and the walking speed. Nothing
+is saved between runs, and unlike the original the launcher starts with the
+subtitles on. New game, loading and saving only say they are not there yet.
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`
@@ -972,8 +996,8 @@ The heroes' update (`sub_407BF0`) is the same loop with these differences:
   back by 10 seconds when it returns to frame 1, so it plays once and then
   rests on its first frame;
 - while the hero walks, elapsed time is multiplied by `(n + 50) / 50`, `n`
-  being a value of the object at `QSystem+544` (it looks like the walk-speed
-  slider of the options panel);
+  being the speed dial of the panel screen as a percentage (`+92` of
+  `QSystem+544`), so from 1x to 3x;
 - after each frame it calls the hero's walk step (vtable slot `+76`,
   `sub_408EF0`, below): the hero moves once per frame of the walk clip
   rather than continuously;

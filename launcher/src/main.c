@@ -102,6 +102,9 @@ typedef struct {
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
+    // The panel's four dials, as the exe keeps them ("Options" in its
+    // profile): the number of the dial clip's frame, from 1.
+    int dial[4];     // speech 1..31, music 1..41, effects 1..31, speed 1..26
     int case_open;
     int case_first;  // number of the first thing shown, a page is six
     int case_lit;    // the button under the pointer, -1 = none
@@ -334,6 +337,17 @@ static Texture2D load_bmp_texture(const Game *g, const char *path) {
     return tex;
 }
 
+// The dials' ranges and what the exe makes of them (sub_41C5A0): a
+// percentage, (value - 1) * 100 / (top - 1). Their first values are the
+// defaults the exe reads its profile with.
+enum { DIAL_SPEECH, DIAL_MUSIC, DIAL_SFX, DIAL_SPEED };
+static const int kDialTop[4] = {31, 41, 31, 26};
+static const int kDialDefault[4] = {31, 20, 23, 13};
+
+static int dial_percent(const Game *g, int which) {
+    return (g->dial[which] * 100 - 100) / (kDialTop[which] - 1);
+}
+
 static void play_sound(Game *g, const char *path) {
     size_t len = 0;
     const uint8_t *bytes = res_find(g, path, &len);
@@ -344,6 +358,7 @@ static void play_sound(Game *g, const char *path) {
         Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
         g->sounds[i] = LoadSoundFromWave(wave);
         UnloadWave(wave);
+        SetSoundVolume(g->sounds[i], dial_percent(g, DIAL_SFX) / 100.0f);
         PlaySound(g->sounds[i]);
         return;
     }
@@ -483,7 +498,11 @@ static void visual_update(Game *g, const PetkaObject *obj) {
         return;
     }
     if (game_now() < v->next_frame) return;
-    v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+    double period = (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+    // A walking hero's clock runs faster by the speed dial: the exe
+    // multiplies the time that has passed by (percent + 50) / 50.
+    if (is_hero(obj->id) && g->walk[obj->id].active) period *= 50.0 / (dial_percent(g, DIAL_SPEED) + 50.0);
+    v->next_frame = game_now() + period;
 
     if (v->sound_pending && v->flic->frame_index == 0) {
         char wav[512];
@@ -878,6 +897,7 @@ static void next_phrase(Game *g) {
             if (wave.frameCount > 0) {
                 g->voice = LoadSoundFromWave(wave);
                 SetSoundPan(g->voice, speaker_pan(g, g->talker));
+                SetSoundVolume(g->voice, dial_percent(g, DIAL_SPEECH) / 100.0f);
                 PlaySound(g->voice);
             }
             UnloadWave(wave);
@@ -1097,6 +1117,24 @@ static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float
     return NULL;
 }
 
+// The object under a point on the map or the panel. Those screens do not
+// go by z: their mouse functions walk the screen's own list from its end,
+// which is the room's list of objects backwards, and take the first whose
+// hit test says yes -- so the panel's dial marks, listed last, come before
+// the pictures they lie on.
+static const PetkaObject *listed_object_at(Game *g, float x, float y) {
+    const PetkaObject *room = petka_script_find(g->script, g->seq_room);
+    for (uint32_t i = room ? room->attached_count : 0; i-- > 0;) {
+        const PetkaObject *obj = petka_script_find(g->script, room->attached[i].obj_id);
+        if (!obj) continue;
+        const Visual *v = &g->visuals[obj_index(g, obj)];
+        const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+        if (!st->active || !v->live || !v->flic) continue;
+        if (clip_hit(v, (int)x - st->x, (int)y - st->y)) return obj;
+    }
+    return NULL;
+}
+
 // ---- the case ----
 //
 // The game's panel is a briefcase that covers most of the screen (the exe's
@@ -1223,7 +1261,17 @@ static void panel_click(Game *g, const PetkaObject *hit) {
     case 3: map_leave(g); g->quit = 1; break;    // the door: out of the game
     case 4: set_status(g, "(сохранение пока не сделано)"); break;
     case 7: g->subtitles = !g->subtitles; break; // the subtitle switch
-    default: break;
+    default:
+        // The hidden "min" and "MAX" marks of the four dials, in the dials'
+        // own order: a notch of five either way, kept in range.
+        if (n >= 16 && n < 24) {
+            int which = (n - 16) / 2;
+            g->dial[which] += (n - 16) % 2 ? 5 : -5;
+            if (g->dial[which] < 1) g->dial[which] = 1;
+            if (g->dial[which] > kDialTop[which]) g->dial[which] = kDialTop[which];
+            if (g->voice.frameCount > 0) SetSoundVolume(g->voice, dial_percent(g, DIAL_SPEECH) / 100.0f);
+        }
+        break;
     }
 }
 
@@ -1241,10 +1289,17 @@ static void show_frame(Game *g, const PetkaObject *obj, int frame) {
 
 // The panel shows the subtitle switch on two of its objects (the end of
 // sub_41C170): the button, number 7, on frame 7 for "on" and 1 for "off",
-// and the word, number 11, on frame 2 or 1.
+// and the word, number 11, on frame 2 or 1. And each dial's hand is a clip
+// put on the frame its value names (sub_41C740): speech on object 14, music
+// on 15, effects on 8, speed on 9.
 static void panel_show_state(Game *g) {
+    static const int kHand[4] = {14, 15, 8, 9};
     const PetkaObject *panel = petka_script_find(g->script, g->seq_room);
-    if (!panel || panel->attached_count < 12) return;
+    if (!panel || panel->attached_count < 16) return;
+    for (int i = 0; i < 4; i++) {
+        const PetkaObject *hand = petka_script_find(g->script, panel->attached[kHand[i]].obj_id);
+        if (hand) show_frame(g, hand, g->dial[i]);
+    }
     const PetkaObject *button = petka_script_find(g->script, panel->attached[7].obj_id);
     const PetkaObject *word = petka_script_find(g->script, panel->attached[11].obj_id);
     if (button) show_frame(g, button, g->subtitles ? 7 : 1);
@@ -1401,6 +1456,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 6; i++) g->case_button[i].resource = PETKA_NONE;
     g->case_lit = -1;
     g->subtitles = 1;
+    for (int i = 0; i < 4; i++) g->dial[i] = kDialDefault[i];
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
     // The last one is the store of the part's first chapter; only a part
@@ -1574,8 +1630,14 @@ int main(int argc, char **argv) {
             set_stream(g, &g->music, &g->music_id, music);
             set_stream(g, &g->ambience, &g->ambience_id, ambience);
         }
-        if (g->music.frameCount > 0) UpdateMusicStream(g->music);
-        if (g->ambience.frameCount > 0) UpdateMusicStream(g->ambience);
+        if (g->music.frameCount > 0) {
+            SetMusicVolume(g->music, dial_percent(g, DIAL_MUSIC) / 100.0f);
+            UpdateMusicStream(g->music);
+        }
+        if (g->ambience.frameCount > 0) {
+            SetMusicVolume(g->ambience, dial_percent(g, DIAL_SFX) / 100.0f);
+            UpdateMusicStream(g->ambience);
+        }
 
         camera_update(g, game_dt());
         // Everything in the room is drawn through this; the HUD is not.
@@ -1624,9 +1686,8 @@ int main(int argc, char **argv) {
         if (!in_case) g->case_lit = -1;
         const PetkaObject *hover = !can_act ? NULL
                                  : in_case ? case_hover(g, (int)(mouse.x / scale), (int)(mouse.y / scale))
+                                 : g->map_open ? listed_object_at(g, mx, my)
                                  : object_at(g, scene, scene_count, mx, my);
-        // The panel's hidden slider marks are not there to be pointed at.
-        if (g->panel_open && hover && !vm->state[obj_index(g, hover)].visible) hover = NULL;
 
         int menu_hover = -1;
         for (int i = 0; i < g->menu_count; i++)
