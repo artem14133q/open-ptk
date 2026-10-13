@@ -221,31 +221,47 @@ quite. The decoder therefore returns to the first frame by decoding it
 afresh, which is exact for all of them. `tools/looptest` checks that every
 clip's second loop matches its first pixel for pixel.
 
-## `.MSK` mask files — rect confirmed, no real per-pixel data found
+## `.MSK` mask files — SOLVED: per-frame rects, used for draw order
 
-Reverse-engineered from `QFlic::Init`: the **last 16 bytes** of a `.MSK`
-file are 4×`i32` — `left, top, right, bottom` — the screen rect this FLIC
-clip is composited into. Implemented in `core/src/msk.c`
-(`petka_msk_rect`), used by the launcher to crop/position FLIC overlays.
+```
+for each frame of the clip:  i32 count, then count x (u16 left, top, right, bottom)
+one u32 per frame:           offset of that frame's list -- the FIRST frame's entry is LAST
+16 bytes:                    i32 left, top, right, bottom -- the rect covering the whole clip
+```
 
-The body before that (the rest of the file) does **not** look like a real
-per-pixel alpha mask in the samples inspected: small masks (e.g.
-`PENEK.MSK`, 32 bytes) are *entirely* header (a redundant compact copy of
-the same rect, `u16`-packed); a larger one (`BOLOTO-4.MSK`, 496 bytes)
-turned out to be 28 repeats of the same rect followed by a perfectly linear
-countdown sequence (336 → 0, step -12) — clearly fixed-size editor scratch
-buffer padding, not meaningful mask data. Per-pixel transparency for FLIC
-overlays instead comes from the clip's own palette index 0 treated as a
-color key (confirmed visually: tree silhouettes render correctly against
-both black and blue key-color backgrounds).
+The per-frame lists are the parts of the frame the object occupies in that
+frame. 977 of the 979 masks in `FLC1.STR` and `MAIN.STR` fit this to the
+byte; the other two (`BANG--.MSK`, `BANG1.MSK`) are the same without the
+final 16 bytes. Across all four stores that is 2331 clips and 55,725 frames,
+none with a rect reaching past its frame; about 1,400 frames have no rects
+(the object is not in the picture).
 
-Known minor artifact: a faint horizontal dashed line sometimes appears
-within the masked region (seen in both `ELKA.FLC` and `BANGS.FLC`). It's
-present even on single-frame clips (whose first frame decodes via
-`BYTE_RUN`, not the `SS2` delta path), so it isn't an `SS2` bug — more
-likely either a genuine artifact in the original 1998 asset, or a seam
-from our simplified "index 0 = transparent" rule where the real engine's
-compositing is subtler. Cosmetic only, not investigated further yet.
+An earlier pass read only the final rect (from `QFlic::Init`) and took the
+rest for editor padding -- "28 repeats of the same rect followed by a
+countdown" is 28 one-rect frames followed by their offset table.
+
+The rects are **not a transparency mask**: that is the clip's palette index
+0. They are what objects are ordered by. Each frame, before the screen's
+objects are sorted by `z`, every object's z update runs (`sub_401810` for
+scene objects): if the object is animated, visible and has its automatic-z
+flag set (`+52`, the first argument of `ZBUFFER`), then
+
+```
+z = max(1, sprite_y + bottom)   over the current frame's rects
+```
+
+so an object whose lowest point is lower on screen is drawn later, on top --
+and the order follows the animation frame by frame. With the flag off, `z`
+stays what it was last set to (`ZBUFFER`'s second argument, or the value
+from `BACKGRND.BG`). The flag starts **on**: no constant for it was found in
+the constructor, but the script switches it off 479 times and on 22 times,
+and over a thousand scene objects get neither a `ZBUFFER` nor a `z` in
+`BACKGRND.BG` yet must stack correctly (the bed in the foreground of Petka's
+room, in front of anyone standing behind it).
+
+Implemented in `core/src/msk.c` (`petka_msk_rect`, `petka_msk_frame_bottom`).
+The heroes have their own z update (`0x409530`, not decompiled); the
+launcher orders them by their feet.
 
 ## `.CVX` convex walk-mesh — SOLVED (byte-exact, geometry verified)
 
@@ -623,7 +639,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 14 | `SET` | change the object's resource id; `arg2`: 1 = rewind, 5 = play the clip's sound once instead of on every loop |
 | 15 / 16 | `SHOW` / `HIDE` | visibility |
 | 17 | `DIALOG` | start the current dialogue |
-| 18 | `ZBUFFER` | `arg1` -> `+52`, `arg2` -> draw order |
+| 18 | `ZBUFFER` | `arg1`: follow the mask automatically (1) or keep a fixed `z` (0); `arg2`: that `z`, if given |
 | 19 | `TOTALINIT` | every object's setup reaction |
 | 20 | `ANIMATE` | `+48` = `arg1` |
 | 21 | `STATUS` | object status = `arg1` |

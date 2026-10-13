@@ -159,8 +159,10 @@ typedef struct {
     int animate;         // +48
     int repeat_sound;    // +72, the clip's sound restarts on every loop
     int busy;            // +56, queued messages wait while set
-    int32_t zbuffer;     // +52
-    int32_t z;           // +8
+    int auto_z;          // +52, ZBUFFER's first argument: while set (and the
+                         // object is animated and visible) z follows the
+                         // lowest edge of the current frame's MSK rects
+    int32_t z;           // +8, draw order: higher is nearer the viewer
     int32_t x, y;
     int32_t walk_x, walk_y; // +20, +24
     uint16_t room;       // owning room, PETKA_NONE for unattached objects

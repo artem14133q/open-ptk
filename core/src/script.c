@@ -230,6 +230,10 @@ PetkaScriptVM *petka_scriptvm_open(PetkaScript *script, const PetkaScriptHost *h
         // The script only ever freezes objects (ANIMATE 0 is 5x as common
         // as ANIMATE 1), so they start out animated.
         st->animate = 1;
+        // Likewise z starts out automatic: ZBUFFER switches it off 479 times
+        // and on 22 times, and most objects get neither ZBUFFER nor a z in
+        // BACKGRND.BG at all.
+        st->auto_z = 1;
         st->resource = PETKA_NONE;
         st->play_wait = PETKA_NONE;
         st->z = -1;
@@ -450,7 +454,7 @@ static void apply_builtin(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued
         if (vm->host.start_dialogue) vm->host.start_dialogue(vm->host.user, obj->id, m->arg1);
         break;
     case PETKA_OP_ZBUFFER:
-        st->zbuffer = m->arg1;
+        st->auto_z = m->arg1 != 0;
         if (m->arg2 != PETKA_NONE) st->z = m->arg2;
         break;
     case PETKA_OP_ANIMATE:

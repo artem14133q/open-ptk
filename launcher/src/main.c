@@ -50,6 +50,8 @@ typedef struct {
     PetkaFlic *flic;
     Texture2D tex;
     PetkaMskRect rect; // bounding rect of the clip inside its frame
+    const uint8_t *msk; // the clip's .MSK, NULL if it has none
+    size_t msk_len;
     double next_frame;
     int sound_pending; // play the clip's sound when its first frame is up
     int restart;       // rewind before the next frame
@@ -372,6 +374,8 @@ static void visual_load(Game *g, Visual *v, uint16_t resource) {
     size_t mlen = 0;
     const uint8_t *mbytes = res_find(g, msk, &mlen);
     if (mbytes) petka_msk_rect(mbytes, mlen, &v->rect);
+    v->msk = mbytes;
+    v->msk_len = mlen;
 
     uint8_t *rgba = flic_to_rgba(v->flic);
     Image img = {.data = rgba, .width = v->flic->width, .height = v->flic->height, .mipmaps = 1,
@@ -903,9 +907,8 @@ static int by_z(const void *a, const void *b) {
     return ((const Drawable *)a)->z - ((const Drawable *)b)->z;
 }
 
-// Collects what is visible right now, back to front. Draw order is the
-// object's z; where the script leaves it unset, the bottom edge of its MSK
-// rect stands in (the two agree wherever z is given).
+// Collects what is on screen right now, back to front: by z ascending, as
+// the exe sorts each frame.
 static int build_scene(Game *g, Drawable *out, int max) {
     int n = 0;
     const PetkaObject *room = petka_script_find(g->script, screen_room(g));
@@ -923,7 +926,22 @@ static int build_scene(Game *g, Drawable *out, int max) {
         // A hero attached to this room explicitly was already listed.
         if (i >= room->attached_count && st->room == room->id) continue;
         out[n].obj = obj;
-        out[n].z = hero_here ? st->y : (st->z != -1 ? st->z : v->rect.bottom);
+        if (hero_here) {
+            // A hero's own z update was not decompiled; his feet are the
+            // bottom of his sprite, which is what the rule below would give.
+            out[n].z = st->y;
+        } else {
+            // The exe's z update (sub_401810): an animated, visible object
+            // with auto_z takes the lowest edge of its current frame's MSK
+            // rects (its sprite sits at y 0), never less than 1. Otherwise z
+            // stays whatever it was last given.
+            PetkaObjectState *state = &g->vm->state[obj_index(g, obj)];
+            if (state->auto_z && state->animate && state->visible) {
+                int bottom = petka_msk_frame_bottom(v->msk, v->msk_len, v->flic->frame_count, v->flic->frame_index);
+                state->z = bottom > 1 ? bottom : 1;
+            }
+            out[n].z = state->z;
+        }
         n++;
     }
     qsort(out, (size_t)n, sizeof(Drawable), by_z);
