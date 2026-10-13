@@ -827,8 +827,17 @@ in hundredths of a decibel. The curve is steep: the default music, 47 %,
 is 13.4 dB down (a gain of 0.21), the default effects, 73 %, 5.6 dB down
 (0.53), and 10 % is all but silent.
 
-Not decompiled: mouse move `0x41C8D0`, leave `0x41CE00`, the save/load
-screen. The launcher puts the panel up the same
+**The save/load screen** (`QSystem+552`; constructor `sub_41D940`, which
+only sets the vtable, `0x4B9E70`) is a third screen of the same kind. Its
+room is 513 `SAVELOAD`, which has a picture (`SET 4990`, `LOAD1.BMP`; the
+set goes on with `LOAD2`, `LOAD3`, `SAVE1`-`SAVE3`) and **no objects**: the
+slots must be the screen's own doing. The names it builds are `save` + a
+number + `.dat`. Its methods, none decompiled: the set-up the panel calls
+with 0 for loading and 1 for saving (slot `+60`, `0x41D9E0`), click
+`0x41E370`, mouse move `0x41E2B0`, leave `0x41E590`, and `sub_41E230`, which
+the panel's start calls before it draws anything of its own.
+
+Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
 switch and the four dials (`panel_click`); with the subtitles off a phrase
 is not written out, and one without a voice is not waited for. The dials
