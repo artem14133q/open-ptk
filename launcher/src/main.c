@@ -95,6 +95,11 @@ typedef struct {
 
     Visual *visuals; // parallel to script->objects
     Visual cursor;   // the pointer's own clip
+    // The case: the game's panel, with the things carried.
+    int case_open;
+    int case_first;  // number of the first thing shown, a page is six
+    int case_lit;    // the button under the pointer, -1 = none
+    Visual case_body, case_exit, case_strip, case_button[6];
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
     float camera_target;    // where the view has been asked to move to
@@ -397,19 +402,24 @@ static void visual_load(Game *g, Visual *v, uint16_t resource) {
 // over an object, otherwise it is held on its first frame.
 #define CURSOR_POINTER 5001
 #define CURSOR_ACTION0 5002
+// Brings a clip that belongs to no script object (the cursor, the case and
+// its buttons) to `resource`. With `run` it plays; without, it is held on
+// its first frame -- a clip that has moved on is loaded afresh.
+static void clip_show(Game *g, Visual *v, uint16_t resource, int run) {
+    int rewind = !run && v->flic && v->flic->frame_index != 0;
+    if (v->resource != resource || rewind) visual_load(g, v, resource);
+    if (!v->flic || !run || v->flic->frame_count <= 1 || game_now() < v->next_frame) return;
+    v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+    petka_flic_advance(v->flic);
+    uint8_t *rgba = flic_to_rgba(v->flic);
+    UpdateTexture(v->tex, rgba);
+    free(rgba);
+}
+
 static void draw_cursor(Game *g, uint16_t resource, int over_object, Vector2 mouse, float scale) {
     Visual *v = &g->cursor;
-    // Held on the first frame: a clip that has moved on is loaded afresh.
-    int rewind = !over_object && v->flic && v->flic->frame_index != 0;
-    if (v->resource != resource || rewind) visual_load(g, v, resource);
+    clip_show(g, v, resource, over_object);
     if (!v->flic) return;
-    if (over_object && v->flic->frame_count > 1 && game_now() >= v->next_frame) {
-        v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
-        petka_flic_advance(v->flic);
-        uint8_t *rgba = flic_to_rgba(v->flic);
-        UpdateTexture(v->tex, rgba);
-        free(rgba);
-    }
     int x = (int)(mouse.x / scale) - v->rect.left - (v->rect.right - v->rect.left) / 2;
     int y = (int)(mouse.y / scale) - v->rect.top - (v->rect.bottom - v->rect.top) / 2;
     DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
@@ -1067,6 +1077,124 @@ static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float
     return NULL;
 }
 
+// ---- the case ----
+//
+// The game's panel is a briefcase that covers most of the screen (the exe's
+// object at QSystem+144; key I opens and shuts it). Its clips are all full
+// frames, so they line up at 0,0; a button's place is its clip's MSK rect and
+// its clip is its lit state. The things carried are shown six to a page, at
+// fixed places, in front of the case and behind its strap.
+#define CASE_BODY 6000
+#define CASE_BUTTON0 6001 // + button: Chapayev, diskette, map, quit, page right, page left
+#define CASE_STRAP 6007
+#define CASE_EXIT 6009    // opaque where the pointer is outside the case
+#define CASE_PAGE 6
+static const int kCaseCell[CASE_PAGE][2] = {{120, 145}, {240, 145}, {360, 145}, {100, 220}, {240, 220}, {380, 220}};
+
+// The thing in cell `k` of the page, with its clip loaded; NULL if the cell
+// is empty or the thing is not to be seen (the cursor is carrying it).
+static const PetkaObject *case_item(Game *g, int k, Visual **out) {
+    uint32_t i = (uint32_t)(g->case_first + k);
+    if (i >= g->vm->inventory_count) return NULL;
+    const PetkaObject *obj = petka_script_find(g->script, g->vm->inventory[i]);
+    if (!obj) return NULL;
+    const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+    if (!st->visible || st->resource == PETKA_NONE) return NULL;
+    Visual *v = &g->visuals[obj_index(g, obj)];
+    if (v->resource != st->resource) visual_load(g, v, st->resource);
+    if (!v->flic) return NULL;
+    *out = v;
+    return obj;
+}
+
+// What the pointer (screen pixels of the game) is over while the case is
+// open. The things come first -- they are above the case in z; the case
+// itself takes every other point of the screen (its hit test is just "am I
+// shown") and lights a button (its hover, 0x415550): "quit" anywhere
+// outside the case, else the button whose rect holds the pointer.
+static const PetkaObject *case_hover(Game *g, int px, int py) {
+    for (int k = CASE_PAGE - 1; k >= 0; k--) {
+        Visual *v = NULL;
+        const PetkaObject *obj = case_item(g, k, &v);
+        if (obj && g->vm->state[obj_index(g, obj)].active && clip_hit(v, px - kCaseCell[k][0], py - kCaseCell[k][1]))
+            return obj;
+    }
+    g->case_lit = -1;
+    clip_show(g, &g->case_exit, CASE_EXIT, 0);
+    const PetkaFlic *mask = g->case_exit.flic;
+    if (mask && px >= 0 && py >= 0 && px < mask->width && py < mask->height && mask->indices[py * mask->width + px]) {
+        g->case_lit = 3;
+        return NULL;
+    }
+    for (int i = 0; i < 6; i++) {
+        Visual *b = &g->case_button[i];
+        if (b->resource == PETKA_NONE) visual_load(g, b, (uint16_t)(CASE_BUTTON0 + i));
+        if (!b->flic || px < b->rect.left || py < b->rect.top || px >= b->rect.right || py >= b->rect.bottom) continue;
+        // Chapayev's button is dead while he is not about.
+        const PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
+        if (i == 0 && !(chapayev && chapayev->visible)) break;
+        g->case_lit = i;
+        break;
+    }
+    return NULL;
+}
+
+// Puts down whatever the cursor carries: the thing is back in the case.
+static void drop_item(Game *g) {
+    PetkaObjectState *st = petka_scriptvm_state(g->vm, g->vm->cursor_object);
+    if (st) st->visible = st->active = 1;
+    g->vm->cursor_object = g->vm->cursor_resource = PETKA_NONE;
+}
+
+// A click on the case with nothing of its contents under it (sub_4151B0).
+static void case_click(Game *g) {
+    switch (g->case_lit) {
+    case 0: // the "send Chapayev" action, as keys 6 and C
+        drop_item(g);
+        g->verb = 5;
+        break;
+    case 1: set_status(g, "(сохранение и загрузка пока не сделаны)"); break;
+    case 2: set_status(g, "(карта пока не сделана)"); break;
+    case 3: g->case_open = 0; break;
+    case 4:
+        if ((uint32_t)(g->case_first + CASE_PAGE) < g->vm->inventory_count) g->case_first += CASE_PAGE;
+        break;
+    case 5:
+        g->case_first = g->case_first > CASE_PAGE ? g->case_first - CASE_PAGE : 0;
+        break;
+    default: break;
+    }
+}
+
+static void draw_case(Game *g, float scale) {
+    Rectangle screen = {0, 0, GAME_W * scale, GAME_H * scale};
+    clip_show(g, &g->case_body, CASE_BODY, 0);
+    if (g->case_body.flic)
+        DrawTexturePro(g->case_body.tex, (Rectangle){0, 0, GAME_W, GAME_H}, screen, (Vector2){0, 0}, 0, WHITE);
+    // The lit button's clip goes over the case, inside its own rect; the
+    // others are put back on their first frame.
+    for (int i = 0; i < 6; i++) {
+        Visual *b = &g->case_button[i];
+        clip_show(g, b, (uint16_t)(CASE_BUTTON0 + i), i == g->case_lit);
+        if (i != g->case_lit || !b->flic) continue;
+        Rectangle part = {(float)b->rect.left, (float)b->rect.top, (float)(b->rect.right - b->rect.left),
+                          (float)(b->rect.bottom - b->rect.top)};
+        DrawTexturePro(b->tex, part, (Rectangle){part.x * scale, part.y * scale, part.width * scale, part.height * scale},
+                       (Vector2){0, 0}, 0, WHITE);
+    }
+    for (int k = 0; k < CASE_PAGE; k++) {
+        Visual *v = NULL;
+        if (!case_item(g, k, &v)) continue;
+        DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
+                       (Rectangle){kCaseCell[k][0] * scale, kCaseCell[k][1] * scale, v->flic->width * scale,
+                                   v->flic->height * scale}, (Vector2){0, 0}, 0, WHITE);
+    }
+    // "Полоска в чемодане", the strap, lies across the things.
+    clip_show(g, &g->case_strip, CASE_STRAP, 0);
+    if (g->case_strip.flic)
+        DrawTexturePro(g->case_strip.tex, (Rectangle){0, 0, GAME_W, GAME_H}, screen, (Vector2){0, 0}, 0, WHITE);
+}
+
 // Row of the line menu, in window pixels; the menu sits at the bottom.
 static Rectangle menu_row(const Game *g, int row) {
     float top = (float)GetScreenHeight() - 16 - 34.0f * (float)g->menu_count;
@@ -1123,6 +1251,9 @@ int main(int argc, char **argv) {
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;
     g->cursor.resource = PETKA_NONE;
+    g->case_body.resource = g->case_exit.resource = g->case_strip.resource = PETKA_NONE;
+    for (int i = 0; i < 6; i++) g->case_button[i].resource = PETKA_NONE;
+    g->case_lit = -1;
     snprintf(g->speech_prefix, sizeof(g->speech_prefix), "SPEECH%s", digit);
 
     // The last one is the store of the part's first chapter; only a part
@@ -1249,7 +1380,7 @@ int main(int argc, char **argv) {
         for (int k = 0; k < 6 && !g->menu_count && vm->interface_enabled; k++) {
             if (!IsKeyPressed(kActionKeys[k].digit) && !IsKeyPressed(kActionKeys[k].letter)) continue;
             g->verb = kActionKeys[k].action;
-            vm->cursor_object = vm->cursor_resource = PETKA_NONE;
+            drop_item(g);
         }
 
         frame++;
@@ -1326,15 +1457,18 @@ int main(int argc, char **argv) {
 
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
         int can_act = vm->cursor_visible && !g->talking && g->seq_room == PETKA_NONE;
-        const PetkaObject *hover = can_act ? object_at(g, scene, scene_count, mx, my) : NULL;
-
-        // Inventory strip along the bottom edge.
-        int inv_hover = -1;
-        float inv_y = (float)GetScreenHeight() - 30;
-        for (uint32_t i = 0; can_act && i < vm->inventory_count; i++) {
-            Rectangle cell = {8 + 150.0f * i, inv_y, 146, 24};
-            if (CheckCollisionPointRec(mouse, cell)) inv_hover = (int)i;
-        }
+        // The case is opened and shut with I (the exe's command 32779),
+        // while the panel is on. Open, it takes the mouse off the room.
+        // dev: PETKA_CASE=<frame> opens it on that frame of an unattended run.
+        int case_key = IsKeyPressed(KEY_I) || (getenv("PETKA_CASE") && atol(getenv("PETKA_CASE")) == frame);
+        if (case_key && can_act && vm->interface_enabled && !g->menu_count) g->case_open = !g->case_open;
+        while (g->case_first > 0 && (uint32_t)g->case_first >= vm->inventory_count) g->case_first -= CASE_PAGE;
+        if (g->case_first < 0) g->case_first = 0;
+        int in_case = g->case_open && can_act;
+        if (!in_case) g->case_lit = -1;
+        const PetkaObject *hover = !can_act ? NULL
+                                 : in_case ? case_hover(g, (int)(mouse.x / scale), (int)(mouse.y / scale))
+                                 : object_at(g, scene, scene_count, mx, my);
 
         int menu_hover = -1;
         for (int i = 0; i < g->menu_count; i++)
@@ -1355,23 +1489,24 @@ int main(int argc, char **argv) {
                 next_phrase(g);
         } else if (can_act) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-                if (vm->cursor_object != PETKA_NONE) vm->cursor_object = PETKA_NONE;
+                if (vm->cursor_object != PETKA_NONE) drop_item(g);
                 else g->verb = (g->verb + 1) % VERB_COUNT;
             }
             if (clicked) {
-                if (inv_hover >= 0) {
-                    vm->cursor_object = vm->inventory[inv_hover];
-                } else if (hover && vm->cursor_object != PETKA_NONE) {
+                if (hover && vm->cursor_object != PETKA_NONE) {
+                    uint16_t item = vm->cursor_object;
                     stop_heroes(g);
-                    petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, 0, 0, 0, vm->cursor_object);
-                    vm->cursor_object = PETKA_NONE;
+                    drop_item(g);
+                    petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, 0, 0, 0, item);
                 } else if (hover) {
                     uint16_t op = kVerbs[g->verb].op;
                     int point = op == PETKA_OP_WALK || op == PETKA_OP_OBJECTUSE;
                     stop_heroes(g);
                     petka_scriptvm_post(vm, hover->id, op, point ? (uint16_t)mx : 0, point ? (uint16_t)my : 0, 0,
                                         op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)hover->id);
-                } else if (my < inv_y / scale && vm->cursor_object == PETKA_NONE) {
+                } else if (in_case) {
+                    case_click(g);
+                } else if (vm->cursor_object == PETKA_NONE) {
                     // Nothing under the click (the end of sub_414320): only
                     // two of the cursor's actions do anything.
                     uint16_t op = kVerbs[g->verb].op;
@@ -1419,6 +1554,8 @@ int main(int argc, char **argv) {
         }
 
         EndMode2D();
+
+        if (g->case_open) draw_case(g, scale);
 
         // Top bar: what a click would do.
         // The object under the cursor is captioned as the exe does it (the
@@ -1497,15 +1634,6 @@ int main(int argc, char **argv) {
                        i == menu_hover ? ORANGE : WHITE);
         }
 
-        for (uint32_t i = 0; !g->menu_count && i < vm->inventory_count; i++) {
-            const PetkaObject *item = petka_script_find(g->script, vm->inventory[i]);
-            Rectangle cell = {8 + 150.0f * i, inv_y, 146, 24};
-            int picked = vm->cursor_object == vm->inventory[i];
-            DrawRectangleRec(cell, Fade(picked ? ORANGE : BLACK, 0.7f));
-            DrawRectangleLinesEx(cell, 1, (int)i == inv_hover ? ORANGE : GRAY);
-            if (item) DrawTextEx(font, display_name(g, item), (Vector2){cell.x + 4, cell.y + 4}, 16, 1, WHITE);
-        }
-
         if (g->status[0] && game_now() < g->status_until)
             DrawTextEx(font, g->status, (Vector2){10, 36}, 18, 1, YELLOW);
         if (debug) {
@@ -1572,6 +1700,10 @@ int main(int argc, char **argv) {
 
     for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
     visual_free(&g->cursor);
+    visual_free(&g->case_body);
+    visual_free(&g->case_exit);
+    visual_free(&g->case_strip);
+    for (int i = 0; i < 6; i++) visual_free(&g->case_button[i]);
     free(g->visuals);
     for (uint32_t i = 0; i < g->script->object_count; i++) free(g->names[i]);
     free(g->names);

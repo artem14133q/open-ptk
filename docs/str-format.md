@@ -662,10 +662,48 @@ current one, and only while the panel object is active, it calls the current
 screen's slot `+56` and then shows the case if it is hidden and hides it if
 it is shown.
 
-Its other methods (vtable `0x4B9838`), not decompiled yet: update
-`0x415820`, hit test `0x415270`, "the cursor is over you" `0x415550` (which
-must be what lights a button), show/hide `0x415BB0`, and the layout of the
-things, `sub_415900`. The launcher has a strip of text in its place.
+**The things** (`sub_415900`, run when the case is shown and when a page
+is turned): every object with `z` = the case's + 1 is taken off the main
+screen's list, and then the six things of the page -- ids `first` ..
+`first + 5` of the case's word array -- are put on it with that `z` (981)
+and a place from a table at `0x4C9E70`, the view's scroll added to x:
+
+```
+(120,145) (240,145) (360,145)
+(100,220) (240,220) (380,220)
+```
+
+A thing's clip is a 132x129 frame of two pictures. Being ordinary objects
+on the screen's list, the things are hit-tested and clicked like anything
+in a room: a click posts the cursor's action to the thing (`TAKE` is what
+the script answers with `CURSOR`, putting the thing on the pointer).
+
+The rest of the case's methods (vtable `0x4B9838`), read from the
+disassembly:
+
+- **hit test** (`0x415270`): just "am I shown". An open case takes every
+  point of the screen that nothing above it takes, so the room behind it
+  cannot be clicked;
+- **the cursor is over you** (`0x415550`), which lights the buttons. If the
+  pixel under the pointer in `EXITCASE.FLC` (6009) is not transparent --
+  that clip is a mask, opaque everywhere *outside* the case -- button 3,
+  "quit", is lit: a click anywhere off the case shuts it. Otherwise the
+  first of the buttons 0-5 whose current frame's first `.MSK` rect holds
+  the pointer; none, and nothing is lit. Button 0 is not lit while
+  Chapayev is not visible (`QSystem+388`), nor button 2 while a flag is
+  clear (`+144` of the object at `QSystem+152`, not traced -- presumably
+  "the map is available"). A button losing the light is put back on its
+  first frame;
+- **show / hide** (`0x415BB0`): the case's x is set to the view's scroll.
+  Shown, the things are laid out and the object named
+  `Полоска в чемодане` (object 2 of the script, clip 6007, the strap) is
+  put on the list with `z` = the case's + 2, over the things. Hidden,
+  everything with those two `z` values is taken off the list again.
+
+The launcher has all of this (`draw_case`, `case_hover`, `case_click`), with
+key `I`, except the two buttons whose commands are not decompiled, which
+only say so. It lights a button by its clip's covering rect rather than the
+first rect of the current frame, and does not check the map button's flag.
 
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
@@ -1468,6 +1506,7 @@ along the route by the game's own gait (one step per walk-clip frame, from
 quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
 `PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels),
+`PETKA_CASE=<frame>` (open the case on that frame),
 `PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the
 cursor's action number as in the table under "How a click becomes a
 message"),
