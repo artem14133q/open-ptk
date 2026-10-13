@@ -597,6 +597,42 @@ the pointer this way (`draw_cursor`): the action's clip, or the clip a
 pointer 5001 over a dialogue menu (that last choice is the launcher's; what
 the dialogue sets the cursor to was not decompiled).
 
+**The star.** The object at `QSystem+148` -- called "the panel object" in
+these notes wherever its active flag (`+60`) is what lets the action keys,
+the case and the map work -- is the star: a menu of actions that comes up at
+the pointer. Its constructor (`sub_414C70`) gives it id 4098, clip 5000
+(`MAIN\STAR\SUPRSTAR.FLC`, 181x176, 7 frames), `z` 999, fixed z, hidden but
+active, and six rectangles inside the clip (`+124` on):
+
+| # | left, top - right, bottom | a click on it |
+|---:|---|---|
+| 0 | 70,74 - 112,112 (the middle) | shows the case |
+| 1 | 68,0 - 114,41 | action 0, look |
+| 2 | 151,51 - 180,97 | action 1, walk |
+| 3 | 138,125 - 179,166 | action 2, use |
+| 4 | 55,145 - 96,175 | action 3, take |
+| 5 | 11,79 - 40,118 | action 4, talk |
+
+- **The right button** on the main screen (`sub_414AF0`, the screen's slot
+  `+52`) does nothing unless the star is active. If the case is shown and
+  the cursor carries a thing (action 6), the thing is let go and the cursor
+  becomes "take" (clip 5005, action 3). Otherwise, if the star is hidden it
+  is placed with its middle at the pointer -- kept inside the screen: x from
+  0 to `639 - width`, y from 0 to `479 - height` -- and then its visibility
+  is flipped: the right button shows the star and takes it away again.
+  There is no stepping through the actions one by one;
+- its **hit test** (`0x414EC0`) is "am I shown": up, it takes every click;
+- **the cursor is over you** (`0x414ED0`) finds which rectangle holds the
+  pointer and puts the clip on frame `(n + 1) % 7 + 1` -- frame 1 for none,
+  `n + 2` for rectangle `n`, the star with that point lit;
+- its **click** (`0x414FD0`): rectangle 0 shows the case; 1-5 hide the
+  cursor, give it the clip `5001 + n` and the action `n - 1`, and show it;
+  and whatever was clicked, the star is hidden.
+
+"Send Chapayev" is not on the star: it is the case's first button, and keys
+`6` and `C`. The launcher has the star (`star_toggle`, `star_click`,
+`draw_star`).
+
 **The case.** The object at `QSystem+144` (made by `sub_4150A0`, right
 after the cursor) is the briefcase the game keeps its panel in: id 4099,
 clip 6000, `z` 980 (under the cursor's 1000, over everything else), fixed
@@ -1940,6 +1976,7 @@ quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
 `PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels),
 `PETKA_CASE=<frame>` (open the case on that frame),
+`PETKA_RCLICK=<frame>` (the right button on that frame),
 `PETKA_MAP=<frame>` (the map command on that frame),
 `PETKA_PANEL=<frame>` (the panel command on that frame),
 `PETKA_SAVE=<frame>` and `PETKA_LOAD=<frame>` (write and read `save1.dat`),

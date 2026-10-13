@@ -111,6 +111,11 @@ typedef struct {
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
+    // The star: the menu of actions the right button puts up at the pointer.
+    int star_open;
+    int star_x, star_y; // its corner on screen
+    int star_lit;       // the part under the pointer, 0..5, or 6 for none
+    Visual star;
     // A thing's description (SHOWDESCRIPTION), up until the next click.
     char desc[2048]; // UTF-8, "" = none
     int desc_frame;  // the message's number: a frame of the description clip
@@ -1364,6 +1369,76 @@ static void draw_description(Game *g, Font font, float scale) {
     draw_wrapped(font, g->desc, 160 * scale, 275 * scale, 438 * scale, 16 * scale, 16 * scale, BLACK);
 }
 
+// ---- the star ----
+//
+// The exe's object at QSystem+148 (sub_414C70; clip 5000, SUPRSTAR.FLC, z
+// 999): a star of five actions round a briefcase. The right button on the
+// main screen (sub_414AF0) puts it up with its middle at the pointer, kept
+// on screen, or takes it down. Up, it takes every click: on one of its six
+// rects (kept in the object, read from its constructor) it opens the case or
+// sets the cursor's action and clip, and in any case it goes away. Its clip
+// has a frame for each rect lit and one for none.
+#define STAR_CLIP 5000
+static const Rectangle kStarPart[6] = {
+    {70, 74, 42, 38},   // the middle: the case
+    {68, 0, 46, 41},    // look
+    {151, 51, 29, 46},  // walk
+    {138, 125, 41, 41}, // use
+    {55, 145, 41, 30},  // take
+    {11, 79, 29, 39},   // talk
+};
+
+static void star_toggle(Game *g, int px, int py) {
+    if (g->star_open) { g->star_open = 0; return; }
+    if (g->star.resource != STAR_CLIP) visual_load(g, &g->star, STAR_CLIP);
+    if (!g->star.flic) return;
+    int w = g->star.flic->width, h = g->star.flic->height;
+    g->star_x = px - w / 2;
+    g->star_y = py - h / 2;
+    if (g->star_x < 0) g->star_x = 0;
+    if (g->star_x > GAME_W - 1 - w) g->star_x = GAME_W - 1 - w;
+    if (g->star_y < 0) g->star_y = 0;
+    if (g->star_y > GAME_H - 1 - h) g->star_y = GAME_H - 1 - h;
+    g->star_open = 1;
+}
+
+// Which of the star's parts holds the point; 6 = none.
+static int star_part(const Game *g, int px, int py) {
+    Vector2 p = {(float)(px - g->star_x), (float)(py - g->star_y)};
+    for (int i = 0; i < 6; i++)
+        if (CheckCollisionPointRec(p, kStarPart[i])) return i;
+    return 6;
+}
+
+static void drop_item(Game *g);
+
+static void star_click(Game *g, int part) {
+    if (part == 0) {
+        g->case_open = 1;
+    } else if (part < 6) {
+        drop_item(g);
+        g->verb = part - 1; // the cursor gets the clip 5001 + part
+    }
+    g->star_open = 0;
+}
+
+static void draw_star(Game *g, float scale) {
+    Visual *v = &g->star;
+    if (!v->flic) return;
+    // Frame 1 is the star with nothing lit; part n is lit on frame n + 2.
+    int frame = (g->star_lit + 1) % 7 + 1;
+    if (frame <= v->flic->frame_count && v->flic->frame_index != frame - 1) {
+        for (int guard = 0; guard < v->flic->frame_count && v->flic->frame_index != frame - 1; guard++)
+            petka_flic_advance(v->flic);
+        uint8_t *rgba = flic_to_rgba(v->flic);
+        UpdateTexture(v->tex, rgba);
+        free(rgba);
+    }
+    DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
+                   (Rectangle){g->star_x * scale, g->star_y * scale, v->flic->width * scale, v->flic->height * scale},
+                   (Vector2){0, 0}, 0, WHITE);
+}
+
 // ---- the case ----
 //
 // The game's panel is a briefcase that covers most of the screen (the exe's
@@ -1993,6 +2068,8 @@ static void part_close(Game *g) {
     free(g->visuals);
     g->visuals = NULL;
     visual_free(&g->cursor);
+    visual_free(&g->star);
+    g->star_open = 0;
     visual_free(&g->desc_clip);
     g->desc[0] = 0;
     saves_unload(g);
@@ -2158,6 +2235,8 @@ int main(int argc, char **argv) {
     g->seq_room = PETKA_NONE;
     g->cursor.resource = PETKA_NONE;
     g->desc_clip.resource = PETKA_NONE;
+    g->star.resource = PETKA_NONE;
+    g->star_lit = 6;
     g->chapter_store = -1;
     snprintf(g->game_dir, sizeof(g->game_dir), "%s", game_dir);
     g->case_body.resource = g->case_exit.resource = g->case_strip.resource = PETKA_NONE;
@@ -2385,9 +2464,17 @@ int main(int argc, char **argv) {
         // dev: PETKA_PANEL=<frame> presses O on that frame of an unattended run.
         int panel_key = IsKeyPressed(KEY_O) || (getenv("PETKA_PANEL") && atol(getenv("PETKA_PANEL")) == frame);
         if (panel_key && can_act && !g->menu_count) panel_command(g);
-        int in_case = g->case_open && can_act;
+        // The star is up only while the player can act, and while it is up
+        // nothing else is under the pointer.
+        if (!can_act || g->map_open) g->star_open = 0;
+        int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
+        g->star_lit = g->star_open ? star_part(g, screen_x, screen_y) : 6;
+        // dev: PETKA_RCLICK=<frame> presses the right button on that frame.
+        int right_click = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
+                          (getenv("PETKA_RCLICK") && atol(getenv("PETKA_RCLICK")) == frame);
+        int in_case = g->case_open && can_act && !g->star_open;
         if (!in_case) g->case_lit = -1;
-        const PetkaObject *hover = !can_act ? NULL
+        const PetkaObject *hover = !can_act || g->star_open ? NULL
                                  : in_case ? case_hover(g, (int)(mouse.x / scale), (int)(mouse.y / scale))
                                  : g->map_open ? listed_object_at(g, mx, my)
                                  : object_at(g, scene, scene_count, mx, my);
@@ -2410,12 +2497,22 @@ int main(int argc, char **argv) {
                 (voiced ? !IsSoundPlaying(g->voice) : game_now() >= g->line_until))
                 next_phrase(g);
         } else if (can_act) {
-            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && !g->map_open) {
-                if (vm->cursor_object != PETKA_NONE) drop_item(g);
-                else g->verb = (g->verb + 1) % VERB_COUNT;
+            // The right button (sub_414AF0), while the panel is on: with
+            // the case open and a thing on the cursor, the thing is put down
+            // and the cursor becomes "take"; otherwise the star comes up at
+            // the pointer, or goes away.
+            if (right_click && !g->map_open && vm->interface_enabled) {
+                if (g->case_open && vm->cursor_object != PETKA_NONE) {
+                    drop_item(g);
+                    g->verb = 3;
+                } else {
+                    star_toggle(g, screen_x, screen_y);
+                }
             }
             if (clicked) {
-                if (g->panel_open) {
+                if (g->star_open) {
+                    star_click(g, g->star_lit);
+                } else if (g->panel_open) {
                     if (hover) panel_click(g, hover);
                 } else if (hover && vm->cursor_object != PETKA_NONE) {
                     uint16_t item = vm->cursor_object;
@@ -2483,6 +2580,7 @@ int main(int argc, char **argv) {
         EndMode2D();
 
         if (g->case_open) draw_case(g, scale);
+        if (g->star_open) draw_star(g, scale);
         if (g->save_mode) draw_saves(g, font, scale);
 
         // Top bar: what a click would do.
