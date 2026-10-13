@@ -750,10 +750,12 @@ eight clips in use -- which a wrong sign in the turn or swapped tables
 would not survive. Where a walking hero's sprite goes is `sub_424190`: its
 top-left corner is the position minus the current frame's `.LEG` point times
 the hero scale at that row -- so the foothold stays on the position and the
-sprite moves by exactly `.OFF`. Not seen in the exe: how a clip without a
-`.LEG` (standing, talking, acting) is placed -- that is the heroes' set-
-position method, `0x4087D0`; the launcher uses the bottom centre of the
-clip's MSK rect. The route itself is described under `.CVX` above.
+sprite moves by exactly `.OFF`. Any other clip (standing, talking, acting)
+is placed by the heroes' set-position method (`sub_4087D0`): the frame,
+scaled by the hero scale at his row, stands on the position by the middle of
+its bottom edge -- `x - w/2`, `y - h`. The two rules do not agree to the
+pixel, so a hero shifts slightly as a walk starts or ends. The route itself
+is described under `.CVX` above.
 
 `CHAPTER n` (`sub_411C00`) opens the store named by `[Part P Chapter n]` in
 `PARTS.INI` (`chap21.str`, `chap22.str`) and re-reads `NAMES.INI`/`CAST.INI`
@@ -1056,9 +1058,12 @@ Seven backgrounds are wider than the 640-pixel screen (six in `PART_2`, up to
 everything is in background pixels: the object clips are as wide as the
 background, and the MSK rects, walk mesh, walk points and hero positions
 use the same coordinates, so only the view moves. On `GOTO` the exe centres
-it on the entry point (`walk_x - 320`, clamped to the background); how it
-follows the hero afterwards was not traced, so the launcher's rule -- scroll
-when Petka comes within 200 pixels of the edge -- is its own.
+it on the entry point (`walk_x - 320`, clamped to the background).
+Afterwards, whenever the followed hero is positioned within 160 pixels of
+either side of the screen, the view is asked to centre on him (`x - 320`,
+clamped; `sub_4087D0` writes it to `QSystem+108`, the view itself is
+`QSystem+104`). How fast the view then moves there was not traced; the
+launcher scrolls at a fixed speed.
 
 `tools/looptest/main.c` — decodes every multi-frame `.FLC` of the given
 stores twice round and fails if the second loop differs from the first:

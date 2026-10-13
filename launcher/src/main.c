@@ -34,10 +34,11 @@
 #define GAME_H 480
 #define MAX_STORES 8
 #define MAX_SOUNDS 8
-// Scrolling of backgrounds wider than the screen: the view moves when Petka
-// comes within SCROLL_MARGIN of its edge. Both numbers are ours; the exe is
-// only known to centre the view on the entry point when a room is entered.
-#define SCROLL_MARGIN 200.0f
+// Scrolling of backgrounds wider than the screen: when Petka comes within
+// SCROLL_MARGIN of either side of the screen the view is asked to centre on
+// him (the exe's rule and number). SCROLL_SPEED, how fast it gets there, is
+// ours.
+#define SCROLL_MARGIN 160.0f
 #define SCROLL_SPEED 480.0f // px/s
 // A hero's idle or PLAY clip stops on its first frame after one loop: the
 // exe (sub_407BF0) winds that clip's clock back by this much.
@@ -93,6 +94,7 @@ typedef struct {
     Visual *visuals; // parallel to script->objects
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
+    float camera_target;    // where the view has been asked to move to
     int camera_snap;        // a room was just entered: centre the view, don't glide
     PetkaWalkMesh *mesh;    // the current background's floor, NULL if it has none
     uint16_t mesh_resource; // background the mesh belongs to
@@ -505,11 +507,10 @@ static const char *display_name(const Game *g, const PetkaObject *obj);
 
 // Where a hero's clip goes on screen. While he walks, the frame's foothold
 // (from the clip's .LEG file) sits on his position, scaled, so the feet do
-// not slide -- the exe's sub_424190. A clip with no .LEG -- standing,
-// talking, acting -- is placed by the bottom centre of its MSK rect
-// instead, which is our assumption (the exe's rule is in its set-position
-// method, not decompiled), so he may shift by a few pixels when a walk
-// starts or ends.
+// not slide -- the exe's sub_424190. Otherwise -- standing, talking, acting
+// -- the clip stands on the position by the middle of its bottom edge. The
+// two rules do not agree to the pixel, so he shifts slightly as a walk
+// starts or ends, in the original as here.
 static Rectangle hero_dest(const Game *g, uint16_t hero_id, const PetkaObjectState *st, const Visual *v) {
     const Walk *w = &g->walk[hero_id];
     if (w->active) {
@@ -521,9 +522,11 @@ static Rectangle hero_dest(const Game *g, uint16_t hero_id, const PetkaObjectSta
                            (float)w->walker.y - (float)gait->leg_y[dir][frame] * s,
                            v->flic->width * s, v->flic->height * s};
     }
+    // The hero's set-position (sub_4087D0): the frame, scaled for his row,
+    // stands on the position by the middle of its bottom edge.
     float s = hero_scale(g, (float)st->y);
-    float ax = (v->rect.left + v->rect.right) / 2.0f, ay = (float)v->rect.bottom;
-    return (Rectangle){st->x - ax * s, st->y - ay * s, v->flic->width * s, v->flic->height * s};
+    int width = (int)((float)v->flic->width * s), height = (int)((float)v->flic->height * s);
+    return (Rectangle){(float)(st->x - width / 2), (float)(st->y - height), (float)width, (float)height};
 }
 
 // The step tables for a costume's walk clips. As in the exe's Walk
@@ -641,24 +644,27 @@ static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
 static void camera_update(Game *g, float dt) {
     float max_x = g->bg_tex.id ? (float)g->bg_tex.width - GAME_W : 0;
     if (max_x < 0) max_x = 0;
-    if (g->seq_room != PETKA_NONE) { g->camera_x = 0; return; } // sequences are one screen
+    if (g->seq_room != PETKA_NONE) { g->camera_x = g->camera_target = 0; return; } // sequences are one screen
     const PetkaObjectState *petka = petka_scriptvm_state(g->vm, PETKA_ID_PETKA);
-    float target = g->camera_x;
+    // The exe's rule (in the hero's set-position, sub_4087D0): once Petka is
+    // within SCROLL_MARGIN of either side of the screen, the view is asked
+    // to centre on him.
     if (petka && g->camera_snap) {
-        target = (float)petka->x - GAME_W / 2.0f;
+        g->camera_target = (float)petka->x - GAME_W / 2.0f;
     } else if (petka && petka->visible) {
         float on_screen = (float)petka->x - g->camera_x;
-        if (on_screen < SCROLL_MARGIN) target = (float)petka->x - SCROLL_MARGIN;
-        if (on_screen > GAME_W - SCROLL_MARGIN) target = (float)petka->x - (GAME_W - SCROLL_MARGIN);
+        if (on_screen < SCROLL_MARGIN || on_screen > GAME_W - SCROLL_MARGIN)
+            g->camera_target = (float)petka->x - GAME_W / 2.0f;
     }
-    if (target < 0) target = 0;
-    if (target > max_x) target = max_x;
+    if (g->camera_target < 0) g->camera_target = 0;
+    if (g->camera_target > max_x) g->camera_target = max_x;
 
+    // How fast the view then moves to where it was asked is ours.
     float step = g->camera_snap ? max_x + GAME_W : SCROLL_SPEED * dt;
     g->camera_snap = 0;
-    if (target > g->camera_x + step) g->camera_x += step;
-    else if (target < g->camera_x - step) g->camera_x -= step;
-    else g->camera_x = target;
+    if (g->camera_target > g->camera_x + step) g->camera_x += step;
+    else if (g->camera_target < g->camera_x - step) g->camera_x -= step;
+    else g->camera_x = g->camera_target;
     if (g->camera_x > max_x) g->camera_x = max_x;
 }
 
