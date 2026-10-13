@@ -595,6 +595,30 @@ the pointer this way (`draw_cursor`): the action's clip, or the clip a
 pointer 5001 over a dialogue menu (that last choice is the launcher's; what
 the dialogue sets the cursor to was not decompiled).
 
+**The case.** The object at `QSystem+144` (made by `sub_4150A0`, right
+after the cursor) is the briefcase the game keeps its panel in: id 4099,
+clip 6000, `z` 980 (under the cursor's 1000, over everything else), fixed
+`z` (`+52` = 0), and **hidden** to begin with (`+44` = 0). It holds a word
+array (`+132`) -- by its place the ids of the inventory -- and two fields
+set to `-1` (`+124`) and 0 (`+128`). Its pictures:
+
+| resource | clip |
+|---:|---|
+| 6000 | `MAIN\CASE\BRIFCASE.FLC`, the case itself |
+| 6001 | `MAIN\CASE\CHIPPER.FLC` |
+| 6002 | `MAIN\CASE\DISKETA.FLC` |
+| 6003 | `MAIN\CASE\MAP-CASE.FLC` |
+| 6004 | `MAIN\CASE\QUIT.FLC` |
+| 6005, 6006 | `MAIN\CASE\SKROLL-R.FLC`, `SKROLL-L.FLC` |
+| 6007 | `MAIN\CASE\POLOSKA.FLC` |
+| 6009 | `MAIN\CASE\EXITCASE.FLC` |
+
+Its methods (vtable `0x4B9838`), none decompiled yet: draw `0x415280`,
+update `0x415820`, hit test `0x415270`, "the cursor is over you" `0x415550`,
+click `0x4151B0` (which is the one caller of the "send Chapayev" command
+handler `0x418100`), show/hide `0x415BB0`. The launcher has a strip of text
+in its place.
+
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
 message switches the cursor to. The arguments matter because a reaction's
