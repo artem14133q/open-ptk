@@ -987,8 +987,28 @@ more are played when the program starts, before anything else is shown
 (`sub_410CD0`, the application's start-up): `buka.avi`, `skif.avi` and
 `adv.avi`, in that order.
 `INTRO.AVI` is 640x480 Indeo 3 video at about 24 frames a second with
-MS-ADPCM sound, three and a half minutes long (the copy examined also has
-`credits.avi`, which nothing found so far plays). The launcher does what the exe does -- gives the file to someone
+MS-ADPCM sound, three and a half minutes long. A fifth film, `credits.avi`,
+is played from the start-up screen (below).
+
+**The start-up screen** (`QSystem+556`, constructor `sub_41E620`) is the
+game's main menu, and like the map and the panel it is a room of a script:
+`STARTUP`, room 36 of **`PART_0`** -- a part of its own that holds only the
+menus (it also has a `ПАНЕЛЬ УПРАВЛЕНИЯ` and a `SAVELOAD`). The room has a
+picture (`SET 4980`, `MAIN\INTRFACE.BG\INSTHERO.BMP`), music (`MUSIC 4986`,
+`start.wav`) and five objects with a clip each and no reactions:
+
+| object | clip | a click (`0x41EAB0`, by the clip's resource less 4981) |
+|---|---|---|
+| `STARTUP - Exit` | 4981 `S-EXIT.FLC` | the application's close (`0x4181E0`, the call the panel's door makes) |
+| `STARTUP - Credits` | 4982 `S-TITLE.FLC` | plays `credits.avi` (`sub_4124A0`), then finds the room `STARTUP` again and starts its music afresh |
+| `STARTUP - Load` | 4983 `SLOADGEM.FLC` | sets the save/load screen up for loading and makes it current |
+| `STARTUP - New` | 4984 `SNEWGAME.FLC` | new game (`sub_418260`) |
+| `STARTUP - Misc` | 4985 `SUNINSTL.FLC` | nothing |
+
+The click goes by the object under the cursor (screen `+24`), so the
+screen's mouse function finds it; that function, the screen's start and its
+constructor were not decompiled. The launcher has a plain menu of its own in
+this screen's place. The launcher does what the exe does -- gives the file to someone
 else: `ffmpeg`, if it is installed, decodes it, and the launcher shows the
 frames in its window at 24 a second with the sound alongside, until it ends
 or a key or button is pressed (`play_film`). Without `ffmpeg`, and in
