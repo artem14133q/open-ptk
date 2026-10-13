@@ -861,10 +861,20 @@ The slots, and the two page buttons, are rectangles built at start-up
 | slot 4 | 358,75 - 466,157 |
 | slot 5 | 360,200 - 468,282 |
 | slot 6 | 359,325 - 467,407 |
-| `0x4DE970` | 10,414 - 38,442 |
-| `0x4DE960` | 596,403 - 624,431 |
+| `0x4DE970`, previous page | 10,414 - 38,442 |
+| `0x4DE960`, next page | 596,403 - 624,431 |
 
-(the last two by their place the "previous page" and "next page" corners).
+Its **click** (`sub_41E370`) goes by these rectangles alone, not by
+objects:
+
+- in a slot: the name `save<n>.dat` is built as above, and
+  - when loading, and only if the slot has a file: the screen is left
+    (slot `+56`) and **`sub_407410(name)`** called -- the loading of a game;
+  - when saving: the screen is left and **`sub_406EB0(name)`** called -- the
+    saving. An occupied slot is overwritten without a question;
+- in the previous-page corner, on page 1 or 2: the page goes down by one,
+  the screen is left and set up again in the same mode;
+- in the next-page corner, on page 0 or 1: the same, a page up.
 
 So a saved game begins
 
@@ -876,10 +886,11 @@ bytes 38-     the picture: 82 rows of 108 16-bit pixels, in the surface's
 then          the game's state, not decompiled
 ```
 
-Not decompiled: click `0x41E370`, mouse move `0x41E2B0`, leave `0x41E590`,
-`sub_41E230` (which the panel's start calls before it draws anything of its
-own -- with a 108x82 picture in every file, surely the taking of it), and
-the writing and reading of the state. The launcher has no saved games yet.
+Not decompiled: mouse move `0x41E2B0`, leave `0x41E590`, `sub_41E230`
+(which the panel's start calls before it draws anything of its own -- with
+a 108x82 picture in every file, surely the taking of it), and the saving
+and loading themselves, `sub_406EB0` and `sub_407410`. The launcher has no
+saved games yet.
 
 Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
