@@ -812,13 +812,28 @@ is the `n` of the walking hero's clock (see "Object update"): at the
 default, 48, he walks at `(48 + 50) / 50`, about twice the walk clip's own
 speed.
 
+The sound manager (`sub_40E160(channel, percent)`) keeps the percent of
+each channel -- 0 music, 1 effects, 2 speech -- and passes it to every
+loaded sound of that channel (a sound's channel is its `+40`), whose
+`sub_40EB70` sets the DirectSound volume:
+
+```
+percent 0:    -10000                        (silence)
+percent 100:  0                             (nothing off)
+otherwise:    -(10000 - 10000 * ln(2.75 * percent) / ln(275))
+```
+
+in hundredths of a decibel. The curve is steep: the default music, 47 %,
+is 13.4 dB down (a gain of 0.21), the default effects, 73 %, 5.6 dB down
+(0.53), and 10 % is all but silent.
+
 Not decompiled: mouse move `0x41C8D0`, leave `0x41CE00`, the save/load
-screen, and how the sound manager turns a percent into a volume. The launcher puts the panel up the same
+screen. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
 switch and the four dials (`panel_click`); with the subtitles off a phrase
 is not written out, and one without a voice is not waited for. The dials
-start at the exe's defaults and work: the three volumes (taken as plain
-fractions; the ambience counts as an effect) and the walking speed. Nothing
+start at the exe's defaults and work: the three volumes, on the exe's
+curve (the ambience counts as an effect), and the walking speed. Nothing
 is saved between runs, and unlike the original the launcher starts with the
 subtitles on. New game, loading and saving only say they are not there yet.
 

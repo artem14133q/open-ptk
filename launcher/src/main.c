@@ -348,6 +348,17 @@ static int dial_percent(const Game *g, int which) {
     return (g->dial[which] * 100 - 100) / (kDialTop[which] - 1);
 }
 
+// A volume dial as a gain. The exe (sub_40EB70) gives DirectSound
+// -(10000 - 10000 * ln(2.75 * percent) / ln(275)) hundredths of a decibel:
+// nothing off at 100, about 13 dB off at 47, and silence at 0.
+static float dial_gain(const Game *g, int which) {
+    int percent = dial_percent(g, which);
+    if (percent <= 0) return 0.0f;
+    if (percent >= 100) return 1.0f;
+    double centibels = -(10000.0 - 10000.0 * log(2.75 * percent) / log(275.0));
+    return (float)pow(10.0, centibels / 2000.0);
+}
+
 static void play_sound(Game *g, const char *path) {
     size_t len = 0;
     const uint8_t *bytes = res_find(g, path, &len);
@@ -358,7 +369,7 @@ static void play_sound(Game *g, const char *path) {
         Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
         g->sounds[i] = LoadSoundFromWave(wave);
         UnloadWave(wave);
-        SetSoundVolume(g->sounds[i], dial_percent(g, DIAL_SFX) / 100.0f);
+        SetSoundVolume(g->sounds[i], dial_gain(g, DIAL_SFX));
         PlaySound(g->sounds[i]);
         return;
     }
@@ -897,7 +908,7 @@ static void next_phrase(Game *g) {
             if (wave.frameCount > 0) {
                 g->voice = LoadSoundFromWave(wave);
                 SetSoundPan(g->voice, speaker_pan(g, g->talker));
-                SetSoundVolume(g->voice, dial_percent(g, DIAL_SPEECH) / 100.0f);
+                SetSoundVolume(g->voice, dial_gain(g, DIAL_SPEECH));
                 PlaySound(g->voice);
             }
             UnloadWave(wave);
@@ -1269,7 +1280,7 @@ static void panel_click(Game *g, const PetkaObject *hit) {
             g->dial[which] += (n - 16) % 2 ? 5 : -5;
             if (g->dial[which] < 1) g->dial[which] = 1;
             if (g->dial[which] > kDialTop[which]) g->dial[which] = kDialTop[which];
-            if (g->voice.frameCount > 0) SetSoundVolume(g->voice, dial_percent(g, DIAL_SPEECH) / 100.0f);
+            if (g->voice.frameCount > 0) SetSoundVolume(g->voice, dial_gain(g, DIAL_SPEECH));
         }
         break;
     }
@@ -1631,11 +1642,11 @@ int main(int argc, char **argv) {
             set_stream(g, &g->ambience, &g->ambience_id, ambience);
         }
         if (g->music.frameCount > 0) {
-            SetMusicVolume(g->music, dial_percent(g, DIAL_MUSIC) / 100.0f);
+            SetMusicVolume(g->music, dial_gain(g, DIAL_MUSIC));
             UpdateMusicStream(g->music);
         }
         if (g->ambience.frameCount > 0) {
-            SetMusicVolume(g->ambience, dial_percent(g, DIAL_SFX) / 100.0f);
+            SetMusicVolume(g->ambience, dial_gain(g, DIAL_SFX));
             UpdateMusicStream(g->ambience);
         }
 
