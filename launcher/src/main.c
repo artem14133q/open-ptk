@@ -1211,6 +1211,10 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         if (m->opcode == PETKA_OP_PLAY || m->arg2 == 1) g->visuals[obj_index(g, obj)].restart = 1;
         break;
     case PETKA_OP_SETSEQ:
+        // A sequence takes the screen from whatever has it. The map or the
+        // panel may be up when a clip that was still playing sets one off;
+        // left open, they would keep the sequence from ever being shown.
+        map_leave(g);
         sequence_sounds(g, 1);
         g->seq_room = obj->id;
         break;
@@ -2518,7 +2522,7 @@ static void game_switch(Game *g, int part, int chapter) {
 //   map <id>                            open the map and pick a place
 //   pick <n> [<n>...]                   the lines to answer the coming
 //                                       menus with, from 0
-//   room <id>                           check which room this is
+//   room <id> / part <n>                check which room, which part this is
 //   has <id> / hasnot <id>              check the case
 //   save <n>                            write save<n>.dat
 //   shot <file.png>                     save a screenshot
@@ -2627,6 +2631,15 @@ static void play_tick(Game *g, int can_act) {
     PetkaScriptVM *vm = g->vm;
     if (s_play.over) return;
     if (g->menu_count > 0) {
+        // PETKA_PLAY_LAST=1: a menu with no pick named for it is answered
+        // with its last line, which as a rule is the goodbye.
+        if (s_play.pick_at >= s_play.pick_count && getenv("PETKA_PLAY_LAST") && s_play.pick_count < 64) {
+            s_play.picks[s_play.pick_count++] = g->menu_count - 1;
+            fprintf(stderr, "play: no pick named, taking the last of:\n");
+            for (int i = 0; i < g->menu_count; i++)
+                fprintf(stderr, "play:   %d: %s\n", i,
+                        g->menu[i] < g->phrases->count ? utf8_name(g->phrases->phrases[g->menu[i]].text) : "?");
+        }
         if (s_play.pick_at >= s_play.pick_count) {
             fprintf(stderr, "play: a menu of %d lines:\n", g->menu_count);
             for (int i = 0; i < g->menu_count; i++)
@@ -2703,6 +2716,8 @@ static void play_tick(Game *g, int can_act) {
         petka_scriptvm_post(vm, obj->id, PETKA_OP_LOOK, 0, 0, 0, obj->id);
     } else if (!strcmp(st->verb, "pick")) {
         for (int i = 0; i < st->pick_count && s_play.pick_count < 64; i++) s_play.picks[s_play.pick_count++] = st->picks[i];
+    } else if (!strcmp(st->verb, "part")) {
+        if (g->part_number != st->a) { snprintf(why, sizeof(why), "this is part %d, not %d", g->part_number, st->a); play_fail(g, why); return; }
     } else if (!strcmp(st->verb, "room")) {
         if (vm->room != st->a) { snprintf(why, sizeof(why), "this is room %u, not %d", vm->room, st->a); play_fail(g, why); return; }
     } else if (!strcmp(st->verb, "has") || !strcmp(st->verb, "hasnot")) {

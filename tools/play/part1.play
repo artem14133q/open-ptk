@@ -1,0 +1,255 @@
+# Part 1, by the walkthrough. Object ids are those of PART_1's script.
+room 524            # Petka's room
+use 89              # the aquarium -> the big key
+take 90             # the big key
+has 8
+use 94              # the wardrobe's door
+take 91             # the folded rubber mattress
+has 3
+take 92             # the cuckoo
+has 18
+walk 84             # out to the hallway
+room 517
+vich 107            # Chapayev gets the horseshoe
+has 27
+item 8 112          # the big key on the chest
+has 16              # the machine gun's instructions
+item 27 18          # the horseshoe on the cuckoo -> the magnet
+has 19
+walk 119            # out to the yard
+room 519
+shot p1-yard.png
+
+# Furmanov's: the axe, the bucket, the coupon, the oars
+map 69
+room 520
+take 270            # the axe
+has 36
+use 271             # the windlass
+vich 272            # Chapayev holds the bucket
+item 36 277         # the axe on the rope
+take 276            # the bucket
+has 10
+walk 267            # into Furmanov's room
+room 525
+take 288            # the coupon
+has 35
+take 289            # the oars
+has 12
+item 36 12          # chop the oars
+has 31
+walk 290
+room 520
+
+# The shop
+map 78
+room 535
+talk 197            # the drunk
+walk 203
+room 528
+pick 1
+talk 220            # the shop assistant
+has 6
+pick 1 3
+talk 220
+has 25
+item 35 220         # the coupon -> Sprite
+has 5
+use 6               # "Capital" -> the syringe
+has 39
+walk 206
+room 535
+shot p1-shop.png
+
+# The crossroads: Sprite for the pioneers' spirit
+map 65
+room 536
+pick 0
+talk 377
+item 5 377
+has 4
+
+# The club: the lecture, the pistol, the lamp
+map 68
+room 522
+walk 355
+room 514
+pick 2
+talk 364            # the soldiers
+has 15
+item 15 358         # shoot the lamp
+room 522
+has 24
+shot p1-club.png
+
+# Anka's: the bellows, the doll, the machine gun parts -> the mincer
+map 66
+room 518
+walk 164
+room 523
+pick 1 0
+talk 173
+take 176
+has 22
+item 22 3           # the bellows on the mattress -> the rubber doll
+has 29
+take 168
+has 14
+item 16 14          # the instructions on the parts -> the mincer
+has 23
+walk 177
+room 518
+
+# The swamp: the doll on the birch, the tobacco
+map 80
+room 516
+item 29 396
+hasnot 29
+take 389
+has 34
+shot p1-swamp.png
+
+# The stove at the farm: Chapayev fetches the thing -> the wig
+map 77
+room 541
+vich 156
+has 37
+has 33              # the tobacco has dried on the way
+item 33 23          # through the mincer -> makhorka
+has 21
+
+# The apiary
+map 76
+room 533
+item 21 305         # makhorka for the bee-keeper
+item 4 307          # and the spirit
+use 308             # search him -> the paper with the code
+has 9
+look 9
+item 39 304         # bees into the syringe
+has 40
+
+# Petka's house: bees through the keyhole, then the bath's stove
+map 75
+room 519
+item 40 128
+walk 129
+room 515
+use 134             # the stove's door
+item 31 135         # the wood
+vich 136            # Chapayev lights it
+shot p1-bath.png
+
+# The transformer: Chapayev holds the wires, all three switches -> the blast at the dump
+walk 145
+room 519
+map 79
+room 540
+vich 335
+use 338
+use 339
+use 340
+wait 1500           # the sparks, then the blast
+shot p1-blast.png
+
+# The dump: the safe, the little key, the magnet on the wires
+map 72
+room 539
+shot p1-dump.png
+item 9 1            # the code for Chapayev
+vich 326            # he opens the safe
+take 325
+has 20
+item 19 322
+hasnot 19
+
+# The transformer again: the magnet lifts the rubbish, then lets the cartridge go
+map 79
+room 540
+vich 335
+wait 600
+use 338             # on: the magnet pulls; the script switches it off itself
+wait 5000
+map 72
+room 539
+take 319
+has 26
+item 26 24          # load the pistol
+has 15
+shot p1-dump2.png
+
+# The stump: a twig; the field: tickle the heels, take the hay
+map 65
+room 536
+walk 375
+room 527
+walk 399
+room 534
+item 36 403         # chop a twig
+has 28
+walk 404
+room 537
+item 28 412
+take 413
+has 30
+shot p1-field.png
+
+# Anka is sent to the bath; her clothes
+map 66
+room 518
+walk 164            # the talk at the door, Anka inside, and out again
+room 518
+map 75
+room 519
+pick 1
+walk 129
+room 515
+wait 3000
+has 7
+shot p1-bath2.png
+walk 145
+room 519
+
+# The barn: hay for the cow, milk, the hide
+map 78
+room 535
+item 20 193         # the little key on the lock
+room 538
+item 30 230
+wait 2000
+item 10 231         # milk her
+wait 2000
+has 11
+take 232
+has 38
+walk 233
+room 535
+
+# The palm: seeds, milk, leave and come back, shoot the coconuts
+map 70
+room 532
+item 25 237
+item 11 243
+wait 2000
+walk 248
+room 535
+walk 205
+room 532
+item 15 246
+wait 2000
+take 250
+has 17
+shot p1-palm.png
+
+# The bridge: paint the wig, dress up behind the bush
+map 73
+room 529
+item 37 421
+has 13
+shot p1-bridge.png
+save 2              # the end of part 1, everything collected, at the bridge
+use 425             # behind the bush: the disguise, the guards, the end of the part
+wait 30000
+part 2
+shot p2-start.png
+save 3              # the beginning of part 2

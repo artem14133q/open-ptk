@@ -2186,6 +2186,16 @@ quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_SAVE=<frame>` and `PETKA_LOAD=<frame>` (write and read `save1.dat`),
 `PETKA_OPTIONS=<file>` (keep the panel's settings there; an unattended run
 without it neither reads nor writes `Petka.ini`),
+`PETKA_PLAY=<file>` (play the game from a list of steps -- the cursor's
+actions on objects by id, things from the case, the map, menu answers,
+checks of the room and the case, saves and screenshots -- each taken when
+the game has come to rest; a step that cannot be taken ends the run with a
+report, a screenshot `play-fail.png` and exit code 3. `PETKA_PLAY_LAST=1`
+answers a menu no pick was named for with its last line. The steps are
+listed at `play_tick` in the launcher; `tools/play/part1.play` goes through
+the whole of part 1 by the published walkthrough, 220 steps, and leaves
+`save2.dat` at the bridge with everything collected and `save3.dat` at the
+start of part 2),
 `PETKA_FILM=<seconds>:<file.png>` (play films in an unattended run, save the
 frame reached after that long and stop there),
 `PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the
