@@ -1067,6 +1067,18 @@ static void sequence_sounds(Game *g, int entering) {
 // nothing here decodes; so, in the same spirit, the launcher hands the file
 // to ffmpeg if there is one, and shows the frames it sends back.
 #define FILM_FPS 24
+
+// ffmpeg, by its full path where it can be found: a program started from the
+// Finder does not have the shell's PATH. One put next to the launcher wins.
+static const char *ffmpeg_program(void) {
+    static char beside[1100];
+    snprintf(beside, sizeof(beside), "%sffmpeg", GetApplicationDirectory());
+    if (FileExists(beside) && !strpbrk(beside, "\"$`\\")) return beside;
+    static const char *const places[] = {"/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"};
+    for (size_t i = 0; i < sizeof(places) / sizeof(places[0]); i++)
+        if (FileExists(places[i])) return places[i];
+    return "ffmpeg";
+}
 static int find_film(const Game *g, const char *name, char *out, size_t out_sz) {
     static const char *dirs[] = {"", "data1_out/Main/", "Main/"};
     char lower[256];
@@ -1106,11 +1118,12 @@ static void play_film(Game *g, const char *name) {
     char command[2048], sound_file[512];
     const char *tmp = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
     snprintf(sound_file, sizeof(sound_file), "%s/petka_film_%d.wav", tmp, (int)getpid());
-    snprintf(command, sizeof(command), "ffmpeg -v error -y -i \"%s\" -vn -f wav \"%s\"", path, sound_file);
+    const char *ffmpeg = ffmpeg_program();
+    snprintf(command, sizeof(command), "\"%s\" -v error -y -i \"%s\" -vn -f wav \"%s\"", ffmpeg, path, sound_file);
     int have_sound = system(command) == 0 && FileExists(sound_file);
     snprintf(command, sizeof(command),
-             "ffmpeg -v error -i \"%s\" -an -vf fps=%d,scale=%d:%d -f rawvideo -pix_fmt rgba -", path, FILM_FPS, GAME_W,
-             GAME_H);
+             "\"%s\" -v error -i \"%s\" -an -vf fps=%d,scale=%d:%d -f rawvideo -pix_fmt rgba -", ffmpeg, path, FILM_FPS,
+             GAME_W, GAME_H);
     FILE *frames = popen(command, "r");
     size_t frame_bytes = (size_t)GAME_W * GAME_H * 4;
     uint8_t *pixels = (uint8_t *)malloc(frame_bytes);
@@ -2479,7 +2492,11 @@ static void game_switch(Game *g, int part, int chapter) {
 }
 
 int main(int argc, char **argv) {
-    const char *game_dir = argc > 1 ? argv[1] : ".";
+    // With no arguments the game is where the program is: a copy dropped
+    // into the game's folder runs it from there, however it was started, and
+    // keeps its saved games and settings in that folder too.
+    const char *game_dir = argc > 1 ? argv[1] : GetApplicationDirectory();
+    if (argc <= 1) ChangeDirectory(game_dir);
     const char *part = argc > 2 ? argv[2] : "PART_1";
     const char *digit = part;
     while (*digit && (*digit < '0' || *digit > '9')) digit++;
