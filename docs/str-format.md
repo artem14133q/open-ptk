@@ -578,7 +578,9 @@ does cover the exit behind him.
   `+44`), gives the first hit slot `+36` -- `sub_401A60`, which does nothing
   but write the object back into that field. The cursor is told whether it
   is over something (cursor `+48`) and moved (its slot `+64`). If the object
-  under the cursor changed and the screen's `+68` is 3 (meaning not known),
+  under the cursor changed and the screen's `+68` is 3 -- that is `+24` of
+  the dialogue object built into the screen at `+44`, its state, and 3 is
+  "no phrase and no menu up", so objects are not named during a dialogue --
   the caption is set through the screen's slot `+40`:
   - the object's shown name (`+84`, from `NAMES.INI`) in `0xFFFFC0`
     (COLORREF: R 192, G 255, B 255) if it differs from the string at
@@ -1084,7 +1086,11 @@ and `SubRecord.verb_id` is the message opcode (1 `USE`, 4 `LOOK`, 6 `TAKE`,
 One function moves a running dialogue on. Its argument is `-1` for "go on"
 (a click with the cursor hidden; presumably also the end of the voice clip)
 or the number of the menu line picked. The dialogue object keeps a state
-(`+24`): 1 while a phrase is up, 2 while a menu is. "Go on" is ignored in
+(`+24`): 1 while a phrase is up, 2 while a menu is, 3 otherwise -- its
+constructor (`sub_415E00`), its start and its end (`sub_4165A0`) all write
+3, the first and the last with `-1` for the dialogue's id (`+20`). The
+screen's base constructor (`sub_4128C0`) only empties the object list and
+the "object under the cursor". "Go on" is ignored in
 state 2 and a pick in state 1, so a phrase cannot be answered and a menu
 cannot be clicked away. Nothing happens either while the dialogue is paused
 (`+4`).
