@@ -523,8 +523,22 @@ Action 5 is "send Chapayev": with no reaction to it, the built-in
 message switches the cursor to. The arguments matter because a reaction's
 `IF` compares them.
 
-Whether a point hits a hero is `sub_4086B0` (the hero's override of the
-object hit test, `0x4018C0` for scene objects, not decompiled). It answers
+Whether a point hits a scene object is `sub_4018C0`. The object must be
+active (`+60`; visibility is not asked -- see "Hidden is not inactive"), and
+the point, less the object's position, must lie inside the clip's covering
+rect from its `.MSK` (`QFlic+1640`). The clip's surface (`QFlic+1632`) holds
+just that rect (its corner is `QFlic+1656`, `+1660`), and on it the point
+**and its eight neighbours** are tried, in the order of two tables in
+`.rdata` (`0x4B9148` dx, `0x4B9170` dy):
+
+```
+(0,0) (-1,-1) (0,-1) (1,-1) (-1,0) (1,0) (-1,1) (0,1) (1,1)
+```
+
+The first one that falls on the surface and is not the transparent colour
+(`QFlic+40`) makes it a hit: one pixel of slack all round.
+
+A hero overrides this with `sub_4086B0`, which has no slack. It answers
 yes when
 
 - the hero is active (`+60`) -- visibility is **not** asked;

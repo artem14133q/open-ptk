@@ -958,12 +958,38 @@ static Rectangle visual_dest(const Game *g, const PetkaObject *obj) {
     return (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height};
 }
 
-// Topmost active object whose clip has an opaque pixel under (x, y).
+// A scene object's hit test (sub_4018C0): the point must lie in the clip's
+// MSK rect, and it or any of its eight neighbours inside that rect must be
+// opaque -- a pixel of slack all round, so thin shapes can be clicked.
+static int clip_hit(const Visual *v, int x, int y) {
+    static const int kDx[9] = {0, -1, 0, 1, -1, 1, -1, 0, 1};
+    static const int kDy[9] = {0, -1, -1, -1, 0, 0, 1, 1, 1};
+    PetkaMskRect r = v->rect;
+    if (r.left < 0) r.left = 0;
+    if (r.top < 0) r.top = 0;
+    if (r.right > v->flic->width) r.right = v->flic->width;
+    if (r.bottom > v->flic->height) r.bottom = v->flic->height;
+    if (x < r.left || y < r.top || x >= r.right || y >= r.bottom) return 0;
+    for (int k = 0; k < 9; k++) {
+        int px = x + kDx[k], py = y + kDy[k];
+        if (px < r.left || py < r.top || px >= r.right || py >= r.bottom) continue;
+        if (v->flic->indices[py * v->flic->width + px] != 0) return 1;
+    }
+    return 0;
+}
+
+// Topmost active object under (x, y): the exe walks the z order from the top
+// and stops at the first object whose own hit test says yes.
 static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float x, float y) {
     for (int i = n - 1; i >= 0; i--) {
         const PetkaObject *obj = scene[i].obj;
         const Visual *v = &g->visuals[obj_index(g, obj)];
         if (!g->vm->state[obj_index(g, obj)].active) continue;
+        if (!is_hero(obj->id)) {
+            if (clip_hit(v, (int)x, (int)y)) return obj;
+            continue;
+        }
+        // A hero (sub_4086B0): the pixel itself, on his scaled sprite.
         Rectangle d = visual_dest(g, obj);
         if (d.width <= 0 || x < d.x || y < d.y || x >= d.x + d.width || y >= d.y + d.height) continue;
         int px = (int)((x - d.x) * v->flic->width / d.width);
