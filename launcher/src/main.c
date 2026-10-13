@@ -2467,6 +2467,14 @@ int main(int argc, char **argv) {
 
         if (g->panel_open) panel_show_state(g);
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
+        // Alt+R (the exe's command 32787, 0x4181F0) gets the player out of
+        // a game left with no cursor: the dialogue's pause is lifted, the
+        // cursor shown and the star -- the whole interface -- switched on.
+        if ((IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) && IsKeyPressed(KEY_R)) {
+            g->paused = 0;
+            vm->cursor_visible = 1;
+            vm->interface_enabled = 1;
+        }
         // Esc (the exe's command 32786, 0x418190): the case is shut, and
         // the screen that is up is left -- the map, the panel and the save
         // screen go back to the game; the game's own screen only takes a

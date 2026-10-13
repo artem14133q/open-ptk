@@ -571,9 +571,10 @@ it again. The keys come from the exe's accelerator table (resource 130):
 | `O` | 32777 | `sub_417D20`, also the case's diskette button: to the panel screen and back (below) |
 | `Esc` | 32786 | `0x418190`: hides the case, then, unless the current screen is the sequence screen (`QSystem+540`) or the start-up one (`+556`), calls its "leave" (slot `+56`). For the main screen that is `0x413860`, which only takes a description down if one is up (`+104`); for the map, the panel and the save/load screen it is the way back to the game -- all three leaves are the same: scroll, width, cursor clip and action restored, the previous screen made current |
 | `F2`, `F3` | 32771, 32772 | not traced (save and load, by the `SAVE`/`LOAD` pictures) |
-| `Alt+R` | 32787 | not traced |
+| `Alt+R` | 32787 | `0x4181F0`, a way out of a stuck game: clears the dialogue's pause (`+4` of the dialogue, i.e. main screen `+48`), shows the cursor, makes the star active and redraws |
 
-The launcher takes the twelve action keys, on the same condition. (The
+The launcher takes the twelve action keys, on the same condition, and
+`I`, `M`/`Tab`, `O`, `Esc` and `Alt+R` as described. (The
 cursor's vtable is at `0x4B9268`; its slot `+44`, `sub_4026E0`, is "show or
 hide": it marks the cursor's rect for redrawing and sets `+44`.)
 
