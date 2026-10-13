@@ -746,13 +746,14 @@ static void next_phrase(Game *g) {
     uint32_t idx;
     int step = petka_dialoguevm_next(&g->dvm, &idx);
     if (step == 2) {
-        // The dialogue hands control to the script and waits for CONTINUE.
+        // The dialogue hands control to the script and waits for CONTINUE
+        // (sub_409610): the speaker gets his SAID, then USERMSG is queued
+        // for Chapayev with the number alone and no sender.
         set_talker(g, PETKA_NONE);
         g->talking = 0;
         g->paused = 1;
         g->line[0] = 0;
-        petka_scriptvm_post(g->vm, PETKA_ID_CHAPAYEV, PETKA_OP_USERMSG, (uint16_t)idx, PETKA_NONE,
-                            PETKA_NONE, PETKA_ID_CHAPAYEV);
+        petka_scriptvm_post(g->vm, PETKA_ID_CHAPAYEV, PETKA_OP_USERMSG, (uint16_t)idx, 0, 0, -1);
         return;
     }
     if (step == 3) {

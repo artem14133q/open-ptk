@@ -1093,10 +1093,18 @@ colour gets it, with `0x00007F` as the second colour; a speaker without one
 gets `0x0A0A0A` on `0xFFFFFF`. A phrase whose speaker is not an object only
 traces `DLG: No speaker`.
 
-The launcher follows the first three rows. It differs on the fourth: it
-sends the speaker `SAID` before the pause, so that he does not stand there
-talking through whatever the script does next. Whether the original leaves
-him talking, or `sub_409610` sees to it, is open. Panning is not done.
+The pause itself is set up by `sub_409610(n)`, which the bytecode VM calls
+on its `USERMSG n` instruction, before the step gets to row 4:
+
+1. the speaker (`+44` of the dialogue), if there is one, gets `SAID`,
+   directly -- which is why row 4 has none to send;
+2. the dialogue is marked paused (`+4`), and `sub_416760` is called on it
+   (not decompiled);
+3. `USERMSG` is **queued** for Chapayev (the id at `QSystem+422`) with
+   arguments `n, 0, 0` and no sender.
+
+`CONTINUE` lifts the pause. The launcher does all of this; panning is the
+one thing it leaves out.
 
 ## Room topology — SOLVED: `BGS.INI` is the room graph, plain text
 
