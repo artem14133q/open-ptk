@@ -564,9 +564,9 @@ it again. The keys come from the exe's accelerator table (resource 130):
 | `4`, `U` | 32782 | action 2, use |
 | `5`, `T` | 32784 | action 4, talk |
 | `6`, `C` | 32785 | action 5, send Chapayev |
-| `I` | 32779 | not traced (inventory, by the letter) |
-| `M`, `Tab` | 32776 | not traced (map) |
-| `O` | 32777 | not traced (options) |
+| `I` | 32779 | opens and shuts the case (below) |
+| `M`, `Tab` | 32776 | `sub_417D80`, also the case's map button; not decompiled |
+| `O` | 32777 | `sub_417D20`, also the case's diskette button; not decompiled |
 | `Esc` | 32786 | not traced |
 | `F2`, `F3` | 32771, 32772 | not traced (save and load, by the `SAVE`/`LOAD` pictures) |
 | `Alt+R` | 32787 | not traced |
@@ -640,11 +640,32 @@ current frame (the per-frame lists of its `.MSK`), and only where the
 screen is being redrawn. So a button's clip is its lit state, and the plain
 case picture is all of them unlit.
 
+**A click** on the case (`sub_4151B0`) does what the lit button says:
+
+| button | | |
+|---:|---|---|
+| 0 | `CHIPPER` | the "send Chapayev" command (`sub_418100`, the same as keys `6` and `C`) |
+| 1 | `DISKETA` | command 32777 (`sub_417D20`, the same as key `O`; not decompiled -- by the picture, the save and load screen) |
+| 2 | `MAP-CASE` | command 32776 (`sub_417D80`, the same as keys `M` and `Tab`; not decompiled -- the map) |
+| 3 | `QUIT` | hides the case (its own slot `+44` with 0): it quits the case, not the game |
+| 4 | `SKROLL-R` | if there is a thing at `first + 6`, `first += 6`; lay the things out again (`sub_415900`) and redraw |
+| 5 | `SKROLL-L` | if `first > 0`, `first = max(0, first - 6)`; the same |
+
+`first` is `+128` of the case: the things are shown **six at a time**, and
+the arrows turn the page. With no button lit a click on the case does
+nothing here -- the things in it are objects in their own right and take
+their own clicks.
+
+The case is opened and shut by command 32779, key `I` (`0x417E30`, read
+from the disassembly): unless the start-up screen (`QSystem+556`) is the
+current one, and only while the panel object is active, it calls the current
+screen's slot `+56` and then shows the case if it is hidden and hides it if
+it is shown.
+
 Its other methods (vtable `0x4B9838`), not decompiled yet: update
 `0x415820`, hit test `0x415270`, "the cursor is over you" `0x415550` (which
-must be what lights a button), click `0x4151B0` (the one caller of the "send
-Chapayev" command handler `0x418100`), show/hide `0x415BB0`. The launcher
-has a strip of text in its place.
+must be what lights a button), show/hide `0x415BB0`, and the layout of the
+things, `sub_415900`. The launcher has a strip of text in its place.
 
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
