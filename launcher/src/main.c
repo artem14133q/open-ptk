@@ -110,6 +110,7 @@ typedef struct {
                      // the map, or the panel
     int panel_open;  // ... and it is the panel
     int panel_hover; // which of the panel's objects the pointer is on, -1 = none
+    int music_hushed, ambience_hushed; // paused for a sequence with no track of its own
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
@@ -2468,13 +2469,29 @@ int main(int argc, char **argv) {
         }
         load_mesh(g);
         if (room_st) {
-            // A sequence with no track of its own keeps the room's playing.
-            const PetkaObjectState *under = g->seq_room != PETKA_NONE ? petka_scriptvm_state(vm, vm->room) : NULL;
+            // The map and the panel leave the room's tracks playing. A
+            // sequence does not (its set-up, sub_416860): the game's sounds
+            // are paused and only the sequence room's own music and ambience
+            // are started -- so one with none of its own is silent, and the
+            // room's tracks go on from where they stopped when it ends.
+            int sequence = g->seq_room != PETKA_NONE && !g->map_open;
+            const PetkaObjectState *under = g->map_open ? petka_scriptvm_state(vm, vm->room) : NULL;
             uint16_t music = room_st->music, ambience = room_st->bgsfx;
             if (under && music == PETKA_NONE) music = under->music;
             if (under && ambience == PETKA_NONE) ambience = under->bgsfx;
-            set_stream(g, &g->music, &g->music_id, music);
-            set_stream(g, &g->ambience, &g->ambience_id, ambience);
+            int hush_music = sequence && music == PETKA_NONE, hush_ambience = sequence && ambience == PETKA_NONE;
+            if (hush_music != g->music_hushed && g->music.frameCount > 0) {
+                if (hush_music) PauseMusicStream(g->music);
+                else ResumeMusicStream(g->music);
+            }
+            if (hush_ambience != g->ambience_hushed && g->ambience.frameCount > 0) {
+                if (hush_ambience) PauseMusicStream(g->ambience);
+                else ResumeMusicStream(g->ambience);
+            }
+            g->music_hushed = hush_music;
+            g->ambience_hushed = hush_ambience;
+            if (!hush_music) set_stream(g, &g->music, &g->music_id, music);
+            if (!hush_ambience) set_stream(g, &g->ambience, &g->ambience_id, ambience);
         }
         if (g->music.frameCount > 0) {
             SetMusicVolume(g->music, dial_gain(g, DIAL_MUSIC));

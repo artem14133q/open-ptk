@@ -1468,10 +1468,29 @@ cursor, no captions, no star; its click (`0x416F30`) looks down its list for
 a text object (resource `-2`, a phrase on screen) and hands the click to it,
 which skips the phrase, and does nothing if there is none; its leave
 (`0x416FD0`) takes the text down and, for every object on its list, frees
-the clip, stops the object's sound (`sub_416EF0`) and forgets it; its set-up
-is `0x416860`, not decompiled. `Esc` does not leave it. The launcher's
-sequences behave the same, except that a clip's sound is left to play out
-when the sequence ends. Nothing is broadcast: the sequence runs
+the clip, stops the object's sound (`sub_416EF0`) and forgets it. `Esc`
+does not leave it.
+
+Its **set-up** (`sub_416860(room)`), which `SETSEQ` comes to:
+
+1. the text is taken down and whatever sequence was up before is let go as
+   in the leave; **the game's sounds are paused** (`sub_40E2C0`, the call
+   the disc prompt makes before it stops the game, with `sub_40E3F0` to
+   undo it);
+2. the room goes on the list. Its music (`+148`) is compared with the music
+   this screen last played (`+36`): the same, and it is kept going
+   (`sub_416D90`); different, and the old one is stopped, the new one loaded
+   and played. The same for its ambience (`+152`, kept at `+40`). So a
+   sequence has its own tracks, apart from the room's;
+3. every object `BACKGRND.BG` attaches to the room goes on the list with its
+   clip loaded and its clip's sound ready (`+92`, with `+64` = 0 and `+68` =
+   "it has one");
+4. the screen makes itself current. Nothing is sent to the script.
+
+The launcher's sequences behave the same: the room's music and ambience are
+paused for a sequence that has none of its own and go on afterwards (one
+that has its own replaces them, and they start over). A clip's sound is
+left to play out when a sequence ends. Nothing is broadcast: the sequence runs
 on its clips' `END` reactions -- each sets the next clip -- and the last one
 posts `ENDSEQ`, usually together with a `GOTO` for where the game continues:
 
