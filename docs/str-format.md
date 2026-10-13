@@ -1136,7 +1136,18 @@ page; `Esc` leaves it (and so, in the launcher, do the right button and `O`). Th
 exe takes it, from the launcher's own window (so with its bar of text). A save from
 another part makes the launcher load that part and then the save.
 
-Not decompiled: the panel's mouse move `0x41C8D0`. The launcher puts the panel up the same
+The panel's **mouse move** (`sub_41C8D0`) goes down the list from its end
+and stops at the first object that takes the point. That object is "lit"
+(state 2) only if it is one of the five buttons (0-4) or a dial mark
+(16-23); every other object, and every object not under the pointer, is
+state 1. An object whose state changes is put on the frame of that number
+-- 1 or 2 -- and redrawn at its place from the table; for a dial mark the
+frame is put not on the mark but on the dial's word: marks 16, 17 light
+object 12 (`речь`), 18, 19 object 10 (`музыка`), 20, 21 object 6
+(`эффекты`), 22, 23 object 13 (`скорость`). The cursor is shown and moved
+without centring. So a button's second frame is its lit picture, and
+pointing at a dial's "min" or "MAX" lights the dial's name. The launcher
+does the same. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
 switch and the four dials (`panel_click`); with the subtitles off a phrase
 is not written out, and one without a voice is not waited for. The dials

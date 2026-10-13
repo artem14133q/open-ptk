@@ -109,6 +109,7 @@ typedef struct {
     int map_open;    // a room of the script is up as a screen of its own:
                      // the map, or the panel
     int panel_open;  // ... and it is the panel
+    int panel_hover; // which of the panel's objects the pointer is on, -1 = none
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
@@ -1956,6 +1957,20 @@ static void panel_show_state(Game *g) {
     const PetkaObject *word = petka_script_find(g->script, panel->attached[11].obj_id);
     if (button) show_frame(g, button, g->subtitles ? 7 : 1);
     if (word) show_frame(g, word, g->subtitles ? 2 : 1);
+
+    // What the pointer is on is lit by a second frame (the panel's mouse
+    // function, sub_41C8D0): the five buttons themselves, and for a dial's
+    // "min" and "MAX" marks the word that names the dial.
+    static const int kDialWord[4] = {12, 10, 6, 13}; // speech, music, effects, speed
+    int over = g->panel_hover;
+    for (int i = 0; i < 5; i++) {
+        const PetkaObject *obj = petka_script_find(g->script, panel->attached[i].obj_id);
+        if (obj) show_frame(g, obj, over == i ? 2 : 1);
+    }
+    for (int i = 0; i < 4; i++) {
+        const PetkaObject *obj = petka_script_find(g->script, panel->attached[kDialWord[i]].obj_id);
+        if (obj) show_frame(g, obj, over >= 16 && over < 24 && (over - 16) / 2 == i ? 2 : 1);
+    }
 }
 
 // What the pointer (screen pixels of the game) is over while the case is
@@ -2571,6 +2586,12 @@ int main(int argc, char **argv) {
                                  : g->map_open ? listed_object_at(g, mx, my)
                                  : object_at(g, scene, scene_count, mx, my);
 
+        g->panel_hover = -1;
+        if (g->panel_open && hover) {
+            const PetkaObject *panel = petka_script_find(g->script, g->seq_room);
+            for (uint32_t i = 0; panel && i < panel->attached_count; i++)
+                if (panel->attached[i].obj_id == hover->id) g->panel_hover = (int)i;
+        }
         int menu_hover = -1;
         Rectangle menu_rects[MENU_MAX];
         if (g->menu_count > 0) menu_lines(g, font, scale, menu_rects, -1, 0);
@@ -2704,7 +2725,8 @@ int main(int argc, char **argv) {
         }
         DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
         DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
-        if (caption[0]) draw_bottom_text(font, caption, caption_color, 0, scale);
+        // (The panel's mouse function names nothing: no captions there.)
+        if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, 0, scale);
         if (room) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
