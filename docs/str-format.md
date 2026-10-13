@@ -1206,8 +1206,9 @@ call instructions; the last four read from the disassembly):
   phrase";
 - `0x4164D0`: unless a menu is up, stops the voice clip, gives the speaker
   his `SAID`, and steps for as long as the VM stands on a phrase -- "skip to
-  the next menu, pause or end". Nothing calls it directly, so it is reached
-  through a table (a key, probably);
+  the next menu, pause or end". It is **dead code**: the exe holds no call
+  or jump to it and its address is in no table, so the game has no way to
+  skip a whole dialogue, only a phrase at a time;
 - `0x421170`, the subtitle object's update, called with the milliseconds
   since the last frame. This is what ends a phrase by itself:
   - a phrase **with a voice clip** (dialogue `+12`) ends when the clip does:
