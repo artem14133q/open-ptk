@@ -613,11 +613,38 @@ set to `-1` (`+124`) and 0 (`+128`). Its pictures:
 | 6007 | `MAIN\CASE\POLOSKA.FLC` |
 | 6009 | `MAIN\CASE\EXITCASE.FLC` |
 
-Its methods (vtable `0x4B9838`), none decompiled yet: draw `0x415280`,
-update `0x415820`, hit test `0x415270`, "the cursor is over you" `0x415550`,
-click `0x4151B0` (which is the one caller of the "send Chapayev" command
-handler `0x418100`), show/hide `0x415BB0`. The launcher has a strip of text
-in its place.
+Every one of these clips is a full 640x480 frame, so they all go at the
+case's own position and line up by themselves; where a button is on screen
+is its clip's `.MSK` rect:
+
+| | clip | rect (left, top - right, bottom) | frames |
+|---:|---|---|---:|
+| | `BRIFCASE` | 29,3 - 579,435 | 1 |
+| button 0 | `CHIPPER` | 138,46 - 243,146 | 4 |
+| button 1 | `DISKETA` | 362,55 - 477,143 | 1 |
+| button 2 | `MAP-CASE` | 254,58 - 361,140 | 1 |
+| button 3 | `QUIT` | 240,348 - 356,400 | 1 |
+| button 4 | `SKROLL-R` | 351,356 - 442,396 | 10 |
+| button 5 | `SKROLL-L` | 143,360 - 237,403 | 10 |
+| | `POLOSKA` | 44,338 - 563,348 | 1 |
+
+The case covers most of the screen: three buttons along the top, the
+strip, the two scroll arrows and "quit" along the bottom, and the space
+between -- about y 146 to 338 -- left for the things carried.
+
+**Drawing** (`sub_415280`): only while the case is shown (`+44`). First the
+case's clip, as any object (`sub_401230`). Then, if a button is lit -- `+124`
+holds its number 0-5, `-1` for none -- the clip `6001 + number` is drawn
+over it at the same position, but only inside the rects of that clip's
+current frame (the per-frame lists of its `.MSK`), and only where the
+screen is being redrawn. So a button's clip is its lit state, and the plain
+case picture is all of them unlit.
+
+Its other methods (vtable `0x4B9838`), not decompiled yet: update
+`0x415820`, hit test `0x415270`, "the cursor is over you" `0x415550` (which
+must be what lights a button), click `0x4151B0` (the one caller of the "send
+Chapayev" command handler `0x418100`), show/hide `0x415BB0`. The launcher
+has a strip of text in its place.
 
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
