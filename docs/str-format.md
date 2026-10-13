@@ -471,7 +471,9 @@ list of ids (28-byte records at screen `+40`, `room_count` at `+36`). `x`
 and `y` are an object's position on the background, the offset its clip is
 drawn at and the one the hit test and the z update work from -- and they
 are **0 in every one of the 1613 entries** of the three parts: every clip
-is a full frame already in place. Only the heroes ever stand anywhere else.
+is a full frame already in place. Only the heroes ever stand anywhere else
+-- and the objects of the panel screen, which the exe places from a table
+of its own (see "The panel command").
 
 The same constructor starts the screen's object list (`+4`) with three
 objects that are on every screen of the game: the cursor (`QSystem+140`)
@@ -730,9 +732,48 @@ pointers `KURSOR1`/`KURSOR2` (4901, 4902), `NEW-GAME`, `LOADING`,
 `EFFEKTS`, `MUSIKA`, `CUBTITRA`, `SPEAKE`, `SPEED` (4909, 4913-4916) with
 their end marks `SL1MIN` ... `SL4MAX` (4921-4928), and the slot pictures
 `LOAD1-3`, `SAVE1-3` (4990-4997). So it is the game's menu, options and
-save/load in one. Its methods, not decompiled: start `0x41C170`, click
-`0x41CAE0`, mouse move `0x41C8D0`, leave `0x41CE00`. The launcher takes the
-key and the button, shuts the case, and says the screen is not there yet.
+save/load in one.
+
+Like the map, it is a room of the script put up by its own screen. The room
+is 511 `ПАНЕЛЬ УПРАВЛЕНИЯ` (`SET 4900`) with 24 objects, `Панель опций -
+<what>`, that have a clip each and no reactions at all; the eight slider
+marks (`... слайдер N min/max`) are hidden. The screen's start
+(`sub_41C170`):
+
+1. hides the case, draws a frame of the room as it is, and calls
+   `sub_41E230` on the screen at `QSystem+552` (not decompiled -- by its
+   place, taking the picture a saved game is shown by);
+2. empties its list, puts the room on it and then every object attached to
+   the room, each on its first frame, not animated, and **placed by two
+   tables** in the exe (`word_4CA180` x, `word_4CA1B0` y), by its number in
+   the room's list. These are the only objects of the game not at 0,0:
+   their clips are small pictures, not full frames;
+
+   | # | object | at | # | object | at |
+   |---:|---|---|---:|---|---|
+   | 0 | новая игра | 0,2 | 8 | слайдер 1 | 428,29 |
+   | 1 | загрузить | 5,70 | 9 | слайдер 2 | 434,170 |
+   | 2 | продолжить | 5,136 | 10 | музыка | 297,214 |
+   | 3 | выход | 22,328 | 11 | субтитры | 470,139 |
+   | 4 | сохранить | 87,224 | 12 | речь | 318,87 |
+   | 5 | сейф | 118,395 | 13 | скорость | 468,172 |
+   | 6 | эффекты | 467,71 | 14 | слайдер 3 | 262,31 |
+   | 7 | кнопка | 432,144 | 15 | слайдер 4 | 231,137 |
+
+   (the eight marks, 16-23, have 0,0 in the tables);
+3. takes the cursor over as the map does -- clip and action saved, the
+   interface pointer 4901 with action 0, moved without centring -- but
+   animated;
+4. saves the view's scroll and width and sets them to 0 and 640, then
+   `sub_41C740` (not decompiled; by its place, setting the sliders);
+5. shows the state of the subtitle switch (screen `+60`): object 7, the
+   button, on frame 7 if it is on and 1 if not; object 11 on frame 2 or 1;
+6. makes itself the current screen.
+
+Not decompiled: click `0x41CAE0`, mouse move `0x41C8D0`, leave `0x41CE00`,
+the sliders `sub_41C740`. The launcher puts the panel up the same way
+(`panel_command`), with everything in its place, and leaves it on `O`; the
+buttons and sliders do nothing yet, and the subtitle switch is shown off.
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`
@@ -1603,6 +1644,7 @@ quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_MOUSE=<x>,<y>` (pin the pointer, in game pixels),
 `PETKA_CASE=<frame>` (open the case on that frame),
 `PETKA_MAP=<frame>` (the map command on that frame),
+`PETKA_PANEL=<frame>` (the panel command on that frame),
 `PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the
 cursor's action number as in the table under "How a click becomes a
 message"),

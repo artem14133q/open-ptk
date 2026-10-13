@@ -96,7 +96,9 @@ typedef struct {
     Visual *visuals; // parallel to script->objects
     Visual cursor;   // the pointer's own clip
     // The case: the game's panel, with the things carried.
-    int map_open;    // the map is on screen in place of the room
+    int map_open;    // a room of the script is up as a screen of its own:
+                     // the map, or the panel
+    int panel_open;  // ... and it is the panel
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int case_open;
@@ -1029,6 +1031,7 @@ static int build_scene(Game *g, Drawable *out, int max) {
                 // current frame's MSK rects (its sprite sits at y 0), never
                 // less than 1.
                 int bottom = petka_msk_frame_bottom(v->msk, v->msk_len, v->flic->frame_count, v->flic->frame_index);
+                bottom += state->y;
                 state->z = bottom > 1 ? bottom : 1;
             }
         }
@@ -1042,9 +1045,11 @@ static int build_scene(Game *g, Drawable *out, int max) {
 static Rectangle visual_dest(const Game *g, const PetkaObject *obj) {
     const Visual *v = &g->visuals[obj_index(g, obj)];
     const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
-    // Room clips are full-frame and already in place; hero clips are sprites.
+    // A hero's clip is a sprite put by his feet; any other object's goes
+    // with its corner at the object's position -- 0,0 for everything in a
+    // room, whose clips are full frames, but not for the panel's buttons.
     if (is_hero(obj->id)) return hero_dest(g, obj->id, st, v);
-    return (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height};
+    return (Rectangle){(float)st->x, (float)st->y, (float)v->flic->width, (float)v->flic->height};
 }
 
 // A scene object's hit test (sub_4018C0): the point must lie in the clip's
@@ -1075,7 +1080,8 @@ static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float
         const Visual *v = &g->visuals[obj_index(g, obj)];
         if (!g->vm->state[obj_index(g, obj)].active) continue;
         if (!is_hero(obj->id)) {
-            if (clip_hit(v, (int)x, (int)y)) return obj;
+            const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+            if (clip_hit(v, (int)x - st->x, (int)y - st->y)) return obj;
             continue;
         }
         // A hero (sub_4086B0): the pixel itself, on his scaled sprite.
@@ -1133,7 +1139,7 @@ static void drop_item(Game *g);
 // cursor's action and the view's scroll are as they were.
 static void map_leave(Game *g) {
     if (!g->map_open) return;
-    g->map_open = 0;
+    g->map_open = g->panel_open = 0;
     g->seq_room = PETKA_NONE;
     g->verb = g->map_verb;
     g->camera_x = g->camera_target = g->map_camera;
@@ -1148,6 +1154,7 @@ static void map_leave(Game *g) {
 // its sender.
 static void map_command(Game *g) {
     if (!g->vm->interface_enabled) return;
+    if (g->panel_open) return;
     if (g->map_open) { map_leave(g); return; }
     if (!map_allowed(g) || g->seq_room != PETKA_NONE) return;
     const PetkaObject *map = petka_script_find_name(g->script, "\xCA\xC0\xD0\xD2\xC0"); // "КАРТА", cp1251
@@ -1162,13 +1169,38 @@ static void map_command(Game *g) {
     petka_scriptvm_broadcast(g->vm, PETKA_OP_INITBG, 0, 0, 0, map->id);
 }
 
-// The panel command (sub_417D20; key O and the case's diskette button): it
-// shuts the case and goes to the game's panel screen -- options, saving and
-// loading -- which is not built yet.
+// The panel command (sub_417D20; key O and the case's diskette button): to
+// the game's panel -- menu, options, saving and loading -- or back from it.
+// Like the map it is a room of the script, "ПАНЕЛЬ УПРАВЛЕНИЯ", put up by a
+// screen of its own (its start, sub_41C170), with the interface pointer and
+// no scroll; its objects are small clips, placed by a table in the exe in
+// the order the room lists them. What the buttons do is not built yet.
 static void panel_command(Game *g) {
-    if (!g->vm->interface_enabled || g->map_open) return;
+    // word_4CA180 (x) and word_4CA1B0 (y); the eight slider marks after
+    // these stay at 0,0.
+    static const int16_t kPlace[16][2] = {
+        {0, 2}, {5, 70}, {5, 136}, {22, 328}, {87, 224}, {118, 395}, {467, 71}, {432, 144},
+        {428, 29}, {434, 170}, {297, 214}, {470, 139}, {318, 87}, {468, 172}, {262, 31}, {231, 137},
+    };
+    if (!g->vm->interface_enabled) return;
+    if (g->panel_open) { map_leave(g); return; }
+    if (g->map_open || g->seq_room != PETKA_NONE) return;
+    // "ПАНЕЛЬ УПРАВЛЕНИЯ", cp1251
+    const PetkaObject *panel = petka_script_find_name(
+        g->script, "\xCF\xC0\xCD\xC5\xCB\xDC \xD3\xCF\xD0\xC0\xC2\xCB\xC5\xCD\xC8\xDF");
+    if (!panel) { set_status(g, "(в этой части нет панели)"); return; }
     g->case_open = 0;
-    set_status(g, "(панель настроек и сохранений пока не сделана)");
+    drop_item(g);
+    for (uint32_t i = 0; i < panel->attached_count && i < 16; i++) {
+        PetkaObjectState *st = petka_scriptvm_state(g->vm, panel->attached[i].obj_id);
+        if (st) { st->x = kPlace[i][0]; st->y = kPlace[i][1]; }
+    }
+    g->map_verb = g->verb;
+    g->map_camera = g->camera_x;
+    g->verb = 0;
+    g->map_open = g->panel_open = 1;
+    g->seq_room = panel->id;
+    set_status(g, "(кнопки панели пока не работают; O - назад)");
 }
 
 // What the pointer (screen pixels of the game) is over while the case is
@@ -1535,12 +1567,16 @@ int main(int argc, char **argv) {
         int map_key = IsKeyPressed(KEY_M) || IsKeyPressed(KEY_TAB) ||
                       (getenv("PETKA_MAP") && atol(getenv("PETKA_MAP")) == frame);
         if (map_key && can_act && !g->menu_count) map_command(g);
-        if (IsKeyPressed(KEY_O) && can_act && !g->menu_count) panel_command(g);
+        // dev: PETKA_PANEL=<frame> presses O on that frame of an unattended run.
+        int panel_key = IsKeyPressed(KEY_O) || (getenv("PETKA_PANEL") && atol(getenv("PETKA_PANEL")) == frame);
+        if (panel_key && can_act && !g->menu_count) panel_command(g);
         int in_case = g->case_open && can_act;
         if (!in_case) g->case_lit = -1;
         const PetkaObject *hover = !can_act ? NULL
                                  : in_case ? case_hover(g, (int)(mouse.x / scale), (int)(mouse.y / scale))
                                  : object_at(g, scene, scene_count, mx, my);
+        // The panel's hidden slider marks are not there to be pointed at.
+        if (g->panel_open && hover && !vm->state[obj_index(g, hover)].visible) hover = NULL;
 
         int menu_hover = -1;
         for (int i = 0; i < g->menu_count; i++)
@@ -1615,7 +1651,7 @@ int main(int argc, char **argv) {
             // On the map a place's clip is its highlight: the script keeps it
             // hidden, and the map's mouse function (sub_41D4D0) shows the one
             // under the pointer, on its first frame, and hides the rest.
-            if (shown || (g->map_open && scene[i].obj == hover))
+            if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover))
                 DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
                            (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale},
                            (Vector2){0, 0}, 0, WHITE);
