@@ -114,6 +114,7 @@ typedef struct {
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
+    int boot_load;   // "load" was picked at start-up: no room has been entered yet
     // The star: the menu of actions the right button puts up at the pointer.
     int star_open;
     int star_x, star_y; // its corner on screen
@@ -441,11 +442,18 @@ static void visual_free(Visual *v) {
     v->resource = PETKA_NONE;
 }
 
+// Loads a clip by its path in the stores (for the few things that are not
+// in the running part's resource table, like the start-up screen).
+static void visual_load_path(Game *g, Visual *v, const char *path);
+
 static void visual_load(Game *g, Visual *v, uint16_t resource) {
     visual_free(v);
     v->resource = resource;
     v->sound_pending = 1;
-    const char *path = g->qrc[resource];
+    visual_load_path(g, v, g->qrc[resource]);
+}
+
+static void visual_load_path(Game *g, Visual *v, const char *path) {
     if (!path || !has_ext(path, ".FLC")) return;
     size_t len = 0;
     const uint8_t *bytes = res_find(g, path, &len);
@@ -2105,35 +2113,101 @@ static const char *display_name(const Game *g, const PetkaObject *obj) {
 }
 
 // Returns 0 if the window was closed or "exit" picked.
-static int run_menu(const Game *g, Font font) {
-    static const char *items[] = {"Новая игра", "Выход"};
-    Texture2D bg = load_bmp_texture(g, "MAIN\\INTRFACE.BG\\INTRFASE.BMP");
-    int selected = 0, start = 0;
-    while (!WindowShouldClose() && !start) {
-        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_UP)) selected ^= 1;
-        if (IsKeyPressed(KEY_ENTER)) {
-            if (selected == 1) break;
-            start = 1;
+// The start-up screen: the game's main menu. In the exe it is a screen of
+// its own (QSystem+556) showing the room STARTUP of the menus' script, PART_0
+// -- a picture, a tune and five buttons whose clips are hidden until the
+// pointer is on them, as on the map. A click goes by the button (0x41EAB0).
+// Returns 0 to leave the program, 1 for a new game, 2 for "load".
+static int run_menu(Game *g, Font font) {
+    (void)font;
+    enum { MENU_NONE, MENU_NEW, MENU_LOAD, MENU_CREDITS, MENU_EXIT };
+    // In the order the room lists them; the pointer is tried on the last first.
+    static const struct { const char *clip; int action; } kButtons[5] = {
+        {"MAIN\\INTRFACE.BG\\SNEWGAME.FLC", MENU_NEW},
+        {"MAIN\\INTRFACE.BG\\SLOADGEM.FLC", MENU_LOAD},
+        {"MAIN\\INTRFACE.BG\\SUNINSTL.FLC", MENU_NONE},
+        {"MAIN\\INTRFACE.BG\\S-TITLE.FLC", MENU_CREDITS},
+        {"MAIN\\INTRFACE.BG\\S-EXIT.FLC", MENU_EXIT},
+    };
+    Texture2D bg = load_bmp_texture(g, "MAIN\\INTRFACE.BG\\INSTHERO.BMP");
+    Visual buttons[5];
+    memset(buttons, 0, sizeof(buttons));
+    for (int i = 0; i < 5; i++) {
+        buttons[i].resource = PETKA_NONE;
+        visual_load_path(g, &buttons[i], kButtons[i].clip);
+    }
+    Music tune = {0};
+    size_t tune_len = 0;
+    const uint8_t *tune_bytes = res_find(g, "MAIN\\INTRFACE.BG\\start.wav", &tune_len);
+    if (tune_bytes) {
+        tune = LoadMusicStreamFromMemory(".wav", tune_bytes, (int)tune_len);
+        tune.looping = true;
+        if (tune.frameCount > 0) PlayMusicStream(tune);
+    }
+    // dev: PETKA_MENU=<file.png>:<x>,<y> shows the menu with the pointer
+    // there, saves a picture of it and goes on to a new game.
+    const char *dev = getenv("PETKA_MENU");
+    char shot[512] = "";
+    float pin_x = -1, pin_y = -1;
+    if (dev) sscanf(dev, "%511[^:]:%f,%f", shot, &pin_x, &pin_y);
+
+    int result = -1;
+    long frames = 0;
+    while (!WindowShouldClose() && result < 0) {
+        float scale = (float)GetScreenWidth() / GAME_W;
+        Vector2 mouse = GetMousePosition();
+        if (pin_x >= 0) mouse = (Vector2){pin_x * scale, pin_y * scale};
+        int px = (int)(mouse.x / scale), py = (int)(mouse.y / scale), over = -1;
+        for (int i = 4; i >= 0 && over < 0; i--)
+            if (buttons[i].flic && clip_hit(&buttons[i], px, py)) over = i;
+        if (tune.frameCount > 0) {
+            SetMusicVolume(tune, dial_gain(g, DIAL_MUSIC));
+            UpdateMusicStream(tune);
+        }
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && over >= 0) {
+            switch (kButtons[over].action) {
+            case MENU_NEW: result = 1; break;
+            case MENU_LOAD: result = 2; break;
+            case MENU_EXIT: result = 0; break;
+            case MENU_CREDITS:
+                // The film, and then the tune from its beginning again.
+                if (tune.frameCount > 0) StopMusicStream(tune);
+                play_film(g, "credits.avi");
+                if (g->quit) result = 0;
+                if (tune.frameCount > 0) PlayMusicStream(tune);
+                break;
+            default: break;
+            }
         }
         BeginDrawing();
         ClearBackground(BLACK);
-        Rectangle dst = {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()};
-        if (bg.id) DrawTexturePro(bg, (Rectangle){0, 0, (float)bg.width, (float)bg.height}, dst, (Vector2){0, 0}, 0, WHITE);
-        int px = GetScreenWidth() / 2 - 160, py = GetScreenHeight() / 2 - 54;
-        DrawRectangle(px, py, 320, 108, Fade(BLACK, 0.65f));
-        for (int i = 0; i < 2; i++)
-            DrawTextEx(font, TextFormat("%s%s", i == selected ? "> " : "  ", items[i]),
-                       (Vector2){(float)(px + 16), (float)(py + 10 + i * 44)}, 28, 1, i == selected ? ORANGE : WHITE);
+        Rectangle whole = {0, 0, GAME_W * scale, GAME_H * scale};
+        if (bg.id) DrawTexturePro(bg, (Rectangle){0, 0, (float)bg.width, (float)bg.height}, whole, (Vector2){0, 0}, 0, WHITE);
+        if (over >= 0)
+            DrawTexturePro(buttons[over].tex, (Rectangle){0, 0, GAME_W, GAME_H}, whole, (Vector2){0, 0}, 0, WHITE);
+        HideCursor();
+        draw_cursor(g, CURSOR_INTERFACE, over >= 0, 0, mouse, scale);
         EndDrawing();
+        if (dev && ++frames == 30) {
+            Image img = LoadImageFromScreen();
+            if (shot[0]) ExportImage(img, shot);
+            UnloadImage(img);
+            fprintf(stderr, "menu: pointer over button %d\n", over);
+            result = getenv("PETKA_MENU_LOAD") ? 2 : 1; // dev: ... or on to "load"
+        }
     }
+    for (int i = 0; i < 5; i++) visual_free(&buttons[i]);
+    if (tune.frameCount > 0) { StopMusicStream(tune); UnloadMusicStream(tune); }
     if (bg.id) UnloadTexture(bg);
-    return start;
+    return result < 0 ? 0 : result;
 }
 
-// Sets the script going from its beginning: TOTALINIT, then the first room.
-static void game_start(Game *g) {
+static void game_init(Game *g) {
     g->vm->rng = (uint32_t)(GetTime() * 1e6) | 1u;
     petka_scriptvm_init(g->vm);
+}
+
+static void game_enter(Game *g) {
     const PetkaObject *start = g->topo && g->topo->start_room
         ? petka_script_find_name(g->script, g->topo->start_room) : NULL;
     if (!start) {
@@ -2141,6 +2215,11 @@ static void game_start(Game *g) {
             if (g->script->objects[i].is_room) start = &g->script->objects[i];
     }
     if (start) petka_scriptvm_enter_room(g->vm, start->id, 0);
+}
+
+static void game_start(Game *g) {
+    game_init(g);
+    game_enter(g);
 }
 
 // Everything of the loaded part is let go: what is on screen or sounding,
@@ -2373,9 +2452,17 @@ int main(int argc, char **argv) {
         play_film(g, "skif.avi");
         play_film(g, "adv.avi");
     }
-    if (g->quit || (!shot_path && !run_menu(g, font))) { CloseWindow(); return 0; }
+    int menu = shot_path && !getenv("PETKA_MENU") ? 1 : run_menu(g, font);
+    if (g->quit || !menu) { CloseWindow(); return 0; }
 
-    game_start(g);
+    if (menu == 2) {
+        // "Load": the script is set going, and the save screen comes first.
+        game_init(g);
+        g->boot_load = 1;
+        saves_open(g, 1);
+    } else {
+        game_start(g);
+    }
 
     int debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
     Drawable scene[256];
@@ -2403,6 +2490,12 @@ int main(int argc, char **argv) {
         float mx = mouse.x / scale + g->camera_x, my = mouse.y / scale;
         // Another part was asked for -- by "new game", the script's PART or
         // a saved game. Nothing of this frame holds the old one yet.
+        // "Load" at start-up put the save screen up before any room: if it
+        // was left without loading, the game begins as a new one.
+        if (g->boot_load && !g->save_mode && !g->switch_part) {
+            g->boot_load = 0;
+            if (g->vm->room == PETKA_NONE) game_enter(g);
+        }
         if (g->switch_part) {
             int to_part = g->switch_part, to_chapter = g->switch_chapter > 0 ? g->switch_chapter : 1;
             g->switch_part = 0;

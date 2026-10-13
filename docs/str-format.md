@@ -1005,10 +1005,23 @@ picture (`SET 4980`, `MAIN\INTRFACE.BG\INSTHERO.BMP`), music (`MUSIC 4986`,
 | `STARTUP - New` | 4984 `SNEWGAME.FLC` | new game (`sub_418260`) |
 | `STARTUP - Misc` | 4985 `SUNINSTL.FLC` | nothing |
 
-The click goes by the object under the cursor (screen `+24`), so the
-screen's mouse function finds it; that function, the screen's start and its
-constructor were not decompiled. The launcher has a plain menu of its own in
-this screen's place. The launcher does what the exe does -- gives the file to someone
+The click goes by the object under the cursor (screen `+24`). The rest of
+the screen (vtable `0x4B9EB0`; read from the disassembly) is the map over
+again: its start (`0x41E670`) empties the message queue, puts the room and
+its objects on its list, loads and plays the room's music, and takes the
+cursor over as the interface pointer 4901; its mouse move (`0x41E990`)
+skips the cursor and the background (4980), makes the first object that
+takes the point the one under the cursor and **visible**, and hides the
+rest -- so a button's clip is its lit picture, shown only under the
+pointer. The buttons' places are their clips' `.MSK` rects: "new" 316,76 -
+589,106; "load" 327,119 - 577,152; "credits" 406,303 - 492,334; "exit"
+404,342 - 498,376 (`SUNINSTL.FLC` has no usable rect, so it can never be
+pointed at).
+
+The launcher's menu is this screen (`run_menu`), drawn from the same
+pictures: new game, load (the save screen comes up before any room is
+entered; left without loading, the game begins as a new one), credits, and
+exit. The launcher does what the exe does -- gives the file to someone
 else: `ffmpeg`, if it is installed, decodes it, and the launcher shows the
 frames in its window at 24 a second with the sound alongside, until it ends
 or a key or button is pressed (`play_film`). Without `ffmpeg`, and in
