@@ -8,6 +8,7 @@ add_library(petka_core STATIC
     src/script.c
     src/walk.c
     src/ini.c
+    src/save.c
 )
 
 target_include_directories(petka_core PUBLIC

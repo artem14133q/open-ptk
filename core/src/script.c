@@ -404,6 +404,11 @@ static void inventory_add(PetkaScriptVM *vm, uint16_t id) {
     vm->inventory[vm->inventory_count++] = id;
 }
 
+void petka_scriptvm_set_inventory(PetkaScriptVM *vm, const uint16_t *ids, uint32_t count) {
+    vm->inventory_count = 0;
+    for (uint32_t i = 0; i < count; i++) inventory_add(vm, ids[i]);
+}
+
 static void inventory_remove(PetkaScriptVM *vm, uint16_t id) {
     uint32_t n = 0;
     for (uint32_t i = 0; i < vm->inventory_count; i++)

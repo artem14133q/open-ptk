@@ -280,6 +280,8 @@ int petka_scriptvm_init(PetkaScriptVM *vm);
 // the new one (unless `silent`, used when restoring a save). The messages
 // are only queued; call petka_scriptvm_run() afterwards.
 void petka_scriptvm_enter_room(PetkaScriptVM *vm, uint16_t room, int silent);
+// Replaces the things carried, in the order given (a saved game's list).
+void petka_scriptvm_set_inventory(PetkaScriptVM *vm, const uint16_t *ids, uint32_t count);
 
 // Host notifications.
 // A clip reached its last frame: posts END (resource, 0, 0) from nobody, as

@@ -18,6 +18,7 @@
 #include "petka/flic.h"
 #include "petka/ini.h"
 #include "petka/msk.h"
+#include "petka/save.h"
 #include "petka/script.h"
 #include "petka/store.h"
 #include "petka/topology.h"
@@ -29,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define GAME_W 640
 #define GAME_H 480
@@ -58,6 +60,7 @@ typedef struct {
     int live;    // drawn this frame
 } Visual;
 
+#define SAVE_SLOTS 6
 #define MAX_WAYPOINTS 32
 #define MAX_GAITS 8
 
@@ -102,6 +105,13 @@ typedef struct {
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text
+    // Saved games.
+    int part_number;
+    int save_mode;   // the save screen is up: 1 loading, 2 saving
+    int save_page;   // 0..2, six slots a page
+    Texture2D save_bg;
+    struct { int present; Texture2D tex; char label[96]; } save_slot[SAVE_SLOTS];
+    uint8_t thumb[PETKA_SAVE_THUMB_BYTES]; // the room as it was when the panel came up
     // The panel's four dials, as the exe keeps them ("Options" in its
     // profile): the number of the dial clip's frame, from 1.
     int dial[4];     // speech 1..31, music 1..41, effects 1..31, speed 1..26
@@ -1185,6 +1195,7 @@ static int map_allowed(const Game *g) {
 
 #define CURSOR_INTERFACE 4901
 static void drop_item(Game *g);
+static void take_thumb(Game *g);
 
 // Back from the map to the room (the map screen's leave, sub_41D730): the
 // cursor's action and the view's scroll are as they were.
@@ -1242,6 +1253,7 @@ static void panel_command(Game *g) {
     if (!panel) { set_status(g, "(в этой части нет панели)"); return; }
     g->case_open = 0;
     drop_item(g);
+    take_thumb(g);
     for (uint32_t i = 0; i < panel->attached_count && i < 16; i++) {
         PetkaObjectState *st = petka_scriptvm_state(g->vm, panel->attached[i].obj_id);
         if (st) { st->x = kPlace[i][0]; st->y = kPlace[i][1]; }
@@ -1258,6 +1270,281 @@ static void panel_command(Game *g) {
     g->seq_room = panel->id;
 }
 
+// ---- saved games ----
+//
+// Files and screen as the original has them: save<n>.dat in the working
+// directory, in the exe's own format (petka/save.h); eighteen slots on three
+// pages of six, each shown by a small picture of the room with the time of
+// saving under it. The slots and the two page corners are rectangles the exe
+// builds at start-up; the screen's pictures are LOAD1-3 and SAVE1-3.
+#define SAVE_LOAD_PICTURE 4990
+#define SAVE_SAVE_PICTURE 4995
+static const Rectangle kSaveSlot[SAVE_SLOTS] = {
+    {43, 84, 108, 82}, {43, 209, 108, 82}, {43, 335, 108, 82},
+    {358, 75, 108, 82}, {360, 200, 108, 82}, {359, 325, 108, 82},
+};
+static const Rectangle kSavePrev = {10, 414, 28, 28}, kSaveNext = {596, 403, 28, 28};
+
+static void save_path(int page, int slot, char *out, size_t out_sz) {
+    snprintf(out, out_sz, "save%d.dat", slot + SAVE_SLOTS * page + 1);
+}
+
+static uint8_t *read_whole_file(const char *path, size_t *len) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *data = size > 0 ? (uint8_t *)malloc((size_t)size) : NULL;
+    if (data && fread(data, 1, (size_t)size, f) != (size_t)size) { free(data); data = NULL; }
+    fclose(f);
+    if (data) *len = (size_t)size;
+    return data;
+}
+
+// The picture a save is shown by: the frame on screen, brought down to
+// 108x82 pixels of 5:6:5. The exe takes it as the panel comes up.
+static void take_thumb(Game *g) {
+    Image shot = LoadImageFromScreen();
+    ImageResize(&shot, PETKA_SAVE_THUMB_W, PETKA_SAVE_THUMB_H);
+    ImageFormat(&shot, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    const uint8_t *px = (const uint8_t *)shot.data;
+    for (int i = 0; px && i < PETKA_SAVE_THUMB_W * PETKA_SAVE_THUMB_H; i++) {
+        uint16_t p = (uint16_t)((px[4 * i] >> 3) << 11 | (px[4 * i + 1] >> 2) << 5 | px[4 * i + 2] >> 3);
+        g->thumb[2 * i] = (uint8_t)p;
+        g->thumb[2 * i + 1] = (uint8_t)(p >> 8);
+    }
+    UnloadImage(shot);
+}
+
+static Texture2D thumb_texture(const uint8_t *thumb) {
+    uint8_t *rgba = (uint8_t *)malloc(PETKA_SAVE_THUMB_W * PETKA_SAVE_THUMB_H * 4);
+    for (int i = 0; i < PETKA_SAVE_THUMB_W * PETKA_SAVE_THUMB_H; i++) {
+        uint16_t p = (uint16_t)(thumb[2 * i] | thumb[2 * i + 1] << 8);
+        rgba[4 * i] = (uint8_t)((p >> 11) * 255 / 31);
+        rgba[4 * i + 1] = (uint8_t)(((p >> 5) & 63) * 255 / 63);
+        rgba[4 * i + 2] = (uint8_t)((p & 31) * 255 / 31);
+        rgba[4 * i + 3] = 255;
+    }
+    Image img = {.data = rgba, .width = PETKA_SAVE_THUMB_W, .height = PETKA_SAVE_THUMB_H, .mipmaps = 1,
+                 .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    Texture2D tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    return tex;
+}
+
+// Writes the game as it stands to a file (the exe's sub_406EB0).
+static int game_save(Game *g, const char *path) {
+    PetkaScriptVM *vm = g->vm;
+    PetkaSave save = {0};
+    save.part = (uint32_t)g->part_number;
+    save.chapter = 1; // the chapter the launcher runs; it cannot change it yet
+    time_t now = time(NULL);
+    strftime(save.label, sizeof(save.label), "%X   %d %B %Y", localtime(&now));
+    memcpy(save.thumb, g->thumb, sizeof(save.thumb));
+
+    save.object_count = g->script->object_count;
+    save.objects = (PetkaSaveObject *)calloc(save.object_count, sizeof(PetkaSaveObject));
+    for (uint32_t i = 0; save.objects && i < save.object_count; i++) {
+        const PetkaObject *obj = &g->script->objects[i];
+        const PetkaObjectState *st = &vm->state[i];
+        PetkaSaveObject *out = &save.objects[i];
+        out->name = (char *)obj->name;
+        out->shown = g->names[i] ? (char *)g->names[i] : (char *)"";
+        out->busy = st->busy;
+        out->status = (uint8_t)st->status;
+        out->resource = st->resource == PETKA_NONE ? -1 : st->resource;
+        out->z = st->z;
+        out->x = st->x;
+        out->y = st->y;
+        // The exe keeps a hero's sprite corner here; his feet come later.
+        if (is_hero(obj->id) && g->visuals[i].flic) {
+            Rectangle d = hero_dest(g, obj->id, st, &g->visuals[i]);
+            out->x = (int32_t)d.x;
+            out->y = (int32_t)d.y;
+        }
+        out->visible = st->visible;
+        out->active = st->active;
+        out->animate = st->animate;
+    }
+    save.item_count = vm->inventory_count;
+    save.items = vm->inventory;
+    const PetkaObject *room = petka_script_find(g->script, vm->room);
+    save.room = room ? (char *)room->name : (char *)"";
+    const PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+    const PetkaObjectState *chapayev = petka_scriptvm_state(vm, PETKA_ID_CHAPAYEV);
+    if (petka) { save.petka_x = petka->x; save.petka_y = petka->y; }
+    if (chapayev) { save.chapayev_x = chapayev->x; save.chapayev_y = chapayev->y; }
+    save.petka_costume = petka && petka->costume != PETKA_NONE ? petka->costume : -1;
+    save.chapayev_costume = chapayev && chapayev->costume != PETKA_NONE ? chapayev->costume : -1;
+    if (g->dtree) { save.code_count = g->dtree->code_count; save.code = g->dtree->code; }
+    if (vm->cursor_object != PETKA_NONE) {
+        save.cursor_resource = vm->cursor_resource;
+        save.cursor_action = 6;
+        save.cursor_item = vm->cursor_object;
+    } else {
+        save.cursor_resource = CURSOR_ACTION0 + g->verb;
+        save.cursor_action = g->verb;
+        save.cursor_item = -1;
+    }
+
+    size_t len = 0;
+    uint8_t *bytes = save.objects ? petka_save_encode(&save, &len) : NULL;
+    free(save.objects);
+    if (!bytes) return 0;
+    FILE *f = fopen(path, "wb");
+    int ok = f && fwrite(bytes, 1, len, f) == len;
+    if (f) fclose(f);
+    free(bytes);
+    return ok;
+}
+
+// Brings a saved game back (the exe's sub_407410). Objects are found by
+// name; a saved z is not used; what the file does not hold stays as it is.
+static int game_load(Game *g, const char *path) {
+    PetkaScriptVM *vm = g->vm;
+    size_t len = 0;
+    uint8_t *bytes = read_whole_file(path, &len);
+    PetkaSave *save = bytes ? petka_save_decode(bytes, len) : NULL;
+    free(bytes);
+    if (!save) return 0;
+    if ((int)save->part != g->part_number) {
+        // The exe switches to the save's part and loads it there.
+        set_status(g, "(это сохранение из другой части игры; смена части пока не сделана)");
+        petka_save_free(save);
+        return 0;
+    }
+    map_leave(g);
+    g->case_open = 0;
+    g->talking = g->paused = g->menu_count = 0;
+    g->line[0] = 0;
+    if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
+    g->walk[0].active = g->walk[1].active = 0;
+
+    for (uint32_t i = 0; i < save->object_count; i++) {
+        const PetkaSaveObject *in = &save->objects[i];
+        const PetkaObject *obj = in->name ? petka_script_find_name(g->script, in->name) : NULL;
+        if (!obj) continue;
+        PetkaObjectState *st = &vm->state[obj_index(g, obj)];
+        st->busy = in->busy;
+        st->status = in->status;
+        st->resource = in->resource < 0 || in->resource >= PETKA_NONE ? PETKA_NONE : (uint16_t)in->resource;
+        st->x = in->x;
+        st->y = in->y;
+        st->visible = in->visible != 0;
+        st->active = in->active != 0;
+        st->animate = in->animate != 0;
+    }
+    petka_scriptvm_set_inventory(vm, save->items, save->item_count);
+    g->case_first = 0;
+
+    // The room is entered without its INITBG going round.
+    const PetkaObject *room = save->room ? petka_script_find_name(g->script, save->room) : NULL;
+    if (room) petka_scriptvm_enter_room(vm, room->id, 1);
+    PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+    PetkaObjectState *chapayev = petka_scriptvm_state(vm, PETKA_ID_CHAPAYEV);
+    if (petka) { petka->x = save->petka_x; petka->y = save->petka_y; }
+    if (chapayev) { chapayev->x = save->chapayev_x; chapayev->y = save->chapayev_y; }
+    g->camera_snap = 1; // the view goes to Petka
+
+    if (g->dtree && save->code_count == g->dtree->code_count)
+        memcpy(g->dtree->code, save->code, sizeof(uint32_t) * save->code_count);
+
+    const PetkaObject *item = save->cursor_item >= 0 ? petka_script_find(g->script, (uint16_t)save->cursor_item) : NULL;
+    if (item) {
+        vm->cursor_object = item->id;
+        vm->cursor_resource = (uint16_t)save->cursor_resource;
+    } else {
+        vm->cursor_object = vm->cursor_resource = PETKA_NONE;
+        if (save->cursor_action >= 0 && save->cursor_action < VERB_COUNT) g->verb = save->cursor_action;
+    }
+    // A hero's costume comes back as an IMAGE message to him.
+    if (save->petka_costume != -1 && save->petka_costume % 100 == 0)
+        petka_scriptvm_send(vm, PETKA_ID_PETKA, PETKA_OP_IMAGE, (uint16_t)save->petka_costume, 1, 0, -1);
+    if (save->chapayev_costume != -1 && save->chapayev_costume % 100 == 0)
+        petka_scriptvm_send(vm, PETKA_ID_CHAPAYEV, PETKA_OP_IMAGE, (uint16_t)save->chapayev_costume, 1, 0, -1);
+    vm->interface_enabled = 1;
+    vm->cursor_visible = 1;
+    petka_save_free(save);
+    return 1;
+}
+
+static void saves_unload(Game *g) {
+    if (g->save_bg.id) UnloadTexture(g->save_bg);
+    g->save_bg = (Texture2D){0};
+    for (int i = 0; i < SAVE_SLOTS; i++) {
+        if (g->save_slot[i].tex.id) UnloadTexture(g->save_slot[i].tex);
+        g->save_slot[i].tex = (Texture2D){0};
+        g->save_slot[i].present = 0;
+    }
+}
+
+// Puts up a page of the screen (its set-up, sub_41D9E0): the picture for the
+// mode and page, and for every slot with a file its picture and label.
+static void saves_show(Game *g) {
+    saves_unload(g);
+    int picture = (g->save_mode == 1 ? SAVE_LOAD_PICTURE : SAVE_SAVE_PICTURE) + g->save_page;
+    if (g->qrc[picture]) g->save_bg = load_bmp_texture(g, g->qrc[picture]);
+    for (int i = 0; i < SAVE_SLOTS; i++) {
+        char path[64];
+        save_path(g->save_page, i, path, sizeof(path));
+        size_t len = 0;
+        uint8_t *bytes = read_whole_file(path, &len);
+        PetkaSave head;
+        if (bytes && petka_save_peek(bytes, len, &head) == 0) {
+            g->save_slot[i].present = 1;
+            g->save_slot[i].tex = thumb_texture(head.thumb);
+            cp1251_to_utf8(head.label, g->save_slot[i].label, sizeof(g->save_slot[i].label));
+        }
+        free(bytes);
+    }
+}
+
+static void saves_open(Game *g, int mode) {
+    g->save_mode = mode;
+    saves_show(g);
+}
+
+static void saves_close(Game *g) {
+    saves_unload(g);
+    g->save_mode = 0;
+}
+
+// A click on the screen (sub_41E370): a slot loads or saves, the corners
+// turn the page.
+static void saves_click(Game *g, Vector2 p) {
+    for (int i = 0; i < SAVE_SLOTS; i++) {
+        if (!CheckCollisionPointRec(p, kSaveSlot[i])) continue;
+        char path[64];
+        save_path(g->save_page, i, path, sizeof(path));
+        int loading = g->save_mode == 1;
+        if (loading && !g->save_slot[i].present) return;
+        saves_close(g);
+        if (loading) { if (game_load(g, path)) set_status(g, "(игра загружена)"); }
+        else set_status(g, game_save(g, path) ? "(игра сохранена)" : "(не удалось записать сохранение)");
+        return;
+    }
+    if (CheckCollisionPointRec(p, kSavePrev) && g->save_page > 0) { g->save_page--; saves_show(g); }
+    if (CheckCollisionPointRec(p, kSaveNext) && g->save_page < 2) { g->save_page++; saves_show(g); }
+}
+
+static void draw_saves(Game *g, Font font, float scale) {
+    if (g->save_bg.id)
+        DrawTexturePro(g->save_bg, (Rectangle){0, 0, (float)g->save_bg.width, (float)g->save_bg.height},
+                       (Rectangle){0, 0, GAME_W * scale, GAME_H * scale}, (Vector2){0, 0}, 0, WHITE);
+    else
+        DrawRectangle(0, 0, (int)(GAME_W * scale), (int)(GAME_H * scale), BLACK);
+    for (int i = 0; i < SAVE_SLOTS; i++) {
+        if (!g->save_slot[i].present) continue;
+        Rectangle r = kSaveSlot[i];
+        DrawTexturePro(g->save_slot[i].tex, (Rectangle){0, 0, PETKA_SAVE_THUMB_W, PETKA_SAVE_THUMB_H},
+                       (Rectangle){r.x * scale, r.y * scale, r.width * scale, r.height * scale}, (Vector2){0, 0}, 0, WHITE);
+        // The label, in the exe's dark green, a pixel below the picture.
+        DrawTextEx(font, g->save_slot[i].label, (Vector2){r.x * scale, (r.y + r.height + 1) * scale}, 9 * scale, 1,
+                   (Color){0, 127, 0, 255});
+    }
+}
+
 // A click on the panel (sub_41CAE0). The exe goes by the object's number in
 // the screen's list, which is its number in the room's list plus one.
 static void panel_click(Game *g, const PetkaObject *hit) {
@@ -1267,10 +1554,10 @@ static void panel_click(Game *g, const PetkaObject *hit) {
         if (panel->attached[i].obj_id == hit->id) n = (int)i;
     switch (n) {
     case 0: set_status(g, "(новая игра пока не сделана: перезапустите игру)"); break;
-    case 1: set_status(g, "(загрузка пока не сделана)"); break;
+    case 1: map_leave(g); saves_open(g, 1); break; // "restore"
     case 2: map_leave(g); break;                 // "continue"
     case 3: map_leave(g); g->quit = 1; break;    // the door: out of the game
-    case 4: set_status(g, "(сохранение пока не сделано)"); break;
+    case 4: map_leave(g); saves_open(g, 2); break; // "save"
     case 7: g->subtitles = !g->subtitles; break; // the subtitle switch
     default:
         // The hidden "min" and "MAX" marks of the four dials, in the dials'
@@ -1463,6 +1750,7 @@ int main(int argc, char **argv) {
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;
     g->cursor.resource = PETKA_NONE;
+    g->part_number = atoi(digit);
     g->case_body.resource = g->case_exit.resource = g->case_strip.resource = PETKA_NONE;
     for (int i = 0; i < 6; i++) g->case_button[i].resource = PETKA_NONE;
     g->case_lit = -1;
@@ -1677,7 +1965,22 @@ int main(int argc, char **argv) {
 
         if (g->panel_open) panel_show_state(g);
         int scene_count = build_scene(g, scene, (int)(sizeof(scene) / sizeof(scene[0])));
-        int can_act = vm->cursor_visible && !g->talking && (g->seq_room == PETKA_NONE || g->map_open);
+        int can_act = vm->cursor_visible && !g->talking && (g->seq_room == PETKA_NONE || g->map_open) &&
+                      !g->save_mode;
+        // The save screen takes the mouse to itself; the right button or O
+        // leaves it (ours -- its own way out was not decompiled).
+        if (g->save_mode) {
+            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_O)) saves_close(g);
+            else if (clicked) saves_click(g, (Vector2){mouse.x / scale, mouse.y / scale});
+        }
+        // dev: PETKA_SAVE=<frame> and PETKA_LOAD=<frame> write and read
+        // save1.dat on that frame of an unattended run.
+        if (getenv("PETKA_SAVE") && atol(getenv("PETKA_SAVE")) == frame) {
+            take_thumb(g);
+            fprintf(stderr, "save: %s\n", game_save(g, "save1.dat") ? "ok" : "failed");
+        }
+        if (getenv("PETKA_LOAD") && atol(getenv("PETKA_LOAD")) == frame)
+            fprintf(stderr, "load: %s\n", game_load(g, "save1.dat") ? "ok" : "failed");
         // The case is opened and shut with I (the exe's command 32779),
         // while the panel is on. Open, it takes the mouse off the room.
         // dev: PETKA_CASE=<frame> opens it on that frame of an unattended run.
@@ -1791,6 +2094,7 @@ int main(int argc, char **argv) {
         EndMode2D();
 
         if (g->case_open) draw_case(g, scale);
+        if (g->save_mode) draw_saves(g, font, scale);
 
         // Top bar: what a click would do.
         // The object under the cursor is captioned as the exe does it (the
@@ -1906,12 +2210,12 @@ int main(int argc, char **argv) {
         // there whenever the cursor is shown; a dialogue hides it for its
         // phrases and brings it back for a menu.
         if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) && (!g->talking || g->menu_count > 0)) {
-            uint16_t clip = g->map_open ? CURSOR_INTERFACE
+            uint16_t clip = g->map_open || g->save_mode ? CURSOR_INTERFACE
                           : g->menu_count > 0 ? CURSOR_POINTER
                           : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
                           : (uint16_t)(CURSOR_ACTION0 + g->verb);
             HideCursor();
-            draw_cursor(g, clip, hover != NULL, !g->map_open, mouse, scale);
+            draw_cursor(g, clip, hover != NULL, !g->map_open && !g->save_mode, mouse, scale);
         } else {
             ShowCursor();
         }
@@ -1936,6 +2240,7 @@ int main(int argc, char **argv) {
 
     for (uint32_t i = 0; i < g->script->object_count; i++) visual_free(&g->visuals[i]);
     visual_free(&g->cursor);
+    saves_unload(g);
     visual_free(&g->case_body);
     visual_free(&g->case_exit);
     visual_free(&g->case_strip);

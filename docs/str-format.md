@@ -880,8 +880,8 @@ objects:
 in one pass and with no compression or check:
 
 ```
-u32        dword_4DE87C   } the two globals the part and chapter are kept
-u32        dword_4DE884   } in (which is which was not traced)
+u32        the part       (dword_4DE87C)
+u32        the chapter    (dword_4DE884)
 char[30]   the name shown under the slot: the time of saving, formatted
            "%X   %d %B %Y" (the locale's time, day, month name, year)
 pixels     the slot picture: 82 rows of 108 16-bit pixels, in the surface's
@@ -922,11 +922,50 @@ dialogues keep their state: the menu lines switched off and the `SKIPN`
 turns live in the instruction words. A hero is saved twice -- as object 0
 or 1 with his sprite's corner, and again by his feet.
 
-Not decompiled: mouse move `0x41E2B0`, leave `0x41E590`, `sub_41E230`
+**Loading** (`sub_407410(name)`) reads the same file back, and what it
+does with each part of it matters as much as the format:
+
+1. the part is read into a scratch global (`dword_4DE880`) and compared with
+   the part that is running. **If they differ nothing is loaded**: the name
+   is remembered, a flag is set (`dword_4DE8B0`), and the file is closed --
+   the game has to change part first and comes back to it. Otherwise the
+   chapter is taken from the file and `sub_411C00` opens that chapter;
+2. the label and the picture are read and dropped;
+3. each object record is applied to the object **found by its script
+   name** (`sub_406D40`), so a save does not depend on the order of the
+   list: busy, status, resource, x, y, visible, active, animate. The shown
+   name is read and dropped, and so is **z** -- an object keeps the z it has;
+4. the case is emptied and filled from the list;
+5. the room is found by name and entered through `loadRoom` with its last
+   argument 1 -- the form that sends no `LEAVEBG` and no `INITBG`;
+6. Petka is put by his feet (his slot `+28`, `sub_4087D0`), and the view's
+   scroll is set to his x less 320, kept between 0 and the room's width
+   less 640; then Chapayev is put;
+7. the dialogue code is read over the one in memory (`sub_40C1F0`);
+8. the cursor's resource, action and thing are set;
+9. each hero's saved `+148`, if it is not -1 and is a multiple of 100, is
+   sent to him as message 49, `IMAGE`, with 1 as the second argument, at
+   once -- so `+148` is the hero's costume, and this is how he gets his
+   clips back;
+10. the eight spare words are read, the panel object is made active, and
+    the screen redrawn.
+
+Nothing is done to the message queue, and `TOTALINIT` is not sent.
+
+Not decompiled: mouse move `0x41E2B0`, leave `0x41E590`, and `sub_41E230`
 (which the panel's start calls before it draws anything of its own -- it
 must be what fills the 108x82 surface at `+96` of this screen, which the
-saving writes out), and the loading, `sub_407410`. The launcher has no
-saved games yet.
+saving writes out).
+
+The launcher saves and loads in this format (`core/src/save.c`:
+`petka_save_encode`, `petka_save_decode`, `petka_save_peek`; `game_save`,
+`game_load` and the screen in the launcher), to `save<n>.dat` in the
+directory it is run from, like the exe. The panel's "restore" and "save"
+lead to the screen, a click on a slot loads or saves, the corners turn the
+page; the right button or `O` leaves it. It takes the slot picture itself,
+by shrinking the frame on screen when the panel comes up. Not done: a save
+from another part is refused rather than followed, and the chapter is
+always written as 1.
 
 Not decompiled: the panel's mouse move `0x41C8D0` and leave `0x41CE00`. The launcher puts the panel up the same
 way (`panel_command`) and takes "continue", the door and the subtitle
@@ -935,7 +974,8 @@ is not written out, and one without a voice is not waited for. The dials
 start at the exe's defaults and work: the three volumes, on the exe's
 curve (the ambience counts as an effect), and the walking speed. Nothing
 is saved between runs, and unlike the original the launcher starts with the
-subtitles on. New game, loading and saving only say they are not there yet.
+subtitles on. "Restore" and "save" lead to the save/load screen (below);
+new game only says it is not there yet.
 
 **The map** is two things. In the script it is a room, 512 `КАРТА`: a
 picture (`SET 4800`, `MAIN\MAP1.BG\MAP-00.BMP`; the room's `INITBG`
@@ -1807,6 +1847,7 @@ quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_CASE=<frame>` (open the case on that frame),
 `PETKA_MAP=<frame>` (the map command on that frame),
 `PETKA_PANEL=<frame>` (the panel command on that frame),
+`PETKA_SAVE=<frame>` and `PETKA_LOAD=<frame>` (write and read `save1.dat`),
 `PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the
 cursor's action number as in the table under "How a click becomes a
 message"),
