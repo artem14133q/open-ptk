@@ -741,6 +741,32 @@ static void set_talker(Game *g, uint16_t id) {
     if (id != PETKA_NONE) petka_scriptvm_send(g->vm, id, PETKA_OP_SAY, 0, 0, 0, -1);
 }
 
+// Where a speaker's voice sits between the speakers, -1 (left) to 1 (right).
+// The exe (sub_40E0D0) gives DirectSound a pan of 2500 * (2x - w) / (2w)
+// hundredths of a decibel, x being the middle of the speaker's clip and w
+// the screen's width: up to 12.5 dB off the far channel at either edge.
+static float speaker_pan(const Game *g, uint16_t id) {
+    const PetkaObject *obj = petka_script_find(g->script, id);
+    if (!obj) return 0;
+    const Visual *v = &g->visuals[obj_index(g, obj)];
+    if (!v->live) return 0;
+    float mid;
+    if (is_hero(id)) {
+        Rectangle d = hero_dest(g, id, &g->vm->state[obj_index(g, obj)], v);
+        mid = d.x + d.width / 2;
+    } else {
+        mid = (float)(v->rect.left + (v->rect.right - v->rect.left) / 2);
+    }
+    const int width = 640;
+    int x = (int)(mid - g->camera_x);
+    int centibels = 2500 * (2 * x - width) / (2 * width);
+    // As a balance: the far channel's gain is what DirectSound would leave.
+    float far_gain = powf(10.0f, -(float)abs(centibels) / 2000.0f);
+    float pan = 1.0f - far_gain;
+    if (pan > 1.0f) pan = 1.0f;
+    return centibels < 0 ? -pan : pan;
+}
+
 static void next_phrase(Game *g) {
     if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
     uint32_t idx;
@@ -785,7 +811,8 @@ static void next_phrase(Game *g) {
     if (g->fast) {
         g->line_until = game_now() + 0.1;
         const PetkaObject *who = petka_script_find(g->script, g->talker);
-        fprintf(stderr, "say %.1fs [%s]: %s\n", game_now(), who ? utf8_name(who->name) : "?", g->line);
+        fprintf(stderr, "say %.1fs [%s] pan %+.2f: %s\n", game_now(), who ? utf8_name(who->name) : "?",
+                speaker_pan(g, g->talker), g->line);
     } else if (ph->wav_name[0]) {
         char wav[64];
         snprintf(wav, sizeof(wav), "%s\\%s", g->speech_prefix, ph->wav_name);
@@ -793,7 +820,11 @@ static void next_phrase(Game *g) {
         const uint8_t *bytes = res_find(g, wav, &len);
         if (bytes) {
             Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
-            if (wave.frameCount > 0) { g->voice = LoadSoundFromWave(wave); PlaySound(g->voice); }
+            if (wave.frameCount > 0) {
+                g->voice = LoadSoundFromWave(wave);
+                SetSoundPan(g->voice, speaker_pan(g, g->talker));
+                PlaySound(g->voice);
+            }
             UnloadWave(wave);
         }
     }

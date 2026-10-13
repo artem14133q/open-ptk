@@ -1080,7 +1080,7 @@ once after a start, flag `+16`) and acts on what it stopped at
 
 | kind | what the step does |
 |---:|---|
-| 1, phrase | stops the previous voice clip; loads the new one (speech folder + the phrase's wav name) and remembers whether there is one (`+12`); pans it by the speaker (`sub_40E0D0`: the middle of his clip's `.MSK` rect plus his x, against the view offset `QSystem+112`) and plays it. If the speaker is not the previous phrase's, the old speaker (`+44`) gets `SAID` and the new one `SAY`. The subtitle is set on the current screen (slot `+44`). |
+| 1, phrase | stops the previous voice clip; loads the new one (speech folder + the phrase's wav name) and remembers whether there is one (`+12`); pans it by the speaker (`sub_40E0D0`, below) and plays it. If the speaker is not the previous phrase's, the old speaker (`+44`) gets `SAID` and the new one `SAY`. The subtitle is set on the current screen (slot `+44`). |
 | 2, menu | stops the voice clip; the speaker gets `SAID` and is forgotten; the lines go to the main screen (slot `+60`) with three colours, `0xFFFFFF`, `0x0A0A0A`, `0xFF0000`; the cursor is shown again; state 2. With no lines to offer nothing more is done. |
 | 3, end | `sub_4165A0` (above). |
 | 4 | stops the voice clip, forgets the speaker **without** a `SAID`, clears the subtitle; state 1. By elimination this is the `USERMSG` pause; `sub_40B6E0` was not decompiled. |
@@ -1108,10 +1108,26 @@ on its `USERMSG n` instruction, before the step gets to row 4:
 3. `USERMSG` is **queued** for Chapayev (the id at `QSystem+422`) with
    arguments `n, 0, 0` and no sender.
 
-`CONTINUE` lifts the pause. The launcher does all of this; panning is the
-one thing it leaves out. It has nothing to restore in step 2: its dialogue
+`CONTINUE` lifts the pause. The launcher does all of this. It has nothing
+to restore in step 2: its dialogue
 never touches the cursor's state or the chosen action, it only takes the
 input while a phrase or a menu is up.
+
+**Voice panning** (`sub_40E0D0(name, x, w)`): if the clip is loaded, its
+DirectSound pan is set to
+
+```
+2500 * (2x - w) / (2w)      hundredths of a decibel, integer arithmetic
+```
+
+where `x` is the middle of the speaker's clip (the left edge of its `.MSK`
+rect, plus the object's x, plus half the rect's width) and `w` is
+`QSystem+112` -- by its place in the formula the width of the screen, 640.
+So a voice is centred for a speaker in the middle of the screen, and at
+either edge the far channel is 12.5 dB down (a gain of 0.24); it is never
+taken out altogether. The launcher sets the same balance
+(`speaker_pan`), taking `x` on screen, i.e. less the view's scroll -- whether
+the original's object x already has the scroll taken off was not checked.
 
 ## Room topology — SOLVED: `BGS.INI` is the room graph, plain text
 
