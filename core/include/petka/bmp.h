@@ -5,9 +5,15 @@
 // Windows BMPs:
 //   - 8 more bytes follow the header: a u32 tag (0 or 2, no visible effect)
 //     and the file's length as a u32. Pixels start at 62, not at bfOffBits.
-//   - rows are width*2 bytes, NOT padded to a multiple of four (it only
-//     shows on odd widths: the two 1349-pixel backgrounds).
+//   - rows are width*2 bytes, NOT padded to a multiple of four.
 //   - each pixel is a big-endian 16-bit word, BBBBB GGGGGG RRRRR.
+//   - the files were made from 24-bit BMPs by taking the pixel bytes three
+//     at a time into one word each -- row padding included. Where width*3
+//     is a multiple of four there is none and the words are the pixels. In
+//     the two 1349-pixel backgrounds of part 2 (the restaurant and the
+//     square) each row had one byte of it: the words run on a byte further
+//     every row, a pixel's blue, green and red falling into two words on
+//     two rows out of three. Those are read back as that stream of bytes.
 // Standard BMP decoders (including stb_image, which raylib uses internally)
 // get all three wrong. The length field is how this variant is recognised.
 //

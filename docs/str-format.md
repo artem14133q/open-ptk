@@ -127,6 +127,23 @@ BITFIELDS -- but the 16bpp ones (111 of the 115 images) are not:
 
 Each pixel is a **big-endian** 16-bit word, `BBBBB GGGGGG RRRRR`.
 
+**Row padding went through the conversion.** The files were made from
+24-bit BMPs (the stale `bfSize` is still the 24-bit file's) by packing the
+pixel bytes three at a time into a word -- all of them, the bytes that pad
+a 24-bit row to a multiple of four included. Nearly every width gives rows
+with no padding (640, 1296, 2012, 2116), and there the words are simply the
+pixels. Two backgrounds are 1349 wide, `RESTORAN.BG\RESTORAN.BMP` and
+`FONTAN.BG\FONTAN.BMP` of part 2: 4047 bytes a row and one of padding, so
+the file holds 4048 * 480 / 3 = 647680 words (and one more), not
+1349 * 480, and the words slip a byte further on every row. Read as rows of
+1349 words the picture comes out grey and striped, the three colours
+changing places from row to row with a period of three. The decoder reads
+such a file back as the stream of bytes it was made from (byte `i` is
+component `i % 3` of word `i / 3`) and takes the pixels out of that at the
+24-bit row length, which gives the colours back -- at five or six bits a
+component, whichever word a byte fell into. What the exe makes of these two
+files has not been read.
+
 How each part was found:
 
 - The word layout came first, by rendering every plausible byte and channel

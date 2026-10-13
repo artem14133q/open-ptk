@@ -1,5 +1,6 @@
 #include "petka/bmp.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 
 static uint16_t read_u16le(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
@@ -25,9 +26,16 @@ uint8_t *petka_bmp_decode(const uint8_t *data, size_t len, int *out_width, int *
     size_t row_stride = (((size_t)width * bpp / 8) + 3) & ~(size_t)3;
     // Petka's own 16bpp layout: an 8-byte block { tag, file length } sits
     // between the header and the pixels, and rows are not padded.
+    // Where a row of the 24-bit original was padded, the padding went
+    // through the conversion too (see bmp.h): `padded_row` is then the
+    // original row's length in bytes, and the pixels are read another way.
+    size_t padded_row = 0;
     if (bpp == 16 && len >= 62 && read_u32le(data + 58) == len) {
         bits_off = 62;
         row_stride = (size_t)width * 2;
+        size_t row24 = ((size_t)width * 3 + 3) & ~(size_t)3;
+        size_t height_abs = height_field > 0 ? (size_t)height_field : (size_t)-(int64_t)height_field;
+        if (row24 != (size_t)width * 3 && (len - 62) / 2 >= (row24 * height_abs + 2) / 3) padded_row = row24;
     }
     if (bits_off > len || row_stride * (size_t)height > len - bits_off) return NULL;
 
@@ -48,7 +56,23 @@ uint8_t *petka_bmp_decode(const uint8_t *data, size_t len, int *out_width, int *
         const uint8_t *row = data + bits_off + (size_t)src_row * row_stride;
         uint8_t *dst = out + (size_t)y * (size_t)width * 3;
 
-        if (bpp == 16) {
+        if (padded_row) {
+            // The words are the original's bytes three at a time, padding
+            // and all: byte i of it is component i % 3 of word i / 3.
+            const uint8_t *words = data + bits_off;
+            size_t base = (size_t)src_row * padded_row;
+            for (int x = 0; x < width; x++) {
+                for (int c = 0; c < 3; c++) {
+                    size_t i = base + (size_t)x * 3 + (size_t)c; // 0 blue, 1 green, 2 red
+                    uint16_t p = (uint16_t)((words[i / 3 * 2] << 8) | words[i / 3 * 2 + 1]);
+                    unsigned part = (unsigned)(i % 3);
+                    uint8_t v = part == 0   ? (uint8_t)(((p >> 11) & 0x1F) * 255 / 31)
+                                : part == 1 ? (uint8_t)(((p >> 5) & 0x3F) * 255 / 63)
+                                            : (uint8_t)((p & 0x1F) * 255 / 31);
+                    dst[x * 3 + (2 - c)] = v;
+                }
+            }
+        } else if (bpp == 16) {
             for (int x = 0; x < width; x++) {
                 // Big-endian u16, bits: BBBBB GGGGGG RRRRR (see bmp.h).
                 uint16_t p = (uint16_t)((row[x * 2] << 8) | row[x * 2 + 1]);
