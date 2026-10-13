@@ -523,6 +523,21 @@ Action 5 is "send Chapayev": with no reaction to it, the built-in
 message switches the cursor to. The arguments matter because a reaction's
 `IF` compares them.
 
+Whether a point hits a hero is `sub_4086B0` (the hero's override of the
+object hit test, `0x4018C0` for scene objects, not decompiled). It answers
+yes when
+
+- the hero is active (`+60`) -- visibility is **not** asked;
+- the point, less the sprite's corner (`+12`, `+16`), lies inside the scaled
+  frame (`+128` x `+132`);
+- the pixel there on the hero's own surface (`+144`, the frame already
+  scaled, 16 bits a pixel) is not the clip's transparent colour (`QFlic+40`).
+
+So a hero is hit pixel-exactly, on the scaled picture. It says nothing about
+which object wins when several are under the point: that is the caller's
+loop, not yet found. The launcher asks the same three questions
+(`object_at`), top of the z order first.
+
 Where the other engine-sent messages come from: `END` and `HALF` from the
 object update (below), `TOTALINIT` from `sub_405D00` at load; and, read off
 the constants at the call sites without decompiling the functions,
