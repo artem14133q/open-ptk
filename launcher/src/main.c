@@ -2999,6 +2999,15 @@ int main(int argc, char **argv) {
             const PetkaObject *hero = petka_script_find(g->script, id);
             if (hero && !g->visuals[obj_index(g, hero)].live) visual_update(g, hero);
         }
+        // The things in the case have clips of their own, and the script
+        // waits for some of them: in part 2 the pen on the cheque hides the
+        // cursor, sets the cheque writing itself and gives the cursor back
+        // on that clip's END. So they are kept going like the room's
+        // objects, the case open or shut.
+        for (uint32_t i = 0; i < vm->inventory_count; i++) {
+            const PetkaObject *thing = petka_script_find(g->script, vm->inventory[i]);
+            if (thing && !g->visuals[obj_index(g, thing)].live) visual_update(g, thing);
+        }
         // A PLAY aimed at something that is not on screen (hidden, another
         // room, missing clip) would never end; end it at once instead.
         for (uint32_t i = 0; i < g->script->object_count; i++) {

@@ -1,0 +1,8 @@
+# Part 2: the pen on the cheque (both put in the case by PETKA_POST).
+wait 400
+has 31
+has 3
+item 31 3
+wait 600
+has 47              # the forged cheque
+shot cheque.png
