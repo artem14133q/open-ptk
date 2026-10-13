@@ -926,22 +926,24 @@ static int build_scene(Game *g, Drawable *out, int max) {
         // A hero attached to this room explicitly was already listed.
         if (i >= room->attached_count && st->room == room->id) continue;
         out[n].obj = obj;
-        if (hero_here) {
-            // A hero's own z update was not decompiled; his feet are the
-            // bottom of his sprite, which is what the rule below would give.
-            out[n].z = st->y;
-        } else {
-            // The exe's z update (sub_401810): an animated, visible object
-            // with auto_z takes the lowest edge of its current frame's MSK
-            // rects (its sprite sits at y 0), never less than 1. Otherwise z
-            // stays whatever it was last given.
-            PetkaObjectState *state = &g->vm->state[obj_index(g, obj)];
-            if (state->auto_z && state->animate && state->visible) {
+        // The exe's z update: an animated, visible object with auto_z gets a
+        // new z every frame; otherwise z stays whatever it was last given.
+        PetkaObjectState *state = &g->vm->state[obj_index(g, obj)];
+        if (state->auto_z && state->animate && state->visible) {
+            if (hero_here) {
+                // A hero (sub_409530): the bottom edge of his scaled frame
+                // when standing, the walk's point when walking -- his feet
+                // either way, which is where the launcher keeps him.
+                state->z = st->y;
+            } else {
+                // A scene object (sub_401810): the lowest edge of its
+                // current frame's MSK rects (its sprite sits at y 0), never
+                // less than 1.
                 int bottom = petka_msk_frame_bottom(v->msk, v->msk_len, v->flic->frame_count, v->flic->frame_index);
                 state->z = bottom > 1 ? bottom : 1;
             }
-            out[n].z = state->z;
         }
+        out[n].z = state->z;
         n++;
     }
     qsort(out, (size_t)n, sizeof(Drawable), by_z);

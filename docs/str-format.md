@@ -260,8 +260,19 @@ and over a thousand scene objects get neither a `ZBUFFER` nor a `z` in
 room, in front of anyone standing behind it).
 
 Implemented in `core/src/msk.c` (`petka_msk_rect`, `petka_msk_frame_bottom`).
-The heroes have their own z update (`0x409530`, not decompiled); the
-launcher orders them by their feet.
+The heroes have their own z update (`sub_409530`), under the same three
+conditions (animated, visible, automatic z):
+
+```
+walking (+164):  z = y of the point returned by sub_424210 (not decompiled;
+                 by its neighbour sub_424190, the walk's current point)
+otherwise:       z = sprite_y + (i16)(frame_height * scale)
+```
+
+A standing hero's sprite is put at `y - frame_height * scale`
+(`sub_4087D0`), so both come to the y of his feet -- and there is no floor of
+1 here. The script does use the flag on heroes: `ZBUFFER 0 441` pins Petka
+once, and nine `ZBUFFER 1` hand the heroes back to the automatic order.
 
 ## `.CVX` convex walk-mesh — SOLVED (byte-exact, geometry verified)
 
@@ -787,8 +798,7 @@ the 3-pixel strip it leaves. Used twice, in one `PART_3` cutscene.
 That frame function is the game's main loop body, and shows the order of a
 frame: every object's update (vtable slot 6) with the milliseconds since the
 last frame; then every object's slot `+48` (`0x401810` for scene objects,
-`0x409530` for heroes; not decompiled -- by its place, the recalculation of
-`z`); then the sort of the screen's objects by `z` ascending (`sub_422580`,
+`0x409530` for heroes: the recalculation of `z`); then the sort of the screen's objects by `z` ascending (`sub_422580`,
 a selection sort); then every object's draw (slot `+20`). It is also where
 the view scrolls: 8 pixels a frame towards the requested offset.
 
