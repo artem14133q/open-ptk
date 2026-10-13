@@ -2588,6 +2588,17 @@ int main(int argc, char **argv) {
         // dev: PETKA_PANEL=<frame> presses O on that frame of an unattended run.
         int panel_key = IsKeyPressed(KEY_O) || (getenv("PETKA_PANEL") && atol(getenv("PETKA_PANEL")) == frame);
         if (panel_key && can_act && !g->menu_count) panel_command(g);
+        // F2 and F3 (the exe's commands 32771 and 32772, 0x417B80 and
+        // 0x417C00) go straight from the game's own screen to the save
+        // screen: F2 to save -- only while the star is active; the case is
+        // shut and the slot picture taken first -- and F3 to load.
+        int on_main = can_act && !g->menu_count && !g->map_open && !g->star_open;
+        if (IsKeyPressed(KEY_F2) && on_main && vm->interface_enabled) {
+            g->case_open = 0;
+            take_thumb(g);
+            saves_open(g, 2);
+        }
+        if (IsKeyPressed(KEY_F3) && on_main) saves_open(g, 1);
         // The star is up only while the player can act, and while it is up
         // nothing else is under the pointer.
         if (!can_act || g->map_open) g->star_open = 0;
