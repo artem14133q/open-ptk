@@ -90,7 +90,7 @@ typedef struct {
     PetkaDialogueTree *tree;
     uint32_t ip; // current word offset into tree->code
     int done;
-    uint32_t skip_end; // word after the SKIPN group being played, 0 = none
+    int skip_shown;    // standing on a SKIPN whose phrase is being shown
 } PetkaDialogueVM;
 
 void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32_t start_offset);
@@ -98,7 +98,8 @@ void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32
 // Runs the VM forward until it hits a PHRASE (returns its phrase index via
 // *out_phrase_index and leaves the VM positioned just after it, ready for
 // the next call) or STOP (returns 0 with *out_phrase_index unset). SKIPN
-// picks a pseudo-random alternative each time it's encountered. Returns 1
+// gives one of its phrases, the next one each time it is met (the turn is
+// kept in the tree's code, like the menu lines' on/off bits). Returns 1
 // if a phrase was produced, 0 on STOP/end, -1 on malformed bytecode.
 //
 // Returns 2 on USERMSG, with its argument in *out_phrase_index: the

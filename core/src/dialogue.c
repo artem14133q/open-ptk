@@ -173,7 +173,7 @@ void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32
     vm->tree = tree;
     vm->ip = start_offset;
     vm->done = 0;
-    vm->skip_end = 0;
+    vm->skip_shown = 0;
 }
 
 static uint32_t op_of(uint32_t word) { return (word >> 24) & 0xFF; }
@@ -257,29 +257,34 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 *out_phrase_index = operand;
                 return 1;
             case PETKA_DLG_OP_DELIM:
-                // End of the SKIPN variant being played: carry on after the
-                // whole group rather than falling into a sibling variant.
-                // Almost every group is followed by STOP, a few by more
-                // dialogue. (Inferred from the data, not traced in the exe.)
-                if (vm->skip_end) {
-                    vm->ip = vm->skip_end;
-                    vm->skip_end = 0;
-                    break;
-                }
+                // A DELIM only closes a menu label or a SKIPN variant, and
+                // neither is ever run into: no dialogue of the game gets
+                // here. (The exe would walk back to the SKIPN or CHOICE
+                // before it and run that again.)
                 vm->done = 1;
                 return 0;
             case PETKA_DLG_OP_GOTO:
                 vm->ip = operand & 0xFFFF;
                 break;
             case PETKA_DLG_OP_SKIPN: {
-                uint32_t n = operand;
+                // "One of these n phrases, in turn" (sub_40B790): n in the
+                // low word, whose turn it is in the third byte, then n
+                // variants of one PHRASE and a DELIM each. The VM stands on
+                // the instruction while its phrase is up; moving on passes
+                // the turn and steps over the whole group.
+                uint32_t n = word & 0xFFFF, turn = (word >> 16) & 0xFF;
                 if (n == 0) { vm->ip++; break; }
-                uint32_t pick = (uint32_t)rand() % n;
-                vm->ip++;
-                vm->skip_end = skip_delims(tree, vm->ip, n);
-                for (uint32_t skipped = 0; skipped < pick && vm->ip < tree->code_count; vm->ip++) {
-                    if (((tree->code[vm->ip] >> 24) & 0xFF) == PETKA_DLG_OP_DELIM) skipped++;
+                if (!vm->skip_shown) {
+                    uint32_t at = skip_delims(tree, vm->ip + 1, turn % n);
+                    if (at < tree->code_count && op_of(tree->code[at]) == PETKA_DLG_OP_PHRASE) {
+                        vm->skip_shown = 1;
+                        *out_phrase_index = tree->code[at] & 0xFFFFFF;
+                        return 1;
+                    }
                 }
+                vm->skip_shown = 0;
+                tree->code[vm->ip] = (word & 0xFF00FFFFu) | (((turn + 1) % n) << 16);
+                vm->ip = skip_delims(tree, vm->ip + 1, n & 0xFF);
                 break;
             }
             case PETKA_DLG_OP_USERMSG:
@@ -291,9 +296,14 @@ int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index) {
                 uint32_t open = 0;
                 for (uint32_t option = 0; option < choice_count(word); option++)
                     open += (uint32_t)choice_enabled(word, option);
-                if (!open) { vm->done = 1; return 0; } // nothing left to say
-                // A menu is only put up for a real choice (sub_40B6E0): the
-                // last line left is taken without asking.
+                // A menu is only put up for a real choice (sub_40B6E0).
+                // With no line left the exe's pick runs off the end of the
+                // menu's GOTO table, into whatever follows it.
+                if (!open) {
+                    vm->ip = skip_delims(tree, vm->ip + 1, choice_count(word)) + choice_count(word);
+                    break;
+                }
+                // The last line left is taken without asking.
                 if (open == 1) {
                     if (petka_dialoguevm_choose(vm, 0) != 0) { vm->done = 1; return 0; }
                     break;

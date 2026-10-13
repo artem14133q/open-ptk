@@ -1010,7 +1010,7 @@ content matching a specific item.
 | `0x03` | `GOTO`   | u16 target                                 | jump to absolute word offset |
 | `0x06` | `STOP`   | unused                                     | end of this instruction sequence (also used as an error sentinel by the runtime) |
 | `0x07` | `PHRASE` | phrase index                               | speak/display phrase N (index into `DIALOGUE.LOD`'s phrase table — text + voice clip) |
-| `0x08` | `SKIPN`  | count                                      | randomly pick one of the next `count` `DELIM`-separated phrase blocks (variant/idle-line selection) |
+| `0x08` | `SKIPN`  | count (low word), turn (third byte)        | say one of the next `count` `DELIM`-separated phrases, the next one each time (variant/idle-line selection) |
 | `0x04` | `DISABLE` | `(option_index << 16) \| choice_addr`     | switch option `option_index` of the `CHOICE` at word `choice_addr` off |
 | `0x05` | `ENABLE` | `(option_index << 16) \| choice_addr`      | switch that option on |
 | `0x09` | `USERMSG` | message number                           | pause the dialogue and post script message `USERMSG` N to Chapayev (object 1); the script resumes it with `CONTINUE` |
@@ -1041,11 +1041,37 @@ name any menu, not just the one being played: the options of Anka's
 sub-menu at word 975 disable themselves there and then jump back to the
 top menu at 951.
 
-`SKIPN` plays one of the next `count` variants. When that variant's `DELIM`
-is reached the dialogue goes on after the whole group -- almost always a
-`STOP`, in eight cases more dialogue. That, and the random pick, are read off
-the data; the exe's own routine was not decompiled, and it may well cycle
-through the variants in order rather than pick at random.
+`SKIPN` is "one of these `count` phrases, **in turn**" (`sub_40B790`). The
+word keeps whose turn it is in its third byte; the VM stops on the `SKIPN`
+itself while the phrase is up, and when it moves on it writes
+`(turn + 1) % count` back into the word and steps over `count` `DELIM`s, i.e.
+the whole group -- to what is almost always a `STOP`, in eight cases more
+dialogue. Nothing is random: an object's idle remarks come round in the
+order they were written, and the place is kept for as long as the dialogue
+code stays loaded. In the data every one of the 1089 variants is exactly one
+`PHRASE` and a `DELIM`, and all 304 turns start at 0. (That the phrase shown
+is the one whose turn it is -- rather than, say, the one after -- is the
+natural reading; the routine that hands out the phrase, `sub_40B500`, was
+not decompiled.)
+
+The same routine is the whole of the VM's advance. Its argument is the menu
+line picked, or `-1`; it runs instructions until it comes to a second thing
+that needs showing, and stops on it:
+
+- `PHRASE`: stepped over; `USERMSG`: stepped over, or, when come to, handed
+  to `sub_409610` (the pause);
+- `CHOICE`: come to, it stops (a menu). Left, the pick is turned from "the
+  n-th line that is switched on" into a line number, the labels are stepped
+  over and the pick's `GOTO` is taken. A pick of `-1` counts as 0, and one
+  past the end as the last line. With **no** line switched on the pick runs
+  off the end of the `GOTO` table and the dialogue goes on with whatever
+  follows it;
+- `GOTO`, `DISABLE` (which also tells the screen's menu, `sub_40C050`),
+  `ENABLE`: done on the way; `STOP`: stops for good;
+- `DELIM`: walks **back** to the nearest `SKIPN` or `CHOICE` before it and
+  runs that again. No dialogue of the game ever runs into a `DELIM` (every
+  one closes a menu label or a `SKIPN` variant, and no `GOTO` leads into
+  either), so this never happens; the port ends the dialogue there.
 
 Checked on the three parts: all 79 menus have this layout and all 213
 `DISABLE`/`ENABLE` words name an existing option; `dlgtest` plays every
@@ -1119,9 +1145,8 @@ stands on and moves it along until there is something to show:
 
 So a menu is only put up for a real choice: when all but one of its lines
 have been said and switched off, the last one is taken without asking.
-`petka_dialoguevm_next` does the same. (What the advance does with a menu
-that has no line left is in `sub_40B790`, not decompiled; the port ends the
-dialogue there.)
+`petka_dialoguevm_next` does the same, including the menu with no line
+left (see `SKIPN` and the advance, above).
 
 `SAY` and `SAID` are handed to the object's handler directly (vtable slot
 `+52`), not queued, with no arguments and no sender.
