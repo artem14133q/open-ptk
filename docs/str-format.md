@@ -1049,10 +1049,28 @@ the whole group -- to what is almost always a `STOP`, in eight cases more
 dialogue. Nothing is random: an object's idle remarks come round in the
 order they were written, and the place is kept for as long as the dialogue
 code stays loaded. In the data every one of the 1089 variants is exactly one
-`PHRASE` and a `DELIM`, and all 304 turns start at 0. (That the phrase shown
-is the one whose turn it is -- rather than, say, the one after -- is the
-natural reading; the routine that hands out the phrase, `sub_40B500`, was
-not decompiled.)
+`PHRASE` and a `DELIM`, and all 304 turns start at 0.
+
+The phrase itself is handed out by `sub_40B500(&speaker, &wav, line)`, which
+answers by the instruction the VM stands on:
+
+- `PHRASE`: record number `word & 0xFFFF` of the phrase table -- 24 bytes
+  each, the speaker at 0, the wav name at 4 and, at 20, a pointer to the
+  text (the "unused" last field of a `DIALOGUE.LOD` record is where the
+  loader puts it). No phrase word of the game has anything above bit 15.
+- `SKIPN`: it steps **into** the group, over `turn` variants, and answers
+  with the phrase it lands on -- and leaves the VM standing there. So the
+  variant shown is the one whose turn it is, and this is what the advance's
+  walk back from a `DELIM` is for: moving on steps over that phrase, meets
+  the variant's `DELIM`, walks back to the `SKIPN`, passes the turn and
+  steps over the group. The port keeps the VM on the `SKIPN` instead; the
+  effect is the same.
+- `CHOICE`, with `line` counting only the lines switched on: it finds that
+  line's label, and if the label does not begin with a `PHRASE` runs the
+  advance from there until it comes to one; then puts the VM back on the
+  `CHOICE`. All 319 labels of the game begin with their `PHRASE` (three
+  have a `DISABLE` after it, which is therefore never run from here), and
+  the port takes the first `PHRASE` of the label.
 
 The same routine is the whole of the VM's advance. Its argument is the menu
 line picked, or `-1`; it runs instructions until it comes to a second thing
@@ -1069,9 +1087,10 @@ that needs showing, and stops on it:
 - `GOTO`, `DISABLE` (which also tells the screen's menu, `sub_40C050`),
   `ENABLE`: done on the way; `STOP`: stops for good;
 - `DELIM`: walks **back** to the nearest `SKIPN` or `CHOICE` before it and
-  runs that again. No dialogue of the game ever runs into a `DELIM` (every
-  one closes a menu label or a `SKIPN` variant, and no `GOTO` leads into
-  either), so this never happens; the port ends the dialogue there.
+  runs that again. This is how a `SKIPN` phrase is left (see `sub_40B500`
+  above); nothing else in the game runs into a `DELIM` -- every one closes
+  a menu label or a `SKIPN` variant, and no `GOTO` leads into either. The
+  port, which never stands inside a group, ends the dialogue there.
 
 Checked on the three parts: all 79 menus have this layout and all 213
 `DISABLE`/`ENABLE` words name an existing option; `dlgtest` plays every
