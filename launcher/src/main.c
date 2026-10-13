@@ -2538,6 +2538,7 @@ static void game_switch(Game *g, int part, int chapter) {
 //   look|walk|use|take|talk|vich <id>   the cursor's action on an object
 //                                       (vich: "send Chapayev")
 //   item <item id> <id>                 a thing from the case on an object
+//   go <x> <y>                          "walk" on the bare floor at a point
 //   map <id>                            open the map and pick a place
 //   pick <n> [<n>...]                   the lines to answer the coming
 //                                       menus with, from 0
@@ -2721,6 +2722,18 @@ static void play_tick(Game *g, int can_act) {
         if (!obj) { play_fail(g, why); return; }
         stop_heroes(g);
         petka_scriptvm_post(vm, obj->id, PETKA_OP_OBJECTUSE, 0, 0, 0, st->a);
+    } else if (!strcmp(st->verb, "go")) {
+        // A "walk" click on the bare floor, as the mouse does it.
+        PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
+        int32_t was_x = petka->x, was_y = petka->y;
+        petka_scriptvm_forget_walk(vm, PETKA_ID_PETKA);
+        if (!host_walk(g, PETKA_ID_PETKA, st->a, st->b)) {
+            snprintf(why, sizeof(why), "Petka does not set off from %d,%d (busy %d, visible %d, active %d)", was_x, was_y,
+                     petka->busy, petka->visible, petka->active);
+            play_fail(g, why);
+            return;
+        }
+        petka->busy = 1;
     } else if (!strcmp(st->verb, "map")) {
         if (!s_play.phase) {
             if (!g->map_open) map_command(g);
@@ -3322,6 +3335,21 @@ int main(int argc, char **argv) {
                                         petka ? petka->x : 0, petka ? petka->y : 0,
                                         petka && petka->visible ? "" : "(hidden)"),
                        (Vector2){10, 58}, 16, 1, LIME);
+            // What decides whether a click does anything, for a screenshot
+            // of a game that has stopped answering.
+            const PetkaObjectState *vich = petka_scriptvm_state(vm, PETKA_ID_CHAPAYEV);
+            DrawTextEx(font, TextFormat("petka vis %d act %d anim %d busy %d walk %d tail %u res %u | vich vis %d act %d busy %d walk %d",
+                                        petka ? petka->visible : -1, petka ? petka->active : -1, petka ? petka->animate : -1,
+                                        petka ? petka->busy : -1, g->walk[0].active, petka ? petka->walk_tail.count : 0,
+                                        petka ? petka->resource : 0, vich ? vich->visible : -1, vich ? vich->active : -1,
+                                        vich ? vich->busy : -1, g->walk[1].active),
+                       (Vector2){10, 78}, 16, 1, LIME);
+            DrawTextEx(font, TextFormat("cursor %d panel %d verb %d item %d | talk %d pause %d menu %d seq %u map %d case %d star %d save %d | hover %d",
+                                        vm->cursor_visible, vm->interface_enabled, g->verb,
+                                        vm->cursor_object == PETKA_NONE ? -1 : (int)vm->cursor_object, g->talking, g->paused,
+                                        g->menu_count, g->seq_room, g->map_open, g->case_open, g->star_open, g->save_mode,
+                                        hover ? (int)hover->id : -1),
+                       (Vector2){10, 98}, 16, 1, LIME);
         }
         // The pointer goes on last, over everything (its z is 1000). It is
         // there whenever the cursor is shown; a dialogue hides it for its
