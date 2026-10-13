@@ -171,7 +171,7 @@ typedef struct {
     uint16_t play_wait;  // +120, resource id that END must name
 
     // Rooms only.
-    int on_map;          // +144
+    int on_map;          // +144 of a room: the map may be opened from it
     uint16_t bgsfx;      // +148
     uint16_t music;      // +152
 

@@ -1107,6 +1107,21 @@ static const PetkaObject *case_item(Game *g, int k, Visual **out) {
     return obj;
 }
 
+// The map can be opened from a room that is on it (the room's flag +144,
+// taken off by NOMAP).
+static int map_allowed(const Game *g) {
+    const PetkaObjectState *room = petka_scriptvm_state(g->vm, g->vm->room);
+    return room && room->on_map;
+}
+
+// The map command (sub_417D80; keys M and Tab, and the case's map button):
+// it shuts the case and goes to the map screen, which is not built yet.
+static void map_command(Game *g) {
+    if (!g->vm->interface_enabled || !map_allowed(g)) return;
+    g->case_open = 0;
+    set_status(g, "(карта пока не сделана)");
+}
+
 // What the pointer (screen pixels of the game) is over while the case is
 // open. The things come first -- they are above the case in z; the case
 // itself takes every other point of the screen (its hit test is just "am I
@@ -1130,9 +1145,11 @@ static const PetkaObject *case_hover(Game *g, int px, int py) {
         Visual *b = &g->case_button[i];
         if (b->resource == PETKA_NONE) visual_load(g, b, (uint16_t)(CASE_BUTTON0 + i));
         if (!b->flic || px < b->rect.left || py < b->rect.top || px >= b->rect.right || py >= b->rect.bottom) continue;
-        // Chapayev's button is dead while he is not about.
+        // Chapayev's button is dead while he is not about, and the map's in
+        // a room that is not on the map.
         const PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
         if (i == 0 && !(chapayev && chapayev->visible)) break;
+        if (i == 2 && !map_allowed(g)) break;
         g->case_lit = i;
         break;
     }
@@ -1154,7 +1171,7 @@ static void case_click(Game *g) {
         g->verb = 5;
         break;
     case 1: set_status(g, "(сохранение и загрузка пока не сделаны)"); break;
-    case 2: set_status(g, "(карта пока не сделана)"); break;
+    case 2: map_command(g); break;
     case 3: g->case_open = 0; break;
     case 4:
         if ((uint32_t)(g->case_first + CASE_PAGE) < g->vm->inventory_count) g->case_first += CASE_PAGE;
@@ -1464,6 +1481,7 @@ int main(int argc, char **argv) {
         if (case_key && can_act && vm->interface_enabled && !g->menu_count) g->case_open = !g->case_open;
         while (g->case_first > 0 && (uint32_t)g->case_first >= vm->inventory_count) g->case_first -= CASE_PAGE;
         if (g->case_first < 0) g->case_first = 0;
+        if ((IsKeyPressed(KEY_M) || IsKeyPressed(KEY_TAB)) && can_act && !g->menu_count) map_command(g);
         int in_case = g->case_open && can_act;
         if (!in_case) g->case_lit = -1;
         const PetkaObject *hover = !can_act ? NULL

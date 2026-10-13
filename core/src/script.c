@@ -234,6 +234,9 @@ PetkaScriptVM *petka_scriptvm_open(PetkaScript *script, const PetkaScriptHost *h
         // and on 22 times, and most objects get neither ZBUFFER nor a z in
         // BACKGRND.BG at all.
         st->auto_z = 1;
+        // A room starts out on the map (its constructor, sub_401D00); the
+        // script takes the indoor ones off it with NOMAP.
+        st->on_map = 1;
         st->resource = PETKA_NONE;
         st->play_wait = PETKA_NONE;
         st->z = -1;

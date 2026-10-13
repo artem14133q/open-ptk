@@ -565,7 +565,7 @@ it again. The keys come from the exe's accelerator table (resource 130):
 | `5`, `T` | 32784 | action 4, talk |
 | `6`, `C` | 32785 | action 5, send Chapayev |
 | `I` | 32779 | opens and shuts the case (below) |
-| `M`, `Tab` | 32776 | `sub_417D80`, also the case's map button; not decompiled |
+| `M`, `Tab` | 32776 | `sub_417D80`, also the case's map button: to the map and back (below) |
 | `O` | 32777 | `sub_417D20`, also the case's diskette button; not decompiled |
 | `Esc` | 32786 | not traced |
 | `F2`, `F3` | 32771, 32772 | not traced (save and load, by the `SAVE`/`LOAD` pictures) |
@@ -690,10 +690,9 @@ disassembly:
   "quit", is lit: a click anywhere off the case shuts it. Otherwise the
   first of the buttons 0-5 whose current frame's first `.MSK` rect holds
   the pointer; none, and nothing is lit. Button 0 is not lit while
-  Chapayev is not visible (`QSystem+388`), nor button 2 while a flag is
-  clear (`+144` of the object at `QSystem+152`, not traced -- presumably
-  "the map is available"). A button losing the light is put back on its
-  first frame;
+  Chapayev is not visible (`QSystem+388`), nor button 2 while the current
+  room (`QSystem+152`) is not on the map (its flag `+144`, below). A button
+  losing the light is put back on its first frame;
 - **show / hide** (`0x415BB0`): the case's x is set to the view's scroll.
   Shown, the things are laid out and the object named
   `Полоска в чемодане` (object 2 of the script, clip 6007, the strap) is
@@ -703,7 +702,19 @@ disassembly:
 The launcher has all of this (`draw_case`, `case_hover`, `case_click`), with
 key `I`, except the two buttons whose commands are not decompiled, which
 only say so. It lights a button by its clip's covering rect rather than the
-first rect of the current frame, and does not check the map button's flag.
+first rect of the current frame.
+
+**The map command** (`sub_417D80`: 32776, keys `M` and `Tab`, and the
+case's map button) does nothing on the start-up screen, with the panel
+object inactive, or in a room whose flag `+144` is clear. That flag is "this
+room is on the map": a room's constructor (`sub_401D00`) sets it to 1 and
+the script clears it with `NOMAP` in the rooms one cannot leave by the map
+(3 in `PART_1`, 33 messages in `PART_3`). Otherwise the command hides the
+case and then, on the main screen, clears the caption under the cursor and
+starts the map screen (`QSystem+548`, its slot `+24`); on the map screen, it
+leaves it (that screen's slot `+56`). So `M` goes to the map and back. The
+launcher checks the same conditions and shuts the case; it has no map
+screen yet.
 
 Action 5 is "send Chapayev": with no reaction to it, the built-in
 `OBJECTUSE` handling walks him to the object. Action 6 is what the `CURSOR`
@@ -924,7 +935,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 36 / 37 | `WALKTO` / `WALKVICH` | Petka / Chapayev walks to (`arg1`,`arg2`) or the object's walk point |
 | 38 | `INITBG` | broadcast when a room is entered, sender = that room |
 | 40 | `SYSTEM` | 0/1 = panel off/on (not the cursor), 242 = quit |
-| 43 / 45 | `MAP` / `NOMAP` | (room) flag `+144` |
+| 43 / 45 | `MAP` / `NOMAP` | (room) flag `+144`, "on the map": set to begin with, it lets the map be opened from the room |
 | 47 / 48 | `BGSFX`* / `MUSIC`* | (room) ambience / music resource id |
 | 49 | `IMAGE`* | (hero) costume base id: +1 talking, +10..17 walking in 8 directions |
 | 50 | `STAND`* | (hero) same as `SAID` |
