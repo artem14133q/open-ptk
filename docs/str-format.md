@@ -1098,13 +1098,20 @@ on its `USERMSG n` instruction, before the step gets to row 4:
 
 1. the speaker (`+44` of the dialogue), if there is one, gets `SAID`,
    directly -- which is why row 4 has none to send;
-2. the dialogue is marked paused (`+4`), and `sub_416760` is called on it
-   (not decompiled);
+2. the dialogue is marked paused (`+4`), and `sub_416760` gives the cursor
+   back what the dialogue keeps of it: shown or not (dialogue `+52` ->
+   cursor `+44`), the over-an-object flag (`+56` -> `+48`), its picture
+   (`u16 +50` -> `+4`) and its action (`u16 +48` -> `+128`). The dialogue
+   saves these when it starts (the saving side was not decompiled), so the
+   script that runs during the pause finds the cursor as it was before the
+   first phrase;
 3. `USERMSG` is **queued** for Chapayev (the id at `QSystem+422`) with
    arguments `n, 0, 0` and no sender.
 
 `CONTINUE` lifts the pause. The launcher does all of this; panning is the
-one thing it leaves out.
+one thing it leaves out. It has nothing to restore in step 2: its dialogue
+never touches the cursor's state or the chosen action, it only takes the
+input while a phrase or a menu is up.
 
 ## Room topology — SOLVED: `BGS.INI` is the room graph, plain text
 
