@@ -12,7 +12,7 @@
 // it; a click or Space skips the phrase being spoken.
 //
 // Known gaps (not in the script, still to be reversed):
-// AVI playback is only reported.
+// Films are played through ffmpeg, if there is one.
 #include "petka/bmp.h"
 #include "petka/dialogue.h"
 #include "petka/flic.h"
@@ -31,6 +31,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if defined(_WIN32)
+#define popen _popen
+#define pclose _pclose
+#else
+#include <unistd.h>
+#endif
 
 #define GAME_W 640
 #define GAME_H 480
@@ -991,6 +997,122 @@ static void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
 
 static void chapter_open(Game *g, int chapter);
 
+// ---- films ----
+//
+// The game's videos are loose .AVI files next to it, not in the stores. The
+// exe (sub_4124A0) hands one to the system's player -- MCI: "open <file>
+// alias film", stretched to the 640x480 window -- with its own sounds paused,
+// and sits in a loop until the film ends or a key or a mouse button is
+// pressed. The one the script plays, INTRO.AVI, is Indeo 3 video, which
+// nothing here decodes; so, in the same spirit, the launcher hands the file
+// to ffmpeg if there is one, and shows the frames it sends back.
+#define FILM_FPS 24
+static int find_film(const Game *g, const char *name, char *out, size_t out_sz) {
+    static const char *dirs[] = {"", "data1_out/Main/", "Main/"};
+    char lower[256];
+    size_t n = 0;
+    for (; name[n] && n + 1 < sizeof(lower); n++)
+        lower[n] = name[n] >= 'A' && name[n] <= 'Z' ? (char)(name[n] + 32) : name[n];
+    lower[n] = 0;
+    for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]); d++) {
+        const char *tries[2] = {name, lower};
+        for (int t = 0; t < 2; t++) {
+            snprintf(out, out_sz, "%s/%s%s", g->game_dir, dirs[d], tries[t]);
+            if (FileExists(out)) return 1;
+        }
+    }
+    return 0;
+}
+
+static void play_film(Game *g, const char *name) {
+    // dev: PETKA_FILM=<seconds>:<file.png> plays films in unattended runs
+    // too, saves the frame reached after that long and stops there.
+    double shot_at = 0;
+    char shot_file[512] = "";
+    const char *dev = getenv("PETKA_FILM");
+    if (dev) sscanf(dev, "%lf:%511s", &shot_at, shot_file);
+    char path[1280];
+    if (!name || !find_film(g, name, path, sizeof(path))) {
+        set_status(g, TextFormat("(видео %s не найдено)", name ? name : "?"));
+        return;
+    }
+    if ((g->fast || getenv("PETKA_SHOT")) && !dev) {
+        set_status(g, TextFormat("(видео %s пропущено)", name));
+        return;
+    }
+    // The path goes into a shell command: nothing in it may end the quotes.
+    if (strpbrk(path, "\"$`\\")) { set_status(g, "(видео: неподходящий путь к игре)"); return; }
+
+    char command[2048], sound_file[512];
+    const char *tmp = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
+    snprintf(sound_file, sizeof(sound_file), "%s/petka_film_%d.wav", tmp, (int)getpid());
+    snprintf(command, sizeof(command), "ffmpeg -v error -y -i \"%s\" -vn -f wav \"%s\"", path, sound_file);
+    int have_sound = system(command) == 0 && FileExists(sound_file);
+    snprintf(command, sizeof(command),
+             "ffmpeg -v error -i \"%s\" -an -vf fps=%d,scale=%d:%d -f rawvideo -pix_fmt rgba -", path, FILM_FPS, GAME_W,
+             GAME_H);
+    FILE *frames = popen(command, "r");
+    size_t frame_bytes = (size_t)GAME_W * GAME_H * 4;
+    uint8_t *pixels = (uint8_t *)malloc(frame_bytes);
+    if (!frames || !pixels || fread(pixels, 1, frame_bytes, frames) != frame_bytes) {
+        if (frames) pclose(frames);
+        free(pixels);
+        remove(sound_file);
+        set_status(g, TextFormat("(видео %s: нужен ffmpeg, пропущено)", name));
+        return;
+    }
+
+    if (g->music.frameCount > 0) PauseMusicStream(g->music);
+    if (g->ambience.frameCount > 0) PauseMusicStream(g->ambience);
+    Music sound = {0};
+    if (have_sound) {
+        sound = LoadMusicStream(sound_file);
+        sound.looping = false;
+        if (sound.frameCount > 0) {
+            SetMusicVolume(sound, dial_gain(g, DIAL_SPEECH));
+            PlayMusicStream(sound);
+        }
+    }
+    Image first = {.data = pixels, .width = GAME_W, .height = GAME_H, .mipmaps = 1,
+                   .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    Texture2D screen = LoadTextureFromImage(first);
+    HideCursor();
+
+    double start = GetTime();
+    long shown = 0;
+    int ended = 0;
+    while (!ended) {
+        if (WindowShouldClose()) { g->quit = 1; break; }
+        // Any key or either mouse button ends it, as in the original.
+        if (GetKeyPressed() || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) break;
+        if (sound.frameCount > 0) UpdateMusicStream(sound);
+        long due = (long)((GetTime() - start) * FILM_FPS);
+        while (shown < due && !ended) {
+            if (fread(pixels, 1, frame_bytes, frames) != frame_bytes) ended = 1;
+            shown++;
+        }
+        if (!ended) UpdateTexture(screen, pixels);
+        BeginDrawing();
+        ClearBackground(BLACK);
+        DrawTexturePro(screen, (Rectangle){0, 0, GAME_W, GAME_H},
+                       (Rectangle){0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()}, (Vector2){0, 0}, 0, WHITE);
+        EndDrawing();
+        if (dev && GetTime() - start >= shot_at) {
+            if (shot_file[0]) ExportImage(first, shot_file);
+            fprintf(stderr, "film: %s, %ld frames in %.1f s\n", name, shown, GetTime() - start);
+            break;
+        }
+    }
+
+    UnloadTexture(screen);
+    if (sound.frameCount > 0) { StopMusicStream(sound); UnloadMusicStream(sound); }
+    pclose(frames);
+    free(pixels);
+    remove(sound_file);
+    if (g->music.frameCount > 0) ResumeMusicStream(g->music);
+    if (g->ambience.frameCount > 0) ResumeMusicStream(g->ambience);
+}
+
 static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
                          const PetkaQueued *q, int reacted) {
     Game *g = (Game *)user;
@@ -1027,7 +1149,7 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         if (m->arg1 == 242) g->quit = 1;
         break;
     case PETKA_OP_AVI:
-        set_status(g, TextFormat("(видео %s пропущено)", g->qrc[m->arg1] ? g->qrc[m->arg1] : "?"));
+        play_film(g, g->qrc[m->arg1]);
         break;
     case PETKA_OP_PART:
         // The whole game is taken down and built again for the new part

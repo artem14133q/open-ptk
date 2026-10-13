@@ -854,6 +854,33 @@ as it goes, that is also how a part is started over. `CHAPTER`
 (`chapter_open`) only changes the chapter's store and reads the names and
 colours again.
 
+**Films.** The script plays one: `AVI 50000` in the `INITBG` reaction of
+the room `Seq - INTRO0`, the first thing a new game does. Resource 50000 is
+`INTRO.AVI`, and it is **not in the stores**: `sub_4124A0(path)` opens it as
+a plain file, first as named and then with a path of the application's
+(`+212`) put before it -- the disc, presumably. Then:
+
+1. the game's sounds are paused (`sub_40DAC0`);
+2. the film is given to MCI: `open <path> alias film`, `window film handle
+   <the game's window>`, `put film destination at 0 0 640 480`, `play film
+   notify`;
+3. the function **stays in a loop**, taking messages off the window's queue
+   itself, until a key goes down (`WM_KEYDOWN`), either mouse button goes
+   down (`WM_LBUTTONDOWN`, `WM_RBUTTONDOWN`) or MCI says the film is over
+   (`MM_MCINOTIFY`);
+4. `close film`, the queue is emptied of those four kinds of message, and
+   the sounds resume (`sub_40DB00`).
+
+So a film is a pause in everything, and any key or click ends it.
+`INTRO.AVI` is 640x480 Indeo 3 video at about 24 frames a second with
+MS-ADPCM sound, three and a half minutes long (the copy examined also has
+`skif.avi`, `Buka.avi`, `adv.avi` and `credits.avi`, which the script never
+names). The launcher does what the exe does -- gives the file to someone
+else: `ffmpeg`, if it is installed, decodes it, and the launcher shows the
+frames in its window at 24 a second with the sound alongside, until it ends
+or a key or button is pressed (`play_film`). Without `ffmpeg`, and in
+unattended runs, the film is passed over with a note.
+
 **The save/load screen** (`QSystem+552`; constructor `sub_41D940`, which
 only sets the vtable, `0x4B9E70`) is a third screen of the same kind. Its
 room is 513 `SAVELOAD`, which has a picture (`SET 4990`, `LOAD1.BMP`; the
@@ -1304,7 +1331,7 @@ Names 0-46 are the exe's own (`sub_402C70` turns an opcode into its name).
 | 57 | `RANDOM`* | see above |
 | 58 / 59 | `JUMP`* / `JUMPVICH`* | place Petka / Chapayev instantly |
 | 60 / 61 | `PART`* / `CHAPTER`* | `PART n` does not load anything itself: it sets the wanted part (`dword_4DE880`), chapter 1, an empty "save to load" name and the flag `dword_4DE8B0` -- the same request a saved game of another part leaves -- plus a second flag, `dword_4DE8B4`; the part is loaded later (`PART 2` ends part 1, `PART 3` part 2). `CHAPTER n` calls `sub_411C00(n)` at once (part 2 only: `CHAPTER 2`, `CHAPTER 1`). See "Loading a part" |
-| 62 | `AVI`* | the resource's path (`sub_419B20`) is handed to `sub_4124A0`, the player (not decompiled) |
+| 62 | `AVI`* | the resource's path (`sub_419B20`) is handed to `sub_4124A0`, the film player; see "Films" |
 
 A **sequence** is a cutscene built as a room: 68 of the 104 uses name a room
 called "Seq - ...", whose background is the black `MAIN\BG1.BMP` (resource
@@ -1879,6 +1906,8 @@ quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_MAP=<frame>` (the map command on that frame),
 `PETKA_PANEL=<frame>` (the panel command on that frame),
 `PETKA_SAVE=<frame>` and `PETKA_LOAD=<frame>` (write and read `save1.dat`),
+`PETKA_FILM=<seconds>:<file.png>` (play films in an unattended run, save the
+frame reached after that long and stop there),
 `PETKA_CLICK=<frame>:<x>:<y>[:<action>],...` (left-click there, with the
 cursor's action number as in the table under "How a click becomes a
 message"),
