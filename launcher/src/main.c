@@ -98,6 +98,7 @@ typedef struct {
     // The case: the game's panel, with the things carried.
     int map_open;    // the map is on screen in place of the room
     int map_verb;    // the cursor's action to give back when it is left
+    float map_camera; // and the view's scroll
     int case_open;
     int case_first;  // number of the first thing shown, a page is six
     int case_lit;    // the button under the pointer, -1 = none
@@ -1128,13 +1129,14 @@ static int map_allowed(const Game *g) {
 #define CURSOR_INTERFACE 4901
 static void drop_item(Game *g);
 
-// Back from the map to the room, with the cursor as it was.
+// Back from the map to the room (the map screen's leave, sub_41D730): the
+// cursor's action and the view's scroll are as they were.
 static void map_leave(Game *g) {
     if (!g->map_open) return;
     g->map_open = 0;
     g->seq_room = PETKA_NONE;
     g->verb = g->map_verb;
-    g->camera_snap = 1;
+    g->camera_x = g->camera_target = g->map_camera;
 }
 
 // The map command (sub_417D80; keys M and Tab, and the case's map button):
@@ -1153,6 +1155,7 @@ static void map_command(Game *g) {
     g->case_open = 0;
     drop_item(g);
     g->map_verb = g->verb;
+    g->map_camera = g->camera_x;
     g->verb = 0;
     g->map_open = 1;
     g->seq_room = map->id;

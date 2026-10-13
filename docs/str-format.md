@@ -760,7 +760,15 @@ map the pointer's corner, not its middle, is the point. The caption follows
 the same rule as in a room: the name from `NAMES.INI` in `0xFFFFC0`, else
 the script name in `0x000080`, cleared when the pointer leaves.
 
-Not decompiled: click `0x41D690`, leave `0x41D730` (slot `+56`).
+Its **leave** (`sub_41D730`, slot `+56`) undoes the start: the place under
+the pointer is hidden, the caption cleared, the view's scroll and width and
+the cursor's clip and action put back, the previous screen (`QSystem+532`)
+made current again and told where the pointer is (its mouse move), and the
+base screen's leave (`sub_412A80`) called. Nothing in it places the heroes:
+after a `GOTO` from the map they arrive as from anywhere else, both on the
+room's entry point.
+
+Not decompiled: click `0x41D690`.
 
 The launcher shows the map the way it shows a sequence -- the room `КАРТА`
 in place of the current one, no heroes, no scroll -- with the pointer and
