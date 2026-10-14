@@ -166,6 +166,9 @@ typedef struct {
     // once. There the lid's Chapayev, diskette and map do nothing and are
     // grey.
     uint16_t case_for;  // that object, PETKA_NONE = the case as usual
+    // With a controller the pointer in the case goes from thing to thing
+    // only; L and R turn the pages, B shuts it.
+    int case_focus;     // the place on the page (0..5) the pointer is on
     Texture2D case_grey[3]; // those three buttons' clips in grey
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
@@ -1781,6 +1784,49 @@ static const int kCaseCell[CASE_PAGE][2] = {{120, 145}, {240, 145}, {360, 145}, 
 
 // The thing in cell `k` of the page, with its clip loaded; NULL if the cell
 // is empty or the thing is not to be seen (the cursor is carrying it).
+static const PetkaObject *case_item(Game *g, int k, Visual **out);
+
+// With a controller: the case's pointer on a thing of the page, moved from
+// one to the next nearest in the direction pushed (dx, dy), or turned to
+// another page. Returns where the pointer goes, in game pixels.
+static Vector2 case_steer(Game *g, int dx, int dy, int page) {
+    if (page > 0 && (uint32_t)(g->case_first + CASE_PAGE) < g->vm->inventory_count) {
+        g->case_first += CASE_PAGE;
+        g->case_focus = 0;
+    } else if (page < 0 && g->case_first > 0) {
+        g->case_first = g->case_first > CASE_PAGE ? g->case_first - CASE_PAGE : 0;
+        g->case_focus = 0;
+    }
+    Visual *v[CASE_PAGE];
+    int present[CASE_PAGE], any = 0;
+    for (int k = 0; k < CASE_PAGE; k++) {
+        v[k] = NULL;
+        present[k] = case_item(g, k, &v[k]) != NULL;
+        any |= present[k];
+    }
+    if (!any) return (Vector2){GAME_W / 2.0f, GAME_H / 2.0f};
+    if (g->case_focus < 0 || g->case_focus >= CASE_PAGE || !present[g->case_focus])
+        for (g->case_focus = 0; !present[g->case_focus]; g->case_focus++) {}
+    if (dx || dy) {
+        // Of the things that way, the nearest, going straight counted
+        // over going aside.
+        int from = g->case_focus, best = -1;
+        float best_score = 0;
+        for (int k = 0; k < CASE_PAGE; k++) {
+            if (!present[k] || k == from) continue;
+            float ox = (float)(kCaseCell[k][0] - kCaseCell[from][0]), oy = (float)(kCaseCell[k][1] - kCaseCell[from][1]);
+            float along = ox * dx + oy * dy, aside = fabsf(ox * dy) + fabsf(oy * dx);
+            if (along <= 0) continue;
+            float score = along + 2 * aside;
+            if (best < 0 || score < best_score) { best = k; best_score = score; }
+        }
+        if (best >= 0) g->case_focus = best;
+    }
+    const Visual *f = v[g->case_focus];
+    return (Vector2){kCaseCell[g->case_focus][0] + (f->rect.left + f->rect.right) / 2.0f,
+                     kCaseCell[g->case_focus][1] + (f->rect.top + f->rect.bottom) / 2.0f};
+}
+
 static const PetkaObject *case_item(Game *g, int k, Visual **out) {
     uint32_t i = (uint32_t)(g->case_first + k);
     if (i >= g->vm->inventory_count) return NULL;
@@ -3451,10 +3497,25 @@ int main(int argc, char **argv) {
         // The star is up only while the player can act, and while it is up
         // nothing else is under the pointer.
         if (!can_act || g->map_open) g->star_open = 0;
+        // With a controller the case's pointer is on one of its things (a
+        // touch on one takes it); the star, while up, keeps it where it is.
+        if (plat_pad() && g->case_open && can_act && !g->star_open) {
+            Vector2 at = {mouse.x / scale, mouse.y / scale};
+            for (int k = 0; k < CASE_PAGE; k++) {
+                Visual *v = NULL;
+                if (case_item(g, k, &v) && clip_hit(v, (int)at.x - kCaseCell[k][0], (int)at.y - kCaseCell[k][1]))
+                    g->case_focus = k;
+            }
+            at = case_steer(g, plat_list_step_x(), plat_list_step(), plat_page_step());
+            mouse = (Vector2){at.x * scale, at.y * scale};
+            plat_set_pointer(mouse);
+            mx = mouse.x / scale + g->camera_x;
+            my = mouse.y / scale;
+        }
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
         // R held: the cursor sends Chapayev; otherwise a controller works
         // the star.
-        int send_chapayev = plat_pad() && plat_chapayev_held() && vm->cursor_object == PETKA_NONE;
+        int send_chapayev = plat_pad() && plat_chapayev_held() && vm->cursor_object == PETKA_NONE && !g->case_open;
         int pad_star = plat_pad() && !send_chapayev;
         if (send_chapayev) g->star_open = 0;
         int verb = send_chapayev ? VERB_COUNT - 1 : g->verb;
@@ -3531,12 +3592,14 @@ int main(int argc, char **argv) {
             // and the cursor becomes "take"; otherwise the star comes up at
             // the pointer, or goes away.
             if (right_click && plat_pad()) {
-                // B: the star down, or the thing on the cursor put back.
+                // B: the star down, the case shut (a thing taken stays on
+                // the cursor), or the thing on the cursor put back.
                 if (g->star_open) {
                     g->star_open = 0;
+                } else if (g->case_open) {
+                    g->case_open = 0;
                 } else if (vm->cursor_object != PETKA_NONE) {
                     drop_item(g);
-                    if (g->case_open) g->verb = 3;
                 }
             } else if (right_click && !g->map_open && vm->interface_enabled) {
                 if (g->case_open && vm->cursor_object != PETKA_NONE) {
@@ -3601,7 +3664,7 @@ int main(int argc, char **argv) {
         }
 
         // The stick works the star while it is up, not the pointer.
-        if (plat_pad()) plat_hold_pointer(g->pad_hold || g->star_open);
+        if (plat_pad()) plat_hold_pointer(g->pad_hold || g->star_open || (g->case_open && can_act));
 
         plat_begin();
         ClearBackground(BLACK);

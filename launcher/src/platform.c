@@ -26,6 +26,8 @@ bool plat_pad(void) { return false; }
 void plat_set_pointer(Vector2 at) { (void)at; }
 void plat_hold_pointer(bool hold) { (void)hold; }
 int plat_list_step(void) { return 0; }
+int plat_list_step_x(void) { return 0; }
+int plat_page_step(void) { return 0; }
 Vector2 plat_aim(void) { return (Vector2){0, 0}; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
 Font plat_system_font(int size, int *codepoints, int count) {
@@ -52,6 +54,7 @@ static bool s_held;     // plat_hold_pointer: the stick and the D-pad leave it b
 static bool s_latched;  // let go, but the stick is still pushed from then
 static int s_list_step; // this frame's step through a list
 static int s_stick_dir; // where the stick was pushed last frame: -1, 0, +1
+static int s_list_step_x, s_stick_dir_x; // the same across
 
 void plat_init(void) {
     // Started by nxlink from a computer, stdout and stderr go back to it --
@@ -105,6 +108,12 @@ void plat_poll(void) {
     else if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) s_list_step = 1;
     else if (stick != s_stick_dir) s_list_step = stick;
     s_stick_dir = stick;
+    int stick_x = x < -0.6f ? -1 : x > 0.6f ? 1 : 0;
+    s_list_step_x = 0;
+    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) s_list_step_x = -1;
+    else if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) s_list_step_x = 1;
+    else if (stick_x != s_stick_dir_x) s_list_step_x = stick_x;
+    s_stick_dir_x = stick_x;
     if (s_held) return;
 
     // Let go while the stick was pushed -- it picked a part of the star --
@@ -161,6 +170,12 @@ void plat_hold_pointer(bool hold) {
     s_held = hold;
 }
 int plat_list_step(void) { return s_list_step; }
+int plat_list_step_x(void) { return s_list_step_x; }
+int plat_page_step(void) {
+    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) return -1;  // L
+    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) return 1;  // R
+    return 0;
+}
 Vector2 plat_aim(void) {
     return (Vector2){GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_X), -GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_Y)};
 }

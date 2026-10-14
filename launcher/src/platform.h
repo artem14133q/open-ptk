@@ -47,6 +47,9 @@ bool plat_pad(void);
 void plat_set_pointer(Vector2 at); // surface pixels
 void plat_hold_pointer(bool hold);
 int plat_list_step(void); // -1 up, +1 down, 0 neither
+int plat_list_step_x(void); // the same across: -1 left, +1 right
+// L and R pressed: -1 or +1 to turn a page of the case, 0 otherwise.
+int plat_page_step(void);
 // Where the left stick is pushed, x right and y down, each -1..1; zero on a
 // desktop.
 Vector2 plat_aim(void);
