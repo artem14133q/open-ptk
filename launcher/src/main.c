@@ -170,9 +170,11 @@ typedef struct {
     // With a controller the pointer in the case goes from thing to thing
     // only; L and R turn the pages, B shuts it.
     int case_focus;     // the place on the page (0..5) the pointer is on
-    int pad_chapayev;   // the case's Chapayev was clicked: the next click sends him
-    Texture2D case_lid_grey; // the lid's three pictures in grey (case_lid_grey())
-    PetkaMskRect case_lid_span; // where on the case that texture goes
+    // The lid's pictures in grey (case_lid_grey()): [0] all three, for the
+    // case that picks a thing for an object; [1] Chapayev's alone -- a
+    // controller sends him with R, and his button is dead in any case.
+    Texture2D case_lid_grey[2];
+    PetkaMskRect case_lid_span; // where on the case those textures go
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
     float camera_target;    // where the view has been asked to move to
@@ -1870,7 +1872,8 @@ static int map_allowed(const Game *g);
 
 // With a controller: the case's pointer on one of the things of the page
 // (places 0..5) or, in the case opened as usual, one of the lid's buttons
-// that work -- Chapayev, the diskette, the map (places 6..8) -- moved to
+// that work -- the diskette and the map (places 7, 8; Chapayev's, 6, is
+// sent with R) -- moved to
 // the nearest one in the direction pushed (dx, dy), or a page turned.
 // Returns where the pointer goes, in game pixels.
 #define CASE_PLACES (CASE_PAGE + 3)
@@ -1891,13 +1894,11 @@ static Vector2 case_steer(Game *g, int dx, int dy, int page) {
             at[k] = (Vector2){kCaseCell[k][0] + (v->rect.left + v->rect.right) / 2.0f,
                               kCaseCell[k][1] + (v->rect.top + v->rect.bottom) / 2.0f};
     }
-    const PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
     for (int i = 0; i < 3; i++) {
         Visual *b = &g->case_button[i];
         if (b->resource == PETKA_NONE) visual_load(g, b, (uint16_t)(CASE_BUTTON0 + i));
         int k = CASE_PAGE + i;
-        present[k] = g->case_for == PETKA_NONE && b->flic && !(i == 0 && !(chapayev && chapayev->visible)) &&
-                     !(i == 2 && !map_allowed(g));
+        present[k] = g->case_for == PETKA_NONE && b->flic && i != 0 && !(i == 2 && !map_allowed(g));
         if (present[k])
             at[k] = (Vector2){(b->rect.left + b->rect.right) / 2.0f, (b->rect.top + b->rect.bottom) / 2.0f};
     }
@@ -2479,8 +2480,10 @@ static const PetkaObject *case_hover(Game *g, int px, int py) {
         const PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
         if (i == 0 && !(chapayev && chapayev->visible)) break;
         if (i == 2 && !map_allowed(g)) break;
-        // Picking a thing for an object, the lid's three do nothing.
+        // Picking a thing for an object, the lid's three do nothing; with a
+        // controller Chapayev's never does.
         if (i <= 2 && g->case_for != PETKA_NONE) break;
+        if (i == 0 && plat_pad()) break;
         g->case_lit = i;
         break;
     }
@@ -2498,16 +2501,12 @@ static void drop_item(Game *g) {
 static void case_click(Game *g) {
     // Picking a thing for an object, the lid's three buttons do nothing.
     if (g->case_for != PETKA_NONE && g->case_lit >= 0 && g->case_lit <= 2) return;
+    // A controller sends Chapayev with R: his button does nothing.
+    if (plat_pad() && g->case_lit == 0) return;
     switch (g->case_lit) {
     case 0: // the "send Chapayev" action, as keys 6 and C
         drop_item(g);
         g->verb = 5;
-        // A controller's cursor has no action of its own: the case shuts
-        // and the cursor sends Chapayev for the next click.
-        if (plat_pad()) {
-            g->pad_chapayev = 1;
-            g->case_open = 0;
-        }
         break;
     case 1: panel_command(g); break;
     case 2: map_command(g); break;
@@ -2522,18 +2521,17 @@ static void case_click(Game *g) {
     }
 }
 
-// A button of the lid while it does nothing (the case picks a thing for an
-// object): its clip in grey, made afresh from the frame shown.
-// The lid's three pictures (Chapayev, the diskette, the map) in grey, as
-// the case's body has them, for the case that picks a thing for an object:
-// made once, a texture over the span of the three. Their own clips will
+// The lid's pictures (Chapayev, the diskette, the map) in grey, as the
+// case's body has them, for buttons that do nothing: all three (`all`) or
+// Chapayev's alone, each made once, a texture over the span of the three. Their own clips will
 // not do -- the lit diskette and map sit on a square of their own. A
 // pixel is the picture's where it is opaque in its button's clip and,
 // in each row, from the first to the last that stands out from the lid:
 // the lid's colour there taken as going evenly across the span from the
 // middle of a few pixels left of it to the middle of a few right of it.
-static int case_lid_grey(Game *g) {
-    if (g->case_lid_grey.id) return 1;
+static int case_lid_grey(Game *g, int all) {
+    Texture2D *out = &g->case_lid_grey[all ? 0 : 1];
+    if (out->id) return 1;
     const Visual *body = &g->case_body;
     if (!body->flic || body->flic->width != GAME_W || body->flic->height != GAME_H) return 0;
     PetkaMskRect span = {GAME_W, GAME_H, 0, 0};
@@ -2569,7 +2567,7 @@ static int case_lid_grey(Game *g) {
                 }
             for (int c = 0; c < 3; c++) lid[e][c] = row[order[SIDE / 2] * 4 + c];
         }
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < (all ? 3 : 1); i++) {
             const Visual *b = &g->case_button[i];
             if (y < b->area.top || y >= b->area.bottom) continue;
             const uint8_t *mask = b->flic->indices + (size_t)y * GAME_W;
@@ -2592,11 +2590,11 @@ static int case_lid_grey(Game *g) {
         }
     }
     Image img = {.data = px, .width = w, .height = h, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
-    g->case_lid_grey = LoadTextureFromImage(img);
+    *out = LoadTextureFromImage(img);
     g->case_lid_span = span;
     free(px);
     free(rgb);
-    return g->case_lid_grey.id != 0;
+    return out->id != 0;
 }
 
 static void draw_case(Game *g, float scale) {
@@ -2604,10 +2602,12 @@ static void draw_case(Game *g, float scale) {
     clip_show(g, &g->case_body, CASE_BODY, 0);
     if (g->case_body.flic)
         visual_draw(&g->case_body, screen);
-    // Picking a thing for an object, the lid's three pictures are grey.
-    if (g->case_for != PETKA_NONE && case_lid_grey(g)) {
+    // Picking a thing for an object, the lid's three pictures are grey;
+    // with a controller Chapayev's is, always.
+    int all = g->case_for != PETKA_NONE;
+    if ((all || plat_pad()) && case_lid_grey(g, all)) {
         Visual lid = g->case_body;
-        lid.tex = g->case_lid_grey;
+        lid.tex = g->case_lid_grey[all ? 0 : 1];
         lid.area = g->case_lid_span;
         visual_draw(&lid, screen);
     }
@@ -2813,8 +2813,10 @@ static void part_close(Game *g) {
     g->desc[0] = 0;
     saves_unload(g);
     visual_free(&g->case_body);
-    if (g->case_lid_grey.id) UnloadTexture(g->case_lid_grey);
-    g->case_lid_grey = (Texture2D){0};
+    for (int i = 0; i < 2; i++) {
+        if (g->case_lid_grey[i].id) UnloadTexture(g->case_lid_grey[i]);
+        g->case_lid_grey[i] = (Texture2D){0};
+    }
     if (g->star_grey.id) UnloadTexture(g->star_grey);
     g->star_grey = (Texture2D){0};
     visual_free(&g->case_exit);
@@ -3689,9 +3691,7 @@ int main(int argc, char **argv) {
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
         // R held: the cursor sends Chapayev; otherwise a controller works
         // the star.
-        if (vm->cursor_object != PETKA_NONE || !can_act) g->pad_chapayev = 0;
-        int send_chapayev = plat_pad() && (plat_chapayev_held() || g->pad_chapayev) &&
-                            vm->cursor_object == PETKA_NONE && !g->case_open;
+        int send_chapayev = plat_pad() && plat_chapayev_held() && vm->cursor_object == PETKA_NONE && !g->case_open;
         int pad_star = plat_pad() && !send_chapayev;
         if (send_chapayev) g->star_open = 0;
         int verb = send_chapayev ? VERB_COUNT - 1 : g->verb;
@@ -3774,8 +3774,6 @@ int main(int argc, char **argv) {
                     g->star_open = 0;
                 } else if (g->case_open) {
                     g->case_open = 0;
-                } else if (g->pad_chapayev) {
-                    g->pad_chapayev = 0;
                 } else if (vm->cursor_object != PETKA_NONE) {
                     drop_item(g);
                 }
@@ -3787,8 +3785,6 @@ int main(int argc, char **argv) {
                     star_toggle(g, screen_x, screen_y);
                 }
             }
-            // The case's Chapayev serves for one click.
-            if (clicked && send_chapayev) g->pad_chapayev = 0;
             if (clicked) {
                 if (g->star_open) {
                     if (pad_star) star_pick(g);
