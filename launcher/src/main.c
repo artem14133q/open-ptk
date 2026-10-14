@@ -171,7 +171,8 @@ typedef struct {
     // only; L and R turn the pages, B shuts it.
     int case_focus;     // the place on the page (0..5) the pointer is on
     int pad_chapayev;   // the case's Chapayev was clicked: the next click sends him
-    Texture2D case_grey[3]; // those three buttons' clips in grey
+    Texture2D case_lid_grey; // the lid's three pictures in grey (case_lid_grey())
+    PetkaMskRect case_lid_span; // where on the case that texture goes
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
     float camera_target;    // where the view has been asked to move to
@@ -658,9 +659,11 @@ static void visual_draw(const Visual *v, Rectangle frame) {
 }
 
 // Draws `part` of a clip's frame in grey, as visual_draw() would put it:
-// for what is shown but does nothing. The grey picture is made afresh from
-// the frame each time, in `cache`.
-static void draw_grey(const Visual *v, PetkaMskRect part, Texture2D *cache, Rectangle frame) {
+// for what is shown but does nothing. Pixels `keep` says yes to (if given)
+// are left out, in their colour underneath. The grey picture is made
+// afresh from the frame each time, in `cache`.
+static void draw_grey(const Visual *v, PetkaMskRect part, Texture2D *cache, Rectangle frame,
+                      int (*keep)(const uint8_t *rgba)) {
     if (part.left < v->area.left) part.left = v->area.left;
     if (part.top < v->area.top) part.top = v->area.top;
     if (part.right > v->area.right) part.right = v->area.right;
@@ -675,7 +678,7 @@ static void draw_grey(const Visual *v, PetkaMskRect part, Texture2D *cache, Rect
         const uint8_t *c = rgba + k * 4;
         uint8_t y = (uint8_t)((c[0] * 77 + c[1] * 150 + c[2] * 29) >> 8);
         px[k * 4 + 0] = px[k * 4 + 1] = px[k * 4 + 2] = y;
-        px[k * 4 + 3] = c[3];
+        px[k * 4 + 3] = keep && keep(c) ? 0 : c[3];
     }
     if (cache->id && (cache->width != w || cache->height != h)) { UnloadTexture(*cache); *cache = (Texture2D){0}; }
     if (!cache->id) {
@@ -1792,6 +1795,9 @@ static void star_click(Game *g, int part) {
     g->star_open = 0;
 }
 
+// The star's own red and yellow, round the case drawn in its middle.
+static int star_body(const uint8_t *c) { return c[0] > 150 && c[2] < 100; }
+
 static void draw_star(Game *g, float scale) {
     Visual *v = &g->star;
     if (!v->flic) return;
@@ -1805,11 +1811,11 @@ static void draw_star(Game *g, float scale) {
     Rectangle at = {g->star_x * scale, g->star_y * scale, v->flic->width * scale, v->flic->height * scale};
     visual_draw(v, at);
     // With a controller, over the open case, the middle (the case itself)
-    // does nothing: it is grey.
+    // does nothing: the case drawn there is grey, the star round it not.
     if (plat_pad() && g->case_open) {
         const Rectangle *m = &kStarPart[0];
         draw_grey(v, (PetkaMskRect){(int)m->x, (int)m->y, (int)(m->x + m->width), (int)(m->y + m->height)},
-                  &g->star_grey, at);
+                  &g->star_grey, at, star_body);
     }
 }
 
@@ -2444,6 +2450,8 @@ static const PetkaObject *case_hover(Game *g, int px, int py) {
         const PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
         if (i == 0 && !(chapayev && chapayev->visible)) break;
         if (i == 2 && !map_allowed(g)) break;
+        // Picking a thing for an object, the lid's three do nothing.
+        if (i <= 2 && g->case_for != PETKA_NONE) break;
         g->case_lit = i;
         break;
     }
@@ -2487,8 +2495,79 @@ static void case_click(Game *g) {
 
 // A button of the lid while it does nothing (the case picks a thing for an
 // object): its clip in grey, made afresh from the frame shown.
-static void draw_button_grey(Game *g, int i, Rectangle screen) {
-    draw_grey(&g->case_button[i], g->case_button[i].area, &g->case_grey[i], screen);
+// The lid's three pictures (Chapayev, the diskette, the map) in grey, as
+// the case's body has them, for the case that picks a thing for an object:
+// made once, a texture over the span of the three. Their own clips will
+// not do -- the lit diskette and map sit on a square of their own. A
+// pixel is the picture's where it is opaque in its button's clip and,
+// in each row, from the first to the last that stands out from the lid:
+// the lid's colour there taken as going evenly across the span from the
+// middle of a few pixels left of it to the middle of a few right of it.
+static int case_lid_grey(Game *g) {
+    if (g->case_lid_grey.id) return 1;
+    const Visual *body = &g->case_body;
+    if (!body->flic || body->flic->width != GAME_W || body->flic->height != GAME_H) return 0;
+    PetkaMskRect span = {GAME_W, GAME_H, 0, 0};
+    for (int i = 0; i < 3; i++) {
+        Visual *b = &g->case_button[i];
+        if (b->resource == PETKA_NONE) visual_load(g, b, (uint16_t)(CASE_BUTTON0 + i));
+        if (!b->flic || b->flic->width != GAME_W || b->flic->height != GAME_H) return 0;
+        if (b->area.left < span.left) span.left = b->area.left;
+        if (b->area.top < span.top) span.top = b->area.top;
+        if (b->area.right > span.right) span.right = b->area.right;
+        if (b->area.bottom > span.bottom) span.bottom = b->area.bottom;
+    }
+    enum { SIDE = 8, STANDS_OUT = 60 };
+    if (span.left < SIDE || span.right > GAME_W - SIDE || span.right <= span.left || span.bottom <= span.top) return 0;
+    const uint8_t *frame = flic_to_rgba(body->flic, (PetkaMskRect){0, 0, GAME_W, GAME_H});
+    if (!frame) return 0;
+    int w = span.right - span.left, h = span.bottom - span.top;
+    uint8_t *rgb = (uint8_t *)malloc((size_t)GAME_W * GAME_H * 4);
+    uint8_t *px = (uint8_t *)calloc((size_t)w * h, 4);
+    if (!rgb || !px) { free(rgb); free(px); return 0; }
+    memcpy(rgb, frame, (size_t)GAME_W * GAME_H * 4);
+    for (int y = span.top; y < span.bottom; y++) {
+        const uint8_t *row = rgb + (size_t)y * GAME_W * 4;
+        float lid[2][3];
+        for (int e = 0; e < 2; e++) {
+            int x0 = e == 0 ? span.left - SIDE : span.right, order[SIDE];
+            for (int k = 0; k < SIDE; k++) order[k] = x0 + k;
+            for (int m = 1; m < SIDE; m++)
+                for (int k = m; k > 0; k--) {
+                    const uint8_t *p = row + order[k] * 4, *q = row + order[k - 1] * 4;
+                    if (p[0] + p[1] + p[2] >= q[0] + q[1] + q[2]) break;
+                    int t = order[k]; order[k] = order[k - 1]; order[k - 1] = t;
+                }
+            for (int c = 0; c < 3; c++) lid[e][c] = row[order[SIDE / 2] * 4 + c];
+        }
+        for (int i = 0; i < 3; i++) {
+            const Visual *b = &g->case_button[i];
+            if (y < b->area.top || y >= b->area.bottom) continue;
+            const uint8_t *mask = b->flic->indices + (size_t)y * GAME_W;
+            int first = -1, last = -1;
+            for (int x = b->area.left; x < b->area.right; x++) {
+                if (petka_flic_keyed(b->flic, mask[x])) continue;
+                float t = (float)(x - span.left + 1) / (w + 1), d = 0;
+                for (int c = 0; c < 3; c++) d += fabsf(row[x * 4 + c] - (lid[0][c] * (1 - t) + lid[1][c] * t));
+                if (d <= STANDS_OUT) continue;
+                if (first < 0) first = x;
+                last = x;
+            }
+            for (int x = first; first >= 0 && x <= last; x++) {
+                if (petka_flic_keyed(b->flic, mask[x])) continue;
+                const uint8_t *c = row + x * 4;
+                uint8_t *o = px + ((size_t)(y - span.top) * w + (x - span.left)) * 4;
+                o[0] = o[1] = o[2] = (uint8_t)((c[0] * 77 + c[1] * 150 + c[2] * 29) >> 8);
+                o[3] = 255;
+            }
+        }
+    }
+    Image img = {.data = px, .width = w, .height = h, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    g->case_lid_grey = LoadTextureFromImage(img);
+    g->case_lid_span = span;
+    free(px);
+    free(rgb);
+    return g->case_lid_grey.id != 0;
 }
 
 static void draw_case(Game *g, float scale) {
@@ -2496,15 +2575,20 @@ static void draw_case(Game *g, float scale) {
     clip_show(g, &g->case_body, CASE_BODY, 0);
     if (g->case_body.flic)
         visual_draw(&g->case_body, screen);
+    // Picking a thing for an object, the lid's three pictures are grey.
+    if (g->case_for != PETKA_NONE && case_lid_grey(g)) {
+        Visual lid = g->case_body;
+        lid.tex = g->case_lid_grey;
+        lid.area = g->case_lid_span;
+        visual_draw(&lid, screen);
+    }
     // The lit button's clip goes over the case, inside its own rect; the
-    // others are put back on their first frame. Picking a thing for an
-    // object, the lid's three are always over it, in grey.
+    // others are put back on their first frame.
     for (int i = 0; i < 6; i++) {
         Visual *b = &g->case_button[i];
         clip_show(g, b, (uint16_t)(CASE_BUTTON0 + i), i == g->case_lit);
-        if (!b->flic) continue;
-        if (i <= 2 && g->case_for != PETKA_NONE) draw_button_grey(g, i, screen);
-        else if (i == g->case_lit) visual_draw(b, screen);
+        if (i != g->case_lit || !b->flic) continue;
+        visual_draw(b, screen);
     }
     for (int k = 0; k < CASE_PAGE; k++) {
         Visual *v = NULL;
@@ -2700,10 +2784,8 @@ static void part_close(Game *g) {
     g->desc[0] = 0;
     saves_unload(g);
     visual_free(&g->case_body);
-    for (int i = 0; i < 3; i++) {
-        if (g->case_grey[i].id) UnloadTexture(g->case_grey[i]);
-        g->case_grey[i] = (Texture2D){0};
-    }
+    if (g->case_lid_grey.id) UnloadTexture(g->case_lid_grey);
+    g->case_lid_grey = (Texture2D){0};
     if (g->star_grey.id) UnloadTexture(g->star_grey);
     g->star_grey = (Texture2D){0};
     visual_free(&g->case_exit);
