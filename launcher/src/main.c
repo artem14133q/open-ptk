@@ -193,6 +193,8 @@ typedef struct {
 
     int verb;
     int quit;
+    int to_menu;      // the game is over: back to the start-up menu
+    int menu_on_back; // the save screen came from that menu: leaving it goes back there
     int fast;  // dev: no voice, phrases flash by
     int trace; // dev: log delivered script messages
     char status[256];
@@ -1337,7 +1339,9 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         }
         break;
     case PETKA_OP_SYSTEM:
-        if (m->arg1 == 242) g->quit = 1;
+        // 242 ends the game (the last of part 3's credits). The exe quits;
+        // the launcher goes back to its start-up menu instead.
+        if (m->arg1 == 242) g->to_menu = 1;
         break;
     case PETKA_OP_AVI:
         play_film(g, g->qrc[m->arg1]);
@@ -1568,7 +1572,8 @@ static void draw_rimmed(Font font, const char *text, Vector2 at, float size, Col
     DrawTextEx(font, text, at, size, 1, ink);
 }
 
-static void draw_bottom_text(Font font, const char *text, Color ink, Color fill, int centre_lines, float scale) {
+static void draw_bottom_text(Font font, const char *text, Color ink, Color fill, int centre_lines, int backdrop,
+                             float scale) {
     enum { MAX_LINES = 12 };
     static char lines[MAX_LINES][512];
     float size = 20 * scale, widest = 0;
@@ -1579,6 +1584,13 @@ static void draw_bottom_text(Font font, const char *text, Color ink, Color fill,
     }
     float top = 479 * scale - (count * size + 4 * scale);
     float left = (GAME_W * scale - widest) / 2;
+    if (backdrop && count > 0) {
+        // Ours, asked for: a dark, see-through band behind the lines, so a
+        // subtitle reads on any picture. The original has none.
+        float pad = 6 * scale;
+        DrawRectangleRounded((Rectangle){left - pad, top - pad / 2, widest + 2 * pad, count * size + pad}, 0.25f, 6,
+                             Fade(BLACK, 0.5f));
+    }
     for (int i = 0; i < count; i++) {
         float x = centre_lines ? (GAME_W * scale - MeasureTextEx(font, lines[i], size, 1).x) / 2 : left;
         draw_rimmed(font, lines[i], (Vector2){x, top + i * size}, size, ink, fill, scale);
@@ -3025,8 +3037,38 @@ int main(int argc, char **argv) {
         // "Load" at start-up put the save screen up before any room: left
         // without loading, it gives way to the screen it came from -- the
         // start-up one again (the exe's screens go back to the previous).
+        if (g->to_menu) {
+            // The game is over: everything of it is silenced and the start-up
+            // menu comes up, as at the start.
+            g->to_menu = 0;
+            set_stream(g, &g->music, &g->music_id, PETKA_NONE);
+            set_stream(g, &g->ambience, &g->ambience_id, PETKA_NONE);
+            set_stream(g, &g->seq_music, &g->seq_music_id, PETKA_NONE);
+            set_stream(g, &g->seq_ambience, &g->seq_ambience_id, PETKA_NONE);
+            for (int i = 0; i < MAX_SOUNDS; i++) {
+                if (g->sounds[i].frameCount > 0) StopSound(g->sounds[i]);
+                g->sound_paused[i] = 0;
+            }
+            if (g->voice.frameCount > 0) StopSound(g->voice);
+            int again = run_menu(g, font);
+            if (g->quit || !again) break;
+            if (again == 2) {
+                g->boot_load = g->menu_on_back = 1;
+                saves_open(g, 1);
+            } else {
+                new_game(g);
+            }
+            continue;
+        }
         if (g->boot_load && !g->save_mode && !g->switch_part) {
             g->boot_load = 0;
+            if (g->menu_on_back) {
+                // The save screen of the menu after the end, left without
+                // loading: the menu again.
+                g->menu_on_back = 0;
+                g->to_menu = 1;
+                continue;
+            }
             if (g->vm->room == PETKA_NONE) {
                 int again = run_menu(g, font);
                 if (g->quit || !again) break;
@@ -3416,11 +3458,15 @@ int main(int argc, char **argv) {
         } else {
             action = kVerbs[g->verb].label;
         }
-        DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
-        DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
+        // The bar along the top (the cursor's action, the room's name) is
+        // the launcher's own, not the original's: shown with F1 only.
+        if (debug) {
+            DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
+            DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
+        }
         // (The panel's mouse function names nothing: no captions there.)
-        if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, (Color){10, 10, 10, 255}, 0, scale);
-        if (room) {
+        if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, (Color){10, 10, 10, 255}, 0, 0, scale);
+        if (room && debug) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
             DrawTextEx(font, name, (Vector2){GetScreenWidth() - size.x - 10, 6}, 18, 1, SKYBLUE);
@@ -3433,7 +3479,7 @@ int main(int argc, char **argv) {
             // 0x00007F, dark red; one without in 0x0A0A0A on white.
             Color ink = talker ? g->colors[obj_index(g, talker)] : NO_CAST_INK;
             int cast = ink.r != NO_CAST_INK.r || ink.g != NO_CAST_INK.g || ink.b != NO_CAST_INK.b;
-            draw_bottom_text(font, g->line, ink, cast ? (Color){127, 0, 0, 255} : WHITE, 1, scale);
+            draw_bottom_text(font, g->line, ink, cast ? (Color){127, 0, 0, 255} : WHITE, 1, 1, scale);
         }
         if (g->desc[0]) draw_description(g, font, scale);
 
