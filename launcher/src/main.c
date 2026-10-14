@@ -163,10 +163,10 @@ typedef struct {
     Visual case_body, case_exit, case_strip, case_button[6];
     // With a controller the star's middle opens the case to pick a thing
     // for the object the star was up for: a thing clicked is used on it at
-    // once. There the lid's Chapayev, diskette and map do nothing: lit,
-    // they are grey.
+    // once. There the lid's Chapayev, diskette and map do nothing and are
+    // grey.
     uint16_t case_for;  // that object, PETKA_NONE = the case as usual
-    Texture2D case_grey[3]; // those three buttons' lit clips in grey
+    Texture2D case_grey[3]; // those three buttons' clips in grey
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
     float camera_target;    // where the view has been asked to move to
@@ -2372,8 +2372,8 @@ static void case_click(Game *g) {
     }
 }
 
-// A button of the lid lit while it does nothing (the case picks a thing
-// for an object): its lit clip in grey, made afresh from the frame shown.
+// A button of the lid while it does nothing (the case picks a thing for an
+// object): its clip in grey, made afresh from the frame shown.
 static void draw_button_grey(Game *g, int i, Rectangle screen) {
     Visual *b = &g->case_button[i];
     Texture2D *grey = &g->case_grey[i];
@@ -2407,13 +2407,14 @@ static void draw_case(Game *g, float scale) {
     if (g->case_body.flic)
         visual_draw(&g->case_body, screen);
     // The lit button's clip goes over the case, inside its own rect; the
-    // others are put back on their first frame.
+    // others are put back on their first frame. Picking a thing for an
+    // object, the lid's three are always over it, in grey.
     for (int i = 0; i < 6; i++) {
         Visual *b = &g->case_button[i];
         clip_show(g, b, (uint16_t)(CASE_BUTTON0 + i), i == g->case_lit);
-        if (i != g->case_lit || !b->flic) continue;
+        if (!b->flic) continue;
         if (i <= 2 && g->case_for != PETKA_NONE) draw_button_grey(g, i, screen);
-        else visual_draw(b, screen);
+        else if (i == g->case_lit) visual_draw(b, screen);
     }
     for (int k = 0; k < CASE_PAGE; k++) {
         Visual *v = NULL;
