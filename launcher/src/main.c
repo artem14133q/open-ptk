@@ -230,6 +230,7 @@ typedef struct {
     int menu_on_back; // the save screen came from that menu: leaving it goes back there
     int fast;  // dev: no voice, phrases flash by
     int trace; // dev: log delivered script messages
+    int clips_quiet; // clips are being run out of sight: no sounds
     char status[256];
     double status_until;
 } Game;
@@ -784,7 +785,7 @@ static void visual_update(Game *g, const PetkaObject *obj) {
     if (v->sound_pending && v->flic->frame_index == 0) {
         char wav[512];
         swap_ext(g->qrc[v->resource], "WAV", wav, sizeof(wav));
-        play_sound(g, wav);
+        if (!g->clips_quiet) play_sound(g, wav);
         v->sound_pending = 0;
     }
     petka_flic_advance(v->flic);
@@ -3595,6 +3596,22 @@ int main(int argc, char **argv) {
         for (uint16_t id = 0; id < 2 && g->seq_room == PETKA_NONE; id++) {
             const PetkaObject *hero = petka_script_find(g->script, id);
             if (hero && !g->visuals[obj_index(g, hero)].live) visual_update(g, hero);
+        }
+        // A sequence is shown in place of the game's room, but that room
+        // goes on: its clips keep running out of sight, unheard, and the
+        // script may be waiting on them. In part 2 the pentagram in the
+        // church, started with Petka's clip there, carries the story on at
+        // its END -- and Petka's END, which puts up the sequence, can come
+        // first: then the pentagram stood still under it and the game with
+        // it. (Not under the map or the panel, which are no sequences.)
+        if (g->seq_room != PETKA_NONE && !g->map_open) {
+            const PetkaObject *under = petka_script_find(g->script, vm->room);
+            g->clips_quiet = 1;
+            for (uint32_t i = 0; under && i < under->attached_count; i++) {
+                const PetkaObject *obj = petka_script_find(g->script, under->attached[i].obj_id);
+                if (obj && !g->visuals[obj_index(g, obj)].live) visual_update(g, obj);
+            }
+            g->clips_quiet = 0;
         }
         // The things in the case have clips of their own, and the script
         // waits for some of them: in part 2 the pen on the cheque hides the
