@@ -49,6 +49,7 @@ static RenderTexture2D s_surface;
 static Vector2 s_pointer = {SURFACE_W / 2.0f, SURFACE_H / 2.0f};
 static bool s_tapped, s_touching;
 static bool s_held;     // plat_hold_pointer: the stick and the D-pad leave it be
+static bool s_latched;  // let go, but the stick is still pushed from then
 static int s_list_step; // this frame's step through a list
 static int s_stick_dir; // where the stick was pushed last frame: -1, 0, +1
 
@@ -106,7 +107,11 @@ void plat_poll(void) {
     s_stick_dir = stick;
     if (s_held) return;
 
-    if (len > 0.15f) {
+    // Let go while the stick was pushed -- it picked a part of the star --
+    // the pointer waits for the stick to come back to rest: else it would
+    // run off at once wherever the part was.
+    if (s_latched && len <= 0.15f) s_latched = false;
+    if (len > 0.15f && !s_latched) {
         float speed = 2.0f + 14.0f * (len - 0.15f) / 0.85f * (len - 0.15f) / 0.85f;
         s_pointer.x += x / len * speed;
         s_pointer.y += y / len * speed;
@@ -151,7 +156,10 @@ bool plat_chapayev_held(void) { return IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_R
 
 bool plat_pad(void) { return true; }
 void plat_set_pointer(Vector2 at) { s_pointer = at; }
-void plat_hold_pointer(bool hold) { s_held = hold; }
+void plat_hold_pointer(bool hold) {
+    if (s_held && !hold) s_latched = true;
+    s_held = hold;
+}
 int plat_list_step(void) { return s_list_step; }
 Vector2 plat_aim(void) {
     return (Vector2){GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_X), -GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_Y)};
