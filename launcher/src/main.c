@@ -775,12 +775,21 @@ static void visual_update(Game *g, const PetkaObject *obj) {
             petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
         return;
     }
-    if (game_now() < v->next_frame) return;
+    double now = game_now();
+    if (now < v->next_frame) return;
     double period = (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
     // A walking hero's clock runs faster by the speed dial: the exe
     // multiplies the time that has passed by (percent + 50) / 50.
     if (is_hero(obj->id) && g->walk[obj->id].active) period *= 50.0 / (dial_percent(g, DIAL_SPEED) + 50.0);
-    v->next_frame = game_now() + period;
+    // The next frame is due a period after this one was, not after now:
+    // counted from now, every frame came late by however long it waited for
+    // the game's frame -- more for clips updated later in it, after others
+    // were decoded -- so clips ran slow, and two started together drifted
+    // apart (part 2's pentagram ended well after Petka's clip in the church,
+    // and the sequence waiting on it stood still meanwhile). Far behind --
+    // a stall -- it goes on from now rather than rushing to catch up.
+    v->next_frame += period;
+    if (v->next_frame < now) v->next_frame = now + period;
 
     if (v->sound_pending && v->flic->frame_index == 0) {
         char wav[512];
