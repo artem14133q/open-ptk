@@ -37,19 +37,24 @@ there.
 | | |
 |---|---|
 | touch screen | the pointer goes there; a tap is a click |
-| left stick, D-pad | move the pointer (the D-pad a pixel at a time) |
-| A | click |
-| B | right button: the star, putting a thing back |
-| L / R | previous / next cursor action |
-| X | the case |
+| left stick, D-pad | move the pointer (the D-pad a pixel at a time); near something small the pointer is drawn to it |
+| A | on a thing: the star of actions for it; on the floor: walk there |
+| left stick, with the star up | points at an action; A does it, the middle opens the case to pick a thing for it |
+| B | the star down, the case shut, a thing put back; in a dialogue, the next phrase |
+| up / down in a dialogue's menu | the line to say (A says it) |
+| L held / R held | the cursor walks / sends Chapayev |
+| X | the case: up, down, left, right go from thing to thing, L / R turn the pages |
 | Y | the map |
 | + | the panel (menu, options, saving) |
 | - | back (Esc) |
 | ZL / ZR | load / save screen |
+| left stick press | the CRT look on and off |
 | right stick press | the debug overlay |
 
 The picture is the game's 640x480 at one and a half, 960x720 in the middle
-of the screen.
+of the screen, through a shader that makes it look like a CRT monitor
+(`launcher/src/crt.c`: scanlines, a bulging glass, the phosphor's stripes);
+on a desktop F4 turns it on and off.
 
 Films are decoded by FFmpeg's libraries built into the program
 (`ffmpeg.sh`: the AVI demuxer, Indeo 3, Microsoft Video 1, MS ADPCM and PCM

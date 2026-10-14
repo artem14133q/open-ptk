@@ -1,18 +1,45 @@
 #include "platform.h"
 
+#include "crt.h"
+
 #include <math.h>
 
 #ifndef __SWITCH__
 
 // ---- desktop: raylib as it is ----
 
-void plat_init(void) {}
-void plat_close(void) {}
-void plat_begin(void) { BeginDrawing(); }
-void plat_end(void) { EndDrawing(); }
+// The frame is drawn on a surface the size of the window, then put up
+// through the CRT shader (crt.h); F4 turns that on and off.
+static RenderTexture2D s_surface;
+
+void plat_init(void) { crt_init(); }
+void plat_close(void) {
+    if (s_surface.id) UnloadRenderTexture(s_surface);
+    crt_close();
+}
+void plat_begin(void) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    if (!s_surface.id || s_surface.texture.width != w || s_surface.texture.height != h) {
+        if (s_surface.id) UnloadRenderTexture(s_surface);
+        s_surface = LoadRenderTexture(w, h);
+        SetTextureFilter(s_surface.texture, TEXTURE_FILTER_BILINEAR);
+    }
+    BeginTextureMode(s_surface);
+}
+void plat_end(void) {
+    EndTextureMode();
+    BeginDrawing();
+    ClearBackground(BLACK);
+    // A render texture is upside down: drawn with a negative height.
+    float w = (float)s_surface.texture.width, h = (float)s_surface.texture.height;
+    crt_draw(s_surface.texture, (Rectangle){0, 0, w, -h}, (Rectangle){0, 0, w, h});
+    EndDrawing();
+}
 int plat_width(void) { return GetScreenWidth(); }
 int plat_height(void) { return GetScreenHeight(); }
-void plat_poll(void) {}
+void plat_poll(void) {
+    if (IsKeyPressed(KEY_F4)) crt_toggle();
+}
 Vector2 plat_pointer(void) { return GetMousePosition(); }
 bool plat_click(void) { return IsMouseButtonPressed(MOUSE_BUTTON_LEFT); }
 bool plat_rclick(void) { return IsMouseButtonPressed(MOUSE_BUTTON_RIGHT); }
@@ -84,9 +111,13 @@ void plat_init(void) {
     }
     s_surface = LoadRenderTexture(SURFACE_W, SURFACE_H);
     SetTextureFilter(s_surface.texture, TEXTURE_FILTER_BILINEAR);
+    crt_init();
 }
 
-void plat_close(void) { UnloadRenderTexture(s_surface); }
+void plat_close(void) {
+    UnloadRenderTexture(s_surface);
+    crt_close();
+}
 
 void plat_begin(void) { BeginTextureMode(s_surface); }
 
@@ -94,9 +125,10 @@ void plat_end(void) {
     EndTextureMode();
     BeginDrawing();
     ClearBackground(BLACK);
-    // A render texture is upside down: drawn with a negative height.
-    DrawTexturePro(s_surface.texture, (Rectangle){0, 0, SURFACE_W, -SURFACE_H},
-                   (Rectangle){(SCREEN_W - SURFACE_W) / 2.0f, 0, SURFACE_W, SURFACE_H}, (Vector2){0, 0}, 0, WHITE);
+    // A render texture is upside down: drawn with a negative height. Through
+    // the CRT shader (crt.h), which a press of the left stick turns on and off.
+    crt_draw(s_surface.texture, (Rectangle){0, 0, SURFACE_W, -SURFACE_H},
+             (Rectangle){(SCREEN_W - SURFACE_W) / 2.0f, 0, SURFACE_W, SURFACE_H});
     EndDrawing();
 }
 
@@ -104,6 +136,7 @@ int plat_width(void) { return SURFACE_W; }
 int plat_height(void) { return SURFACE_H; }
 
 void plat_poll(void) {
+    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_THUMB)) crt_toggle(); // left stick press
     // The touch screen: a touch puts the pointer there, and its first frame
     // is a click.
     bool touching = GetTouchPointCount() > 0;

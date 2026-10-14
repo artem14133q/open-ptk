@@ -1,4 +1,4 @@
-add_executable(petka_launcher src/main.c src/platform.c src/film_pipe.c src/film_av.c)
+add_executable(petka_launcher src/main.c src/platform.c src/film_pipe.c src/film_av.c src/crt.c)
 
 target_link_libraries(petka_launcher PRIVATE petka_core)
 
