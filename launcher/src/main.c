@@ -1258,6 +1258,8 @@ static void chapter_open(Game *g, int chapter);
 static void sequence_sounds(Game *g, int entering) {
     for (int i = 0; i < MAX_SOUNDS; i++) {
         if (g->sounds[i].frameCount <= 0) { g->sound_paused[i] = 0; continue; }
+        if (g->trace) fprintf(stderr, "seq sounds: %s sound %d (%u frames, paused %d)\n", entering ? "in" : "out", i,
+                              g->sounds[i].frameCount, g->sound_paused[i]);
         if (entering) {
             if (!IsSoundPlaying(g->sounds[i]) || g->sound_paused[i]) continue;
             // One sequence straight after another: the first one's sounds go.
@@ -1271,6 +1273,7 @@ static void sequence_sounds(Game *g, int entering) {
         }
     }
     if (g->voice.frameCount <= 0) { g->voice_paused = 0; return; }
+    if (g->trace) fprintf(stderr, "seq sounds: %s voice (paused %d)\n", entering ? "in" : "out", g->voice_paused);
     if (entering && g->seq_room == PETKA_NONE && IsSoundPlaying(g->voice)) {
         PauseSound(g->voice);
         g->voice_paused = 1;
@@ -1417,6 +1420,7 @@ static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         map_leave(g);
         sequence_sounds(g, 1);
         g->seq_room = obj->id;
+        if (g->trace) fprintf(stderr, "seq: %u is up\n", obj->id);
         break;
     case PETKA_OP_ENDSEQ:
         if (g->seq_room != PETKA_NONE) sequence_sounds(g, 0);
@@ -3495,6 +3499,9 @@ int main(int argc, char **argv) {
 
         frame++;
         s_clock += 1.0 / 60.0;
+        // A mark a second, so a log shows a hang outside the script's turn.
+        if (g->trace && frame % 60 == 0)
+            fprintf(stderr, "frame %ld: room %u seq %u\n", frame, vm->room, (unsigned)g->seq_room);
         for (const char *p = post_plan; p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : "") {
             long at = 0;
             unsigned obj_id = 0, opcode = 0, arg1 = PETKA_NONE, arg2 = PETKA_NONE;

@@ -73,7 +73,9 @@ void plat_init(void) {
     FILE *flag = fopen("sdmc:/switch/petka/trace.txt", "r");
     if (flag) {
         fclose(flag);
-        if (freopen("sdmc:/switch/petka/petka.log", "w", stderr)) {
+        // Both appending: each line goes on the end, whichever stream says it.
+        remove("sdmc:/switch/petka/petka.log");
+        if (freopen("sdmc:/switch/petka/petka.log", "a", stderr)) {
             freopen("sdmc:/switch/petka/petka.log", "a", stdout);
             setvbuf(stderr, NULL, _IOLBF, 0);
             setvbuf(stdout, NULL, _IOLBF, 0);
