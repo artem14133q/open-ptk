@@ -71,7 +71,10 @@ typedef struct {
 } Visual;
 
 #define SAVE_SLOTS 6
-#define BLUE_LINE ((Color){0, 0, 255, 255}) // the menu line under the pointer, the exe's 0xFF0000
+// The menu line under the pointer. The exe's is pure blue (0xFF0000 in its
+// BGR), which is hard to read on the dark band behind the menu; a lighter
+// blue keeps the look and reads well.
+#define BLUE_LINE ((Color){110, 160, 255, 255})
 #define NO_CAST_INK ((Color){10, 10, 10, 255}) // a subtitle whose speaker has no CAST.INI colour
 #define MAX_WAYPOINTS 32
 #define MAX_GAITS 8
@@ -2359,7 +2362,7 @@ static void draw_case(Game *g, float scale) {
 // the lines one under another in the 20-pixel font, each broken at 625
 // pixels, starting 5 from the left edge, the whole block resting on row 479
 // like any other text over the picture -- white, the line under the pointer
-// in blue, and nothing behind them. Fills `rects` (window pixels) with each
+// in light blue, and nothing behind them. Fills `rects` (window pixels) with each
 // line's place and, if asked, draws them.
 #define MENU_MAX 16
 static void menu_lines(const Game *g, Font font, float scale, Rectangle *rects, int hover, int draw) {
