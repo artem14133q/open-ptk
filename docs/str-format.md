@@ -1413,6 +1413,15 @@ the constants at the call sites without decompiling the functions,
 `USERMSG` from `sub_409610`. `SAY`/`SAID` come from the dialogue step,
 `sub_415F80` (see "The dialogue step" below).
 
+### Sound files
+
+Every `.WAV` of the game is plain PCM (format 1). The music is 16-bit
+stereo at 22050 Hz, all but one track: part 3's bar plays
+`MUSIC3\SPACEBAR.wav`, 8-bit stereo at 11025 Hz. raylib streams a WAV only
+as 16- or 32-bit samples and gave that one as a loud rasp; the launcher
+widens an 8-bit file to 16 bits before streaming it (`wav_for_stream`).
+Sounds loaded whole (clip sounds, the voice) are converted by raylib itself.
+
 ### Object update: `END`, `HALF` and clip sounds
 
 Every frame each object's update method runs (vtable slot 6; `sub_4015E0`

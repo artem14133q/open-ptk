@@ -443,6 +443,68 @@ static void play_sound(Game *g, const char *path) {
     }
 }
 
+// raylib streams a WAV as 16- or 32-bit samples only: an 8-bit one comes out
+// as noise -- a loud rasp. One track of the game is 8-bit (part 3's bar,
+// MUSIC3\SPACEBAR.wav, stereo at 11025 Hz). Such a file is turned into a
+// 16-bit one for the stream, once; the copy is kept, as the stream reads
+// from it while it plays.
+static const uint8_t *wav_for_stream(const uint8_t *bytes, size_t len, size_t *out_len) {
+    static struct { const uint8_t *from; uint8_t *to; size_t len; } cache[8];
+    *out_len = len;
+    for (int i = 0; i < 8; i++)
+        if (cache[i].from == bytes) { *out_len = cache[i].len; return cache[i].to; }
+    if (len < 12 || memcmp(bytes, "RIFF", 4) || memcmp(bytes + 8, "WAVE", 4)) return bytes;
+    uint16_t format = 0, channels = 0, bits = 0;
+    uint32_t rate = 0;
+    const uint8_t *data = NULL;
+    uint32_t data_len = 0;
+    for (size_t o = 12; o + 8 <= len;) {
+        uint32_t n = (uint32_t)bytes[o + 4] | (uint32_t)bytes[o + 5] << 8 | (uint32_t)bytes[o + 6] << 16 | (uint32_t)bytes[o + 7] << 24;
+        if (!memcmp(bytes + o, "fmt ", 4) && n >= 16 && o + 8 + 16 <= len) {
+            const uint8_t *f = bytes + o + 8;
+            format = (uint16_t)(f[0] | f[1] << 8);
+            channels = (uint16_t)(f[2] | f[3] << 8);
+            rate = (uint32_t)f[4] | (uint32_t)f[5] << 8 | (uint32_t)f[6] << 16 | (uint32_t)f[7] << 24;
+            bits = (uint16_t)(f[14] | f[15] << 8);
+        } else if (!memcmp(bytes + o, "data", 4)) {
+            data = bytes + o + 8;
+            data_len = n <= len - (o + 8) ? n : (uint32_t)(len - (o + 8));
+            break;
+        }
+        o += 8 + (size_t)n + (n & 1);
+    }
+    if (format != 1 || bits != 8 || !data || !channels) return bytes;
+    size_t total = 44 + (size_t)data_len * 2;
+    uint8_t *out = (uint8_t *)malloc(total);
+    if (!out) return bytes;
+    uint32_t block = channels * 2u, byte_rate = rate * block, body = data_len * 2u;
+    uint8_t head[44] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0};
+    uint32_t riff = (uint32_t)total - 8;
+    memcpy(head + 4, &riff, 4); // little-endian host
+    memcpy(head + 22, &channels, 2);
+    memcpy(head + 24, &rate, 4);
+    memcpy(head + 28, &byte_rate, 4);
+    uint16_t block16 = (uint16_t)block, bits16 = 16;
+    memcpy(head + 32, &block16, 2);
+    memcpy(head + 34, &bits16, 2);
+    memcpy(head + 36, "data", 4);
+    memcpy(head + 40, &body, 4);
+    memcpy(out, head, 44);
+    for (uint32_t i = 0; i < data_len; i++) {
+        int16_t s = (int16_t)(((int)data[i] - 128) << 8); // 8-bit WAV samples are unsigned
+        memcpy(out + 44 + i * 2, &s, 2);
+    }
+    for (int i = 0; i < 8; i++)
+        if (!cache[i].from) {
+            cache[i].from = bytes;
+            cache[i].to = out;
+            cache[i].len = total;
+            break;
+        }
+    *out_len = total;
+    return out;
+}
+
 // Room music and ambience keep playing across rooms that share a track.
 static void set_stream(Game *g, Music *stream, uint16_t *current, uint16_t id) {
     if (*current == id) return;
@@ -452,6 +514,7 @@ static void set_stream(Game *g, Music *stream, uint16_t *current, uint16_t id) {
     size_t len = 0;
     const uint8_t *bytes = path ? res_find(g, path, &len) : NULL;
     if (!bytes) return;
+    bytes = wav_for_stream(bytes, len, &len);
     *stream = LoadMusicStreamFromMemory(".wav", bytes, (int)len);
     stream->looping = true;
     PlayMusicStream(*stream);
