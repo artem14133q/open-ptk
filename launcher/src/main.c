@@ -127,6 +127,13 @@ typedef struct {
     int star_open;
     int star_x, star_y; // its corner on screen
     int star_lit;       // the part under the pointer, 0..5, or 6 for none
+    // With a controller (plat_pad) the cursor is the plain pointer: A on an
+    // object puts the star up for it, the stick picks a part, A does it.
+    // L and R bring back the cursor with an action (for "send Chapayev",
+    // which the star has not), B takes it away again.
+    int pad_verbs;      // the cursor has an action: clicks do it
+    uint16_t pad_target; // the object the star is up for
+    float pad_x, pad_y;  // and where it was clicked, in the room
     Visual star;
     // A thing's description (SHOWDESCRIPTION), up until the next click.
     char desc[2048]; // UTF-8, "" = none
@@ -1709,6 +1716,25 @@ static int star_part(const Game *g, int px, int py) {
     return 6;
 }
 
+// The part of the star the left stick points at: of the five round the
+// middle, the one whose direction from the middle is nearest the stick's;
+// 6 while the stick is at rest.
+static int star_aim(void) {
+    Vector2 aim = plat_aim();
+    float len = sqrtf(aim.x * aim.x + aim.y * aim.y);
+    if (len < 0.5f) return 6;
+    const Rectangle *m = &kStarPart[0];
+    float cx = m->x + m->width / 2, cy = m->y + m->height / 2;
+    int best = 6;
+    float best_dot = -2;
+    for (int i = 1; i < 6; i++) {
+        float dx = kStarPart[i].x + kStarPart[i].width / 2 - cx, dy = kStarPart[i].y + kStarPart[i].height / 2 - cy;
+        float dot = (dx * aim.x + dy * aim.y) / (sqrtf(dx * dx + dy * dy) * len);
+        if (dot > best_dot) { best_dot = dot; best = i; }
+    }
+    return best;
+}
+
 static void drop_item(Game *g);
 
 static void star_click(Game *g, int part) {
@@ -2956,6 +2982,38 @@ static void play_tick(Game *g, int can_act) {
     s_play.waited = 0;
 }
 
+// A click with the cursor's action `verb` on `obj`, at mx, my in the room.
+static void act_on(Game *g, const PetkaObject *obj, int verb, float mx, float my) {
+    PetkaScriptVM *vm = g->vm;
+    if (kVerbs[verb].op == PETKA_OP_WALK && !is_hero(obj->id) &&
+        !petka_scriptvm_state(vm, PETKA_ID_PETKA)->active) {
+        // "Walk" to something while Petka is off -- a clip of him doing
+        // something stands in his place -- is not taken. A way out would
+        // otherwise be walked by nobody and the room change with Petka
+        // still off: Chapayev came into the next room alone. (It can be
+        // clicked: in the church the cursor is back when the crypt's door
+        // has opened, with Petka still at the brick.)
+        return;
+    }
+    uint16_t op = kVerbs[verb].op;
+    int point = op == PETKA_OP_WALK || op == PETKA_OP_OBJECTUSE;
+    stop_heroes(g);
+    petka_scriptvm_post(vm, obj->id, op, point ? (uint16_t)mx : 0, point ? (uint16_t)my : 0, 0,
+                        op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)obj->id);
+}
+
+// The star put up with a controller: its lit part done to the object it is
+// up for.
+static void star_pick(Game *g) {
+    int part = g->star_lit;
+    g->star_open = 0;
+    if (part == 0) { g->case_open = 1; return; }
+    if (part < 1 || part > 5) return;
+    g->verb = part - 1;
+    const PetkaObject *obj = petka_script_find(g->script, g->pad_target);
+    if (obj) act_on(g, obj, g->verb, g->pad_x, g->pad_y);
+}
+
 int main(int argc, char **argv) {
     // With no arguments the game is where the program is: a copy dropped
     // into the game's folder runs it from there, however it was started, and
@@ -3153,7 +3211,11 @@ int main(int argc, char **argv) {
         // The Switch has no keys for them: L and R step through the actions.
         int step = plat_action_step();
         if (step && !g->menu_count && vm->interface_enabled && !g->map_open && !g->desc[0]) {
-            g->verb = (g->verb + step + VERB_COUNT) % VERB_COUNT;
+            // The first press shows the action the cursor has; the next
+            // ones step on from it.
+            if (g->pad_verbs) g->verb = (g->verb + step + VERB_COUNT) % VERB_COUNT;
+            g->pad_verbs = 1;
+            g->star_open = 0;
             drop_item(g);
         }
 
@@ -3348,7 +3410,8 @@ int main(int argc, char **argv) {
         // nothing else is under the pointer.
         if (!can_act || g->map_open) g->star_open = 0;
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
-        g->star_lit = g->star_open ? star_part(g, screen_x, screen_y) : 6;
+        int pad_star = plat_pad() && !g->pad_verbs; // the star as a controller works it
+        g->star_lit = !g->star_open ? 6 : pad_star ? star_aim() : star_part(g, screen_x, screen_y);
         // dev: PETKA_RCLICK=<frame> presses the right button on that frame.
         int right_click = plat_rclick() ||
                           (getenv("PETKA_RCLICK") && atol(getenv("PETKA_RCLICK")) == frame);
@@ -3416,7 +3479,18 @@ int main(int argc, char **argv) {
             // the case open and a thing on the cursor, the thing is put down
             // and the cursor becomes "take"; otherwise the star comes up at
             // the pointer, or goes away.
-            if (right_click && !g->map_open && vm->interface_enabled) {
+            if (right_click && plat_pad()) {
+                // B: the star down, the thing on the cursor put back, or
+                // the cursor's action gone -- whichever there is.
+                if (g->star_open) {
+                    g->star_open = 0;
+                } else if (vm->cursor_object != PETKA_NONE) {
+                    drop_item(g);
+                    if (g->case_open) g->verb = 3;
+                } else {
+                    g->pad_verbs = 0;
+                }
+            } else if (right_click && !g->map_open && vm->interface_enabled) {
                 if (g->case_open && vm->cursor_object != PETKA_NONE) {
                     drop_item(g);
                     g->verb = 3;
@@ -3426,7 +3500,8 @@ int main(int argc, char **argv) {
             }
             if (clicked) {
                 if (g->star_open) {
-                    star_click(g, g->star_lit);
+                    if (pad_star) star_pick(g);
+                    else star_click(g, g->star_lit);
                 } else if (g->panel_open) {
                     if (hover) panel_click(g, hover);
                 } else if (hover && vm->cursor_object != PETKA_NONE) {
@@ -3434,27 +3509,20 @@ int main(int argc, char **argv) {
                     stop_heroes(g);
                     drop_item(g);
                     petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, 0, 0, 0, item);
-                } else if (hover && kVerbs[g->verb].op == PETKA_OP_WALK && !is_hero(hover->id) &&
-                           !petka_scriptvm_state(vm, PETKA_ID_PETKA)->active) {
-                    // "Walk" to something while Petka is off -- a clip of
-                    // him doing something stands in his place -- is not
-                    // taken. A way out would otherwise be walked by nobody
-                    // and the room change with Petka still off: Chapayev
-                    // came into the next room alone. (It can be clicked:
-                    // in the church the cursor is back when the crypt's
-                    // door has opened, with Petka still at the brick.)
+                } else if (hover && pad_star && !g->map_open && vm->interface_enabled) {
+                    star_toggle(g, screen_x, screen_y);
+                    g->pad_target = hover->id;
+                    g->pad_x = mx;
+                    g->pad_y = my;
                 } else if (hover) {
-                    uint16_t op = kVerbs[g->verb].op;
-                    int point = op == PETKA_OP_WALK || op == PETKA_OP_OBJECTUSE;
-                    stop_heroes(g);
-                    petka_scriptvm_post(vm, hover->id, op, point ? (uint16_t)mx : 0, point ? (uint16_t)my : 0, 0,
-                                        op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)hover->id);
+                    act_on(g, hover, g->verb, mx, my);
                 } else if (in_case) {
                     case_click(g);
                 } else if (vm->cursor_object == PETKA_NONE && !g->map_open) {
                     // Nothing under the click (the end of sub_414320): only
-                    // two of the cursor's actions do anything.
-                    uint16_t op = kVerbs[g->verb].op;
+                    // two of the cursor's actions do anything. The
+                    // controller's plain pointer walks.
+                    uint16_t op = pad_star ? PETKA_OP_WALK : kVerbs[g->verb].op;
                     if (op == PETKA_OP_WALK) {
                         PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
                         // Sent somewhere else: whatever he was walking for is
@@ -3474,6 +3542,9 @@ int main(int argc, char **argv) {
                 }
             }
         }
+
+        // The stick works the star while it is up, not the pointer.
+        if (plat_pad()) plat_hold_pointer(g->pad_hold || g->star_open);
 
         plat_begin();
         ClearBackground(BLACK);
@@ -3616,6 +3687,7 @@ int main(int argc, char **argv) {
         // phrases and brings it back for a menu.
         if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) && (!g->talking || g->menu_count > 0)) {
             uint16_t clip = g->map_open || g->save_mode ? CURSOR_INTERFACE
+                          : plat_pad() && !g->pad_verbs && vm->cursor_object == PETKA_NONE ? CURSOR_INTERFACE
                           : g->menu_count > 0 ? CURSOR_POINTER
                           : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
                           : (uint16_t)(CURSOR_ACTION0 + g->verb);
@@ -3629,7 +3701,9 @@ int main(int argc, char **argv) {
                 lively = CheckCollisionPointRec(p, kSavePrev) || CheckCollisionPointRec(p, kSaveNext);
                 for (int i = 0; i < SAVE_SLOTS; i++) lively = lively || CheckCollisionPointRec(p, kSaveSlot[i]);
             }
-            draw_cursor(g, clip, lively, !g->map_open && !g->save_mode, mouse, scale);
+            // The interface's pointer has its tip at the point, the others
+            // their middle.
+            draw_cursor(g, clip, lively, clip != CURSOR_INTERFACE, mouse, scale);
         } else {
             ShowCursor();
         }

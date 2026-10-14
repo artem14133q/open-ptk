@@ -26,6 +26,7 @@ bool plat_pad(void) { return false; }
 void plat_set_pointer(Vector2 at) { (void)at; }
 void plat_hold_pointer(bool hold) { (void)hold; }
 int plat_list_step(void) { return 0; }
+Vector2 plat_aim(void) { return (Vector2){0, 0}; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
 Font plat_system_font(int size, int *codepoints, int count) {
     (void)size; (void)codepoints; (void)count;
@@ -156,6 +157,9 @@ bool plat_pad(void) { return true; }
 void plat_set_pointer(Vector2 at) { s_pointer = at; }
 void plat_hold_pointer(bool hold) { s_held = hold; }
 int plat_list_step(void) { return s_list_step; }
+Vector2 plat_aim(void) {
+    return (Vector2){GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_X), -GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_Y)};
+}
 
 const char *plat_default_game_dir(void) { return "sdmc:/switch/petka/"; }
 

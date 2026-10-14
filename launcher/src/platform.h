@@ -47,6 +47,9 @@ bool plat_pad(void);
 void plat_set_pointer(Vector2 at); // surface pixels
 void plat_hold_pointer(bool hold);
 int plat_list_step(void); // -1 up, +1 down, 0 neither
+// Where the left stick is pushed, x right and y down, each -1..1; zero on a
+// desktop.
+Vector2 plat_aim(void);
 
 // The folder the game's files are in when none is given: next to the
 // program on a desktop, sdmc:/switch/petka/ on the Switch.
