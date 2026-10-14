@@ -315,6 +315,16 @@ static const uint8_t *res_find(const Game *g, const char *path, size_t *len) {
     return NULL;
 }
 
+// Lets a resource's bytes go once a copy of them is all that is kept (a
+// voice line made into a sound, a background made into a texture): the
+// stores are read on demand, and what is read stays until released.
+static void res_release(const Game *g, const char *path) {
+    for (int i = 0; i < g->store_count; i++) {
+        const PetkaEntry *e = petka_store_find(g->stores[i], path);
+        if (e) { petka_store_entry_release(g->stores[i], e); return; }
+    }
+}
+
 static const uint8_t *part_file(const Game *g, const char *part, const char *file, size_t *len) {
     char name[256];
     snprintf(name, sizeof(name), "%s\\%s", part, file);
@@ -387,6 +397,7 @@ static Texture2D load_bmp_texture(const Game *g, const char *path) {
     const uint8_t *bytes = res_find(g, path, &len);
     int w = 0, h = 0;
     uint8_t *rgb = bytes ? petka_bmp_decode(bytes, len, &w, &h) : NULL;
+    if (bytes) res_release(g, path);
     if (!rgb) { fprintf(stderr, "background not found: %s\n", path); return tex; }
     Image img = {.data = rgb, .width = w, .height = h, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8};
     tex = LoadTextureFromImage(img);
@@ -1062,6 +1073,7 @@ static void next_phrase(Game *g) {
                 PlaySound(g->voice);
             }
             UnloadWave(wave);
+            res_release(g, wav);
         }
     }
 }
