@@ -3534,9 +3534,22 @@ int main(int argc, char **argv) {
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
 
         // The room the VM is in may have changed: drop the old room's clips.
+        // Not those of the game's room while a sequence is shown over it:
+        // they run on under it (see below), and dropped they would start
+        // over -- part 2's pentagram, a frame behind Petka's clip whose END
+        // put up the sequence, played all over again before the sequence
+        // could go on.
         if (g->shown_room != screen_room(g)) {
-            for (uint32_t i = 0; i < g->script->object_count; i++)
-                if (!is_hero(g->script->objects[i].id)) visual_free(&g->visuals[i]);
+            const PetkaObject *keep = g->seq_room != PETKA_NONE && !g->map_open
+                                    ? petka_script_find(g->script, vm->room) : NULL;
+            for (uint32_t i = 0; i < g->script->object_count; i++) {
+                uint16_t id = g->script->objects[i].id;
+                if (is_hero(id)) continue;
+                int kept = 0;
+                for (uint32_t k = 0; keep && k < keep->attached_count && !kept; k++)
+                    kept = keep->attached[k].obj_id == id;
+                if (!kept) visual_free(&g->visuals[i]);
+            }
             g->shown_room = screen_room(g);
         }
         const PetkaObject *room = petka_script_find(g->script, screen_room(g));
