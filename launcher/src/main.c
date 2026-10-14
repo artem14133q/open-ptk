@@ -180,6 +180,12 @@ typedef struct {
     uint16_t talker;   // object speaking the current phrase, PETKA_NONE = nobody
     uint32_t menu[16]; // phrase indices of the lines the player may pick
     int menu_count;    // > 0 while the dialogue waits for that pick
+    // With a controller (plat_pad) the pointer is held on a line of the
+    // menu, the one picked out by up and down, from the first menu to the
+    // dialogue's end, and then goes back to where it was.
+    int menu_focus;    // that line
+    int pad_hold;      // the pointer is held
+    Vector2 pad_return; // where it goes back to
     int auto_pick;     // dev: line to pick without asking; -1 = the last one, -2 = ask
     int dialogue_done; // tell the VM on the next frame
     char line[512];    // current phrase, UTF-8
@@ -3364,6 +3370,33 @@ int main(int argc, char **argv) {
         if (g->menu_count > 0) menu_lines(g, font, scale, menu_rects, -1, 0);
         for (int i = 0; i < g->menu_count && i < MENU_MAX; i++)
             if (CheckCollisionPointRec(mouse, menu_rects[i])) menu_hover = i;
+        if (plat_pad()) {
+            int lines = g->menu_count < MENU_MAX ? g->menu_count : MENU_MAX;
+            if (lines > 0) {
+                if (!g->pad_hold) {
+                    g->pad_hold = 1;
+                    g->pad_return = mouse;
+                    g->menu_focus = 0;
+                    plat_hold_pointer(true);
+                }
+                // A touch on a line takes it; up and down step from it.
+                if (menu_hover >= 0) g->menu_focus = menu_hover;
+                g->menu_focus += plat_list_step();
+                if (g->menu_focus < 0) g->menu_focus = 0;
+                if (g->menu_focus >= lines) g->menu_focus = lines - 1;
+                // The pointer sits at the right end of the line's first row,
+                // where it hides the least of the text.
+                Rectangle r = menu_rects[g->menu_focus];
+                mouse = (Vector2){r.x + r.width - 1, r.y + 10 * scale};
+                plat_set_pointer(mouse);
+                menu_hover = g->menu_focus;
+            } else if (g->pad_hold && !g->talking && !g->paused) {
+                g->pad_hold = 0;
+                plat_hold_pointer(false);
+                mouse = g->pad_return;
+                plat_set_pointer(mouse);
+            }
+        }
         if (g->menu_count > 0) {
             // The dialogue waits for the player's line: click it or press
             // its number.

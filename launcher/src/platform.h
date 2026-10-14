@@ -38,6 +38,16 @@ bool plat_any_key(void);    // any key or button at all (to end a film)
 // 0 otherwise (always 0 on a desktop, which has a key for each).
 int plat_action_step(void);
 
+// Picking from a list with the controller (the Switch): the pointer is
+// put on an entry, held there -- the stick and the D-pad stop moving it,
+// a touch still does -- and the controller's up and down step through the
+// list. On a desktop the mouse does it all: plat_pad() is false and the
+// rest do nothing.
+bool plat_pad(void);
+void plat_set_pointer(Vector2 at); // surface pixels
+void plat_hold_pointer(bool hold);
+int plat_list_step(void); // -1 up, +1 down, 0 neither
+
 // The folder the game's files are in when none is given: next to the
 // program on a desktop, sdmc:/switch/petka/ on the Switch.
 const char *plat_default_game_dir(void);

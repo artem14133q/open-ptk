@@ -22,6 +22,10 @@ bool plat_any_key(void) {
     return GetKeyPressed() || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
 }
 int plat_action_step(void) { return 0; }
+bool plat_pad(void) { return false; }
+void plat_set_pointer(Vector2 at) { (void)at; }
+void plat_hold_pointer(bool hold) { (void)hold; }
+int plat_list_step(void) { return 0; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
 Font plat_system_font(int size, int *codepoints, int count) {
     (void)size; (void)codepoints; (void)count;
@@ -43,6 +47,9 @@ Font plat_system_font(int size, int *codepoints, int count) {
 static RenderTexture2D s_surface;
 static Vector2 s_pointer = {SURFACE_W / 2.0f, SURFACE_H / 2.0f};
 static bool s_tapped, s_touching;
+static bool s_held;     // plat_hold_pointer: the stick and the D-pad leave it be
+static int s_list_step; // this frame's step through a list
+static int s_stick_dir; // where the stick was pushed last frame: -1, 0, +1
 
 void plat_init(void) {
     // Started by nxlink from a computer, stdout and stderr go back to it --
@@ -87,6 +94,17 @@ void plat_poll(void) {
     float x = GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_X);
     float y = -GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_Y); // libnx: up is positive
     float len = sqrtf(x * x + y * y);
+
+    // Through a list: a press of up or down on the D-pad, or the stick
+    // pushed up or down, once per push.
+    int stick = y < -0.6f ? -1 : y > 0.6f ? 1 : 0;
+    s_list_step = 0;
+    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_FACE_UP)) s_list_step = -1;
+    else if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) s_list_step = 1;
+    else if (stick != s_stick_dir) s_list_step = stick;
+    s_stick_dir = stick;
+    if (s_held) return;
+
     if (len > 0.15f) {
         float speed = 2.0f + 14.0f * (len - 0.15f) / 0.85f * (len - 0.15f) / 0.85f;
         s_pointer.x += x / len * speed;
@@ -133,6 +151,11 @@ int plat_action_step(void) {
     if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) return 1;  // R
     return 0;
 }
+
+bool plat_pad(void) { return true; }
+void plat_set_pointer(Vector2 at) { s_pointer = at; }
+void plat_hold_pointer(bool hold) { s_held = hold; }
+int plat_list_step(void) { return s_list_step; }
 
 const char *plat_default_game_dir(void) { return "sdmc:/switch/petka/"; }
 
