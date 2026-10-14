@@ -1572,6 +1572,14 @@ static void draw_rimmed(Font font, const char *text, Vector2 at, float size, Col
     DrawTextEx(font, text, at, size, 1, ink);
 }
 
+// Ours, asked for: a dark, see-through band behind text over the picture,
+// so that it reads on any background. The original has none.
+static void draw_band(Rectangle r, float scale) {
+    float pad = 6 * scale;
+    DrawRectangleRounded((Rectangle){r.x - pad, r.y - pad / 2, r.width + 2 * pad, r.height + pad}, 0.25f, 6,
+                         Fade(BLACK, 0.5f));
+}
+
 static void draw_bottom_text(Font font, const char *text, Color ink, Color fill, int centre_lines, int backdrop,
                              float scale) {
     enum { MAX_LINES = 12 };
@@ -1584,13 +1592,7 @@ static void draw_bottom_text(Font font, const char *text, Color ink, Color fill,
     }
     float top = 479 * scale - (count * size + 4 * scale);
     float left = (GAME_W * scale - widest) / 2;
-    if (backdrop && count > 0) {
-        // Ours, asked for: a dark, see-through band behind the lines, so a
-        // subtitle reads on any picture. The original has none.
-        float pad = 6 * scale;
-        DrawRectangleRounded((Rectangle){left - pad, top - pad / 2, widest + 2 * pad, count * size + pad}, 0.25f, 6,
-                             Fade(BLACK, 0.5f));
-    }
+    if (backdrop && count > 0) draw_band((Rectangle){left, top, widest, count * size}, scale);
     for (int i = 0; i < count; i++) {
         float x = centre_lines ? (GAME_W * scale - MeasureTextEx(font, lines[i], size, 1).x) / 2 : left;
         draw_rimmed(font, lines[i], (Vector2){x, top + i * size}, size, ink, fill, scale);
@@ -2358,6 +2360,7 @@ static void menu_lines(const Game *g, Font font, float scale, Rectangle *rects, 
     float left = (GAME_W * scale - widest) / 2;
     if (left < 5 * scale) left = 5 * scale;
     float y = 479 * scale - (total * size + 4 * scale);
+    if (draw && count > 0) draw_band((Rectangle){left, y, widest, total * size}, scale);
     for (int i = 0; i < count; i++) {
         rects[i] = (Rectangle){left, y, widest, rows[i] * size};
         for (int r = 0; draw && r < rows[i]; r++)
@@ -3462,10 +3465,10 @@ int main(int argc, char **argv) {
         // the launcher's own, not the original's: shown with F1 only.
         if (debug) {
             DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
-            DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
+            DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, WHITE);
         }
         // (The panel's mouse function names nothing: no captions there.)
-        if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, (Color){10, 10, 10, 255}, 0, 0, scale);
+        if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, (Color){10, 10, 10, 255}, 0, 1, scale);
         if (room && debug) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
@@ -3485,8 +3488,14 @@ int main(int argc, char **argv) {
 
         if (g->menu_count > 0) menu_lines(g, font, scale, menu_rects, menu_hover, 1);
 
-        if (g->status[0] && game_now() < g->status_until)
-            DrawTextEx(font, g->status, (Vector2){10, 36}, 18, 1, YELLOW);
+        if (g->status[0] && game_now() < g->status_until) {
+            // The launcher's own messages, top left (higher with the bar
+            // of the F1 overlay off): white, on a band like the rest.
+            Vector2 at = {10 + 6 * scale, debug ? 36 : 6 * scale};
+            Vector2 extent = MeasureTextEx(font, g->status, 18, 1);
+            draw_band((Rectangle){at.x, at.y, extent.x, extent.y}, scale);
+            DrawTextEx(font, g->status, at, 18, 1, WHITE);
+        }
         if (debug) {
             // The floor's polygons, and the route each hero is following.
             BeginMode2D(view);

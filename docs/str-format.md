@@ -960,8 +960,9 @@ left round every letter, dark red under a coloured subtitle and near-black
 under a caption or a menu line, which is how the original's text reads on
 any background. The launcher draws that rim (`draw_rimmed`), and sets a
 menu's lines, which start at one x, as a block in the middle of the screen
-as the original shows them. Asked for and not the original's: a
-subtitle has a dark, see-through band behind it; the launcher's bar along
+as the original shows them. Asked for and not the original's: every
+text over the picture -- a subtitle, a caption, a menu, the launcher's own
+messages (top left, in white) -- has a dark, see-through band behind it; the launcher's bar along
 the top (the cursor's action and the room's name) is shown only with the F1
 overlay; and when the game ends (`SYSTEM 242`, the last of part 3's credits,
 on which the exe quits) the start-up menu comes back. The launcher
