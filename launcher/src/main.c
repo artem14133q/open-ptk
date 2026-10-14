@@ -1589,6 +1589,35 @@ static const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float
     return NULL;
 }
 
+static const PetkaObject *listed_object_at(Game *g, float x, float y);
+
+// With a controller small things are hard to stop on, so the pointer is
+// drawn to them: when the stick is about at rest, the pointer on nothing
+// but within AIM_REACH of something that can be clicked (not a hero), it
+// glides a share of the way a frame to that thing's nearest point -- found
+// on rings round the pointer, nearest first -- and over something the
+// stick moves it slower. Room pixels in, the pointer's new place out.
+#define AIM_REACH 18
+static Vector2 aim_assist(Game *g, const Drawable *scene, int n, Vector2 at) {
+    const PetkaObject *over = g->map_open ? listed_object_at(g, at.x, at.y) : object_at(g, scene, n, at.x, at.y);
+    plat_pointer_speed(over ? 0.5f : 1.0f);
+    Vector2 aim = plat_aim();
+    if (over || aim.x * aim.x + aim.y * aim.y > 0.25f) return at;
+    for (int r = 2; r <= AIM_REACH; r += 2) {
+        int steps = r * 2 + 8;
+        for (int k = 0; k < steps; k++) {
+            float a = 6.2831853f * k / steps;
+            Vector2 p = {at.x + r * cosf(a), at.y + r * sinf(a)};
+            const PetkaObject *obj = g->map_open ? listed_object_at(g, p.x, p.y) : object_at(g, scene, n, p.x, p.y);
+            if (!obj || is_hero(obj->id)) continue;
+            // A little past the edge, to be well on it.
+            Vector2 goal = {p.x + 2 * cosf(a), p.y + 2 * sinf(a)};
+            return (Vector2){at.x + (goal.x - at.x) * 0.3f, at.y + (goal.y - at.y) * 0.3f};
+        }
+    }
+    return at;
+}
+
 // The object under a point on the map or the panel. Those screens do not
 // go by z: their mouse functions walk the screen's own list from its end,
 // which is the room's list of objects backwards, and take the first whose
@@ -3644,6 +3673,18 @@ int main(int argc, char **argv) {
             plat_set_pointer(mouse);
             mx = mouse.x / scale + g->camera_x;
             my = mouse.y / scale;
+        }
+        // With a controller the pointer is drawn to things nearby.
+        if (plat_pad() && can_act && !g->case_open && !g->star_open && !g->menu_count) {
+            Vector2 at = aim_assist(g, scene, scene_count, (Vector2){mx, my});
+            if (at.x != mx || at.y != my) {
+                mx = at.x;
+                my = at.y;
+                mouse = (Vector2){(mx - g->camera_x) * scale, my * scale};
+                plat_set_pointer(mouse);
+            }
+        } else if (plat_pad()) {
+            plat_pointer_speed(1.0f);
         }
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
         // R held: the cursor sends Chapayev; otherwise a controller works

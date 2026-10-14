@@ -53,6 +53,9 @@ int plat_page_step(void);
 // Where the left stick is pushed, x right and y down, each -1..1; zero on a
 // desktop.
 Vector2 plat_aim(void);
+// How fast the stick moves the pointer from the next frame on: 1 as it is,
+// less over something to be clicked, to stop on it more easily.
+void plat_pointer_speed(float k);
 
 // The folder the game's files are in when none is given: next to the
 // program on a desktop, sdmc:/switch/petka/ on the Switch.

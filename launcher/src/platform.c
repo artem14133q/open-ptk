@@ -29,6 +29,7 @@ int plat_list_step(void) { return 0; }
 int plat_list_step_x(void) { return 0; }
 int plat_page_step(void) { return 0; }
 Vector2 plat_aim(void) { return (Vector2){0, 0}; }
+void plat_pointer_speed(float k) { (void)k; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
 Font plat_system_font(int size, int *codepoints, int count) {
     (void)size; (void)codepoints; (void)count;
@@ -52,6 +53,7 @@ static Vector2 s_pointer = {SURFACE_W / 2.0f, SURFACE_H / 2.0f};
 static bool s_tapped, s_touching;
 static bool s_held;     // plat_hold_pointer: the stick and the D-pad leave it be
 static bool s_latched;  // let go, but the stick is still pushed from then
+static float s_speed = 1; // plat_pointer_speed
 static int s_list_step; // this frame's step through a list
 static int s_stick_dir; // where the stick was pushed last frame: -1, 0, +1
 static int s_list_step_x, s_stick_dir_x; // the same across
@@ -121,7 +123,7 @@ void plat_poll(void) {
     // run off at once wherever the part was.
     if (s_latched && len <= 0.15f) s_latched = false;
     if (len > 0.15f && !s_latched) {
-        float speed = 2.0f + 14.0f * (len - 0.15f) / 0.85f * (len - 0.15f) / 0.85f;
+        float speed = (2.0f + 14.0f * (len - 0.15f) / 0.85f * (len - 0.15f) / 0.85f) * s_speed;
         s_pointer.x += x / len * speed;
         s_pointer.y += y / len * speed;
     }
@@ -165,6 +167,7 @@ bool plat_chapayev_held(void) { return IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_R
 
 bool plat_pad(void) { return true; }
 void plat_set_pointer(Vector2 at) { s_pointer = at; }
+void plat_pointer_speed(float k) { s_speed = k; }
 void plat_hold_pointer(bool hold) {
     if (s_held && !hold) s_latched = true;
     s_held = hold;
