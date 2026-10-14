@@ -214,7 +214,11 @@ typedef struct {
     // menu is up it sits on the line picked out by up and down.
     int menu_focus;    // that line
     int pad_hold;      // the pointer is held
-    Vector2 pad_return; // where it goes back to
+    // With a controller, whenever the pointer is not drawn -- a dialogue, a
+    // sequence, the star, the extras, a cursor the script has hidden -- it
+    // is held, and drawn again it is back where it was last seen.
+    int pad_hidden;     // it was not drawn last frame
+    Vector2 pad_seen;   // where it was last drawn
     int auto_pick;     // dev: line to pick without asking; -1 = the last one, -2 = ask
     int dialogue_done; // tell the VM on the next frame
     char line[512];    // current phrase, UTF-8
@@ -3337,8 +3341,8 @@ static const char *const kExtraName[EXTRA_COUNT] = {
     "Вид ЭЛТ-монитора", "Тёмная подложка под текстом", "Притяжение указателя к предметам", "Отладочный экран",
 };
 #define EXTRAS_FILE "extras.ini"
-#define EXTRAS_X 110
-#define EXTRAS_W 420
+#define EXTRAS_X 60
+#define EXTRAS_W 520
 #define EXTRAS_Y 150
 #define EXTRAS_ROW 30
 
@@ -3988,7 +3992,6 @@ int main(int argc, char **argv) {
             int in_dialogue = lines > 0 || g->talking || g->paused;
             if (in_dialogue && !g->pad_hold) {
                 g->pad_hold = 1;
-                g->pad_return = mouse;
                 g->menu_focus = 0;
                 plat_hold_pointer(true);
             }
@@ -4004,10 +4007,8 @@ int main(int argc, char **argv) {
                 plat_set_pointer(mouse);
                 menu_hover = g->menu_focus;
             } else if (g->pad_hold && !in_dialogue) {
+                // (Back where it was: see pad_hidden.)
                 g->pad_hold = 0;
-                plat_hold_pointer(false);
-                mouse = g->pad_return;
-                plat_set_pointer(mouse);
             }
         }
         if (g->menu_count > 0) {
@@ -4106,7 +4107,8 @@ int main(int argc, char **argv) {
 
         // The stick works the star while it is up, not the pointer.
         if (plat_pad())
-            plat_hold_pointer(g->pad_hold || g->star_open || g->extras_open || (g->case_open && can_act));
+            plat_hold_pointer(g->pad_hold || g->pad_hidden || g->star_open || g->extras_open ||
+                              (g->case_open && can_act));
 
         plat_begin();
         ClearBackground(BLACK);
@@ -4247,11 +4249,22 @@ int main(int argc, char **argv) {
         // The pointer goes on last, over everything (its z is 1000). It is
         // there whenever the cursor is shown; a dialogue hides it for its
         // phrases and brings it back for a menu.
-        // With a controller the star stands for it while it is up.
+        // With a controller the star stands for it while it is up, and in a
+        // dialogue's menu the lit line does.
+        int pointer_shown = !g->extras_open && vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) &&
+                            (!g->talking || g->menu_count > 0) &&
+                            !(plat_pad() && (g->star_open || g->menu_count > 0));
+        if (plat_pad()) {
+            if (pointer_shown && g->pad_hidden) {
+                mouse = g->pad_seen;
+                plat_set_pointer(mouse);
+            }
+            if (pointer_shown) g->pad_seen = mouse;
+            g->pad_hidden = !pointer_shown;
+        }
         if (g->extras_open) {
             extras_draw(g, font, scale, mouse, debug);
-        } else if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) &&
-                   (!g->talking || g->menu_count > 0) && !(plat_pad() && g->star_open)) {
+        } else if (pointer_shown) {
             uint16_t clip = g->map_open || g->save_mode ? CURSOR_INTERFACE
                           : send_chapayev || send_walk ? (uint16_t)(CURSOR_ACTION0 + verb)
                           : plat_pad() && vm->cursor_object == PETKA_NONE ? CURSOR_INTERFACE

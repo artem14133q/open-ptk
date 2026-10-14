@@ -68,6 +68,5 @@ its trace (the script's messages, clips, sounds) and raylib's messages to
 off. Started through nxlink (`nxlink -s petka.nro`), the output goes to the
 computer instead.
 
-## Not done yet
-
-- the icon is libnx's default.
+The icon (`icon.jpg`) is the game's box cover, cut square in the middle
+and brought down to 256x256.
