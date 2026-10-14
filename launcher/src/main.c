@@ -134,6 +134,7 @@ typedef struct {
     uint16_t pad_target; // the object the star is up for
     float pad_x, pad_y;  // and where it was clicked, in the room
     Visual star;
+    Texture2D star_grey; // its middle in grey
     // A thing's description (SHOWDESCRIPTION), up until the next click.
     char desc[2048]; // UTF-8, "" = none
     int desc_frame;  // the message's number: a frame of the description clip
@@ -169,6 +170,7 @@ typedef struct {
     // With a controller the pointer in the case goes from thing to thing
     // only; L and R turn the pages, B shuts it.
     int case_focus;     // the place on the page (0..5) the pointer is on
+    int pad_chapayev;   // the case's Chapayev was clicked: the next click sends him
     Texture2D case_grey[3]; // those three buttons' clips in grey
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
@@ -653,6 +655,40 @@ static void visual_draw(const Visual *v, Rectangle frame) {
                    (Rectangle){frame.x + v->area.left * sx, frame.y + v->area.top * sy, v->tex.width * sx,
                                v->tex.height * sy},
                    (Vector2){0, 0}, 0, WHITE);
+}
+
+// Draws `part` of a clip's frame in grey, as visual_draw() would put it:
+// for what is shown but does nothing. The grey picture is made afresh from
+// the frame each time, in `cache`.
+static void draw_grey(const Visual *v, PetkaMskRect part, Texture2D *cache, Rectangle frame) {
+    if (part.left < v->area.left) part.left = v->area.left;
+    if (part.top < v->area.top) part.top = v->area.top;
+    if (part.right > v->area.right) part.right = v->area.right;
+    if (part.bottom > v->area.bottom) part.bottom = v->area.bottom;
+    int w = part.right - part.left, h = part.bottom - part.top;
+    if (!v->flic || w <= 0 || h <= 0) return;
+    const uint8_t *rgba = flic_to_rgba(v->flic, part);
+    if (!rgba) return;
+    uint8_t *px = (uint8_t *)malloc((size_t)w * h * 4);
+    if (!px) return;
+    for (size_t k = 0; k < (size_t)w * h; k++) {
+        const uint8_t *c = rgba + k * 4;
+        uint8_t y = (uint8_t)((c[0] * 77 + c[1] * 150 + c[2] * 29) >> 8);
+        px[k * 4 + 0] = px[k * 4 + 1] = px[k * 4 + 2] = y;
+        px[k * 4 + 3] = c[3];
+    }
+    if (cache->id && (cache->width != w || cache->height != h)) { UnloadTexture(*cache); *cache = (Texture2D){0}; }
+    if (!cache->id) {
+        Image img = {.data = px, .width = w, .height = h, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+        *cache = LoadTextureFromImage(img);
+    } else {
+        UpdateTexture(*cache, px);
+    }
+    free(px);
+    Visual shown = *v;
+    shown.tex = *cache;
+    shown.area = part;
+    visual_draw(&shown, frame);
 }
 
 // The pointer. The exe's cursor is an object with a clip (sub_402280): one
@@ -1726,11 +1762,12 @@ static int star_part(const Game *g, int px, int py) {
 
 // The part of the star the left stick points at: of the five round the
 // middle, the one whose direction from the middle is nearest the stick's;
-// the middle, the case, while the stick is at rest.
-static int star_aim(void) {
+// while the stick is at rest the middle, the case -- or nothing, when the
+// case is open already (`middle` 0).
+static int star_aim(int middle) {
     Vector2 aim = plat_aim();
     float len = sqrtf(aim.x * aim.x + aim.y * aim.y);
-    if (len < 0.5f) return 0;
+    if (len < 0.5f) return middle ? 0 : 6;
     const Rectangle *m = &kStarPart[0];
     float cx = m->x + m->width / 2, cy = m->y + m->height / 2;
     int best = 6;
@@ -1765,7 +1802,15 @@ static void draw_star(Game *g, float scale) {
             petka_flic_advance(v->flic);
         visual_upload(v);
     }
-    visual_draw(v, (Rectangle){g->star_x * scale, g->star_y * scale, v->flic->width * scale, v->flic->height * scale});
+    Rectangle at = {g->star_x * scale, g->star_y * scale, v->flic->width * scale, v->flic->height * scale};
+    visual_draw(v, at);
+    // With a controller, over the open case, the middle (the case itself)
+    // does nothing: it is grey.
+    if (plat_pad() && g->case_open) {
+        const Rectangle *m = &kStarPart[0];
+        draw_grey(v, (PetkaMskRect){(int)m->x, (int)m->y, (int)(m->x + m->width), (int)(m->y + m->height)},
+                  &g->star_grey, at);
+    }
 }
 
 // ---- the case ----
@@ -1786,9 +1831,14 @@ static const int kCaseCell[CASE_PAGE][2] = {{120, 145}, {240, 145}, {360, 145}, 
 // is empty or the thing is not to be seen (the cursor is carrying it).
 static const PetkaObject *case_item(Game *g, int k, Visual **out);
 
-// With a controller: the case's pointer on a thing of the page, moved from
-// one to the next nearest in the direction pushed (dx, dy), or turned to
-// another page. Returns where the pointer goes, in game pixels.
+static int map_allowed(const Game *g);
+
+// With a controller: the case's pointer on one of the things of the page
+// (places 0..5) or, in the case opened as usual, one of the lid's buttons
+// that work -- Chapayev, the diskette, the map (places 6..8) -- moved to
+// the nearest one in the direction pushed (dx, dy), or a page turned.
+// Returns where the pointer goes, in game pixels.
+#define CASE_PLACES (CASE_PAGE + 3)
 static Vector2 case_steer(Game *g, int dx, int dy, int page) {
     if (page > 0 && (uint32_t)(g->case_first + CASE_PAGE) < g->vm->inventory_count) {
         g->case_first += CASE_PAGE;
@@ -1797,24 +1847,37 @@ static Vector2 case_steer(Game *g, int dx, int dy, int page) {
         g->case_first = g->case_first > CASE_PAGE ? g->case_first - CASE_PAGE : 0;
         g->case_focus = 0;
     }
-    Visual *v[CASE_PAGE];
-    int present[CASE_PAGE], any = 0;
+    Vector2 at[CASE_PLACES];
+    int present[CASE_PLACES], any = 0;
     for (int k = 0; k < CASE_PAGE; k++) {
-        v[k] = NULL;
-        present[k] = case_item(g, k, &v[k]) != NULL;
-        any |= present[k];
+        Visual *v = NULL;
+        present[k] = case_item(g, k, &v) != NULL;
+        if (present[k])
+            at[k] = (Vector2){kCaseCell[k][0] + (v->rect.left + v->rect.right) / 2.0f,
+                              kCaseCell[k][1] + (v->rect.top + v->rect.bottom) / 2.0f};
     }
+    const PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
+    for (int i = 0; i < 3; i++) {
+        Visual *b = &g->case_button[i];
+        if (b->resource == PETKA_NONE) visual_load(g, b, (uint16_t)(CASE_BUTTON0 + i));
+        int k = CASE_PAGE + i;
+        present[k] = g->case_for == PETKA_NONE && b->flic && !(i == 0 && !(chapayev && chapayev->visible)) &&
+                     !(i == 2 && !map_allowed(g));
+        if (present[k])
+            at[k] = (Vector2){(b->rect.left + b->rect.right) / 2.0f, (b->rect.top + b->rect.bottom) / 2.0f};
+    }
+    for (int k = 0; k < CASE_PLACES; k++) any |= present[k];
     if (!any) return (Vector2){GAME_W / 2.0f, GAME_H / 2.0f};
-    if (g->case_focus < 0 || g->case_focus >= CASE_PAGE || !present[g->case_focus])
+    if (g->case_focus < 0 || g->case_focus >= CASE_PLACES || !present[g->case_focus])
         for (g->case_focus = 0; !present[g->case_focus]; g->case_focus++) {}
     if (dx || dy) {
-        // Of the things that way, the nearest, going straight counted
+        // Of the places that way, the nearest, going straight counted
         // over going aside.
         int from = g->case_focus, best = -1;
         float best_score = 0;
-        for (int k = 0; k < CASE_PAGE; k++) {
+        for (int k = 0; k < CASE_PLACES; k++) {
             if (!present[k] || k == from) continue;
-            float ox = (float)(kCaseCell[k][0] - kCaseCell[from][0]), oy = (float)(kCaseCell[k][1] - kCaseCell[from][1]);
+            float ox = at[k].x - at[from].x, oy = at[k].y - at[from].y;
             float along = ox * dx + oy * dy, aside = fabsf(ox * dy) + fabsf(oy * dx);
             if (along <= 0) continue;
             float score = along + 2 * aside;
@@ -1822,9 +1885,7 @@ static Vector2 case_steer(Game *g, int dx, int dy, int page) {
         }
         if (best >= 0) g->case_focus = best;
     }
-    const Visual *f = v[g->case_focus];
-    return (Vector2){kCaseCell[g->case_focus][0] + (f->rect.left + f->rect.right) / 2.0f,
-                     kCaseCell[g->case_focus][1] + (f->rect.top + f->rect.bottom) / 2.0f};
+    return at[g->case_focus];
 }
 
 static const PetkaObject *case_item(Game *g, int k, Visual **out) {
@@ -2404,6 +2465,12 @@ static void case_click(Game *g) {
     case 0: // the "send Chapayev" action, as keys 6 and C
         drop_item(g);
         g->verb = 5;
+        // A controller's cursor has no action of its own: the case shuts
+        // and the cursor sends Chapayev for the next click.
+        if (plat_pad()) {
+            g->pad_chapayev = 1;
+            g->case_open = 0;
+        }
         break;
     case 1: panel_command(g); break;
     case 2: map_command(g); break;
@@ -2421,30 +2488,7 @@ static void case_click(Game *g) {
 // A button of the lid while it does nothing (the case picks a thing for an
 // object): its clip in grey, made afresh from the frame shown.
 static void draw_button_grey(Game *g, int i, Rectangle screen) {
-    Visual *b = &g->case_button[i];
-    Texture2D *grey = &g->case_grey[i];
-    int w = b->area.right - b->area.left, h = b->area.bottom - b->area.top;
-    const uint8_t *rgba = flic_to_rgba(b->flic, b->area);
-    if (!rgba || w <= 0 || h <= 0) return;
-    uint8_t *px = (uint8_t *)malloc((size_t)w * h * 4);
-    if (!px) return;
-    for (size_t k = 0; k < (size_t)w * h; k++) {
-        const uint8_t *c = rgba + k * 4;
-        uint8_t y = (uint8_t)((c[0] * 77 + c[1] * 150 + c[2] * 29) >> 8);
-        px[k * 4 + 0] = px[k * 4 + 1] = px[k * 4 + 2] = y;
-        px[k * 4 + 3] = c[3];
-    }
-    if (grey->id && (grey->width != w || grey->height != h)) { UnloadTexture(*grey); *grey = (Texture2D){0}; }
-    if (!grey->id) {
-        Image img = {.data = px, .width = w, .height = h, .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
-        *grey = LoadTextureFromImage(img);
-    } else {
-        UpdateTexture(*grey, px);
-    }
-    free(px);
-    Visual shown = *b;
-    shown.tex = *grey;
-    visual_draw(&shown, screen);
+    draw_grey(&g->case_button[i], g->case_button[i].area, &g->case_grey[i], screen);
 }
 
 static void draw_case(Game *g, float scale) {
@@ -2660,6 +2704,8 @@ static void part_close(Game *g) {
         if (g->case_grey[i].id) UnloadTexture(g->case_grey[i]);
         g->case_grey[i] = (Texture2D){0};
     }
+    if (g->star_grey.id) UnloadTexture(g->star_grey);
+    g->star_grey = (Texture2D){0};
     visual_free(&g->case_exit);
     visual_free(&g->case_strip);
     for (int i = 0; i < 6; i++) visual_free(&g->case_button[i]);
@@ -3506,6 +3552,11 @@ int main(int argc, char **argv) {
                 if (case_item(g, k, &v) && clip_hit(v, (int)at.x - kCaseCell[k][0], (int)at.y - kCaseCell[k][1]))
                     g->case_focus = k;
             }
+            for (int i = 0; i < 3; i++) {
+                const PetkaMskRect *r = &g->case_button[i].rect;
+                if (g->case_button[i].flic && at.x >= r->left && at.y >= r->top && at.x < r->right && at.y < r->bottom)
+                    g->case_focus = CASE_PAGE + i;
+            }
             at = case_steer(g, plat_list_step_x(), plat_list_step(), plat_page_step());
             mouse = (Vector2){at.x * scale, at.y * scale};
             plat_set_pointer(mouse);
@@ -3515,11 +3566,13 @@ int main(int argc, char **argv) {
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
         // R held: the cursor sends Chapayev; otherwise a controller works
         // the star.
-        int send_chapayev = plat_pad() && plat_chapayev_held() && vm->cursor_object == PETKA_NONE && !g->case_open;
+        if (vm->cursor_object != PETKA_NONE || !can_act) g->pad_chapayev = 0;
+        int send_chapayev = plat_pad() && (plat_chapayev_held() || g->pad_chapayev) &&
+                            vm->cursor_object == PETKA_NONE && !g->case_open;
         int pad_star = plat_pad() && !send_chapayev;
         if (send_chapayev) g->star_open = 0;
         int verb = send_chapayev ? VERB_COUNT - 1 : g->verb;
-        g->star_lit = !g->star_open ? 6 : pad_star ? star_aim() : star_part(g, screen_x, screen_y);
+        g->star_lit = !g->star_open ? 6 : pad_star ? star_aim(!g->case_open) : star_part(g, screen_x, screen_y);
         // dev: PETKA_RCLICK=<frame> presses the right button on that frame.
         int right_click = plat_rclick() ||
                           (getenv("PETKA_RCLICK") && atol(getenv("PETKA_RCLICK")) == frame);
@@ -3598,6 +3651,8 @@ int main(int argc, char **argv) {
                     g->star_open = 0;
                 } else if (g->case_open) {
                     g->case_open = 0;
+                } else if (g->pad_chapayev) {
+                    g->pad_chapayev = 0;
                 } else if (vm->cursor_object != PETKA_NONE) {
                     drop_item(g);
                 }
@@ -3609,6 +3664,8 @@ int main(int argc, char **argv) {
                     star_toggle(g, screen_x, screen_y);
                 }
             }
+            // The case's Chapayev serves for one click.
+            if (clicked && send_chapayev) g->pad_chapayev = 0;
             if (clicked) {
                 if (g->star_open) {
                     if (pad_star) star_pick(g);
