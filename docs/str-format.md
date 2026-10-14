@@ -1,5 +1,7 @@
 # Petka (SKIF/Buka, 1998) — `.STR` resource format (SOLVED)
 
+[По-русски](str-format.ru.md)
+
 Fully reverse-engineered by decompiling `Petka.exe` in IDA Pro
 (`storeInit`/`MultiOpen`/`sub_40F210` in `storeh.cpp`) and cross-checking the
 result byte-for-byte against real files in `ptk1-files`. Every file we tested
@@ -967,9 +969,8 @@ the top (the cursor's action and the room's name) is shown only with the F1
 overlay; and when the game ends (`SYSTEM 242`, the last of part 3's credits,
 on which the exe quits) the start-up menu comes back. The launcher
 draws all three this way (`draw_bottom_text`, `menu_lines`); a menu line can
-still be picked by its number on the keyboard, which the original has not; it keeps a bar of its own along
-the top, with the cursor's action and the room's name, which the original
-has not. The same start-up reads the registry value `CD path` under
+still be picked by its number on the keyboard, which the original has not.
+The same start-up reads the registry value `CD path` under
 `HKLM\SOFTWARE\SKIF\Petka` -- the path a film is looked for under when it
 is not in the current directory -- opens `patch.str` and `main.str`, and
 refuses to run twice (`PreventSecondInstance`). The launcher writes its text
@@ -2213,6 +2214,10 @@ dialogue tree and prints the resulting phrase text. `tools/topotest/main.c`
 take `<store.str> <part_prefix e.g. PART_1>` (dlgtest/topotest) or
 `<store.str> <entry_name> <out_dir> [num_frames]` (flictest).
 
+`tools/unpack/` — `ptk-unpack`, the game's files out of its CD images
+(`.isz` -> `.iso` -> files, with the InstallShield `data1.cab`), in Go, for
+Windows, Linux and macOS; see its `README.md`.
+
 `launcher/` — the game front end: `petka_launcher <game_dir> [PART_N]`. It
 draws the current room from the script VM's state, turns clicks into script
 messages and tells the VM when animations, walks and dialogues finish; heroes
@@ -2221,7 +2226,8 @@ to pick a line, whoever speaks plays his talking clip and his lines are in
 his `CAST.INI` colour, objects are called by their `NAMES.INI` names, and
 backgrounds wider than the screen scroll to keep Petka in view. They move
 along the route by the game's own gait (one step per walk-clip frame, from
-`.OFF`/`.LEG`). Not done yet: AVI playback, part switching, save/load. For unattended runs it reads
+`.OFF`/`.LEG`). Films, part switching and saved games work too (see their
+sections). For unattended runs it reads
 `PETKA_SHOT=<png>` / `PETKA_SHOT_FRAME=<n>` (skip the menu, screenshot,
 quit), `PETKA_POST=<frame>:<obj>:<opcode>[:<arg1>:<arg2>],...`, `PETKA_FAST=1`,
 `PETKA_PICK=<n>|last` (answer dialogue menus without asking),
