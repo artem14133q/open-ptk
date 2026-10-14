@@ -1877,6 +1877,22 @@ static int map_allowed(const Game *g);
 // the nearest one in the direction pushed (dx, dy), or a page turned.
 // Returns where the pointer goes, in game pixels.
 #define CASE_PLACES (CASE_PAGE + 3)
+// The point of a clip's frame nearest `p` where a click hits it (clip_hit),
+// found on rings round `p`; `p` itself if there is none.
+static Vector2 clip_point(const Visual *v, Vector2 p) {
+    if (clip_hit(v, (int)p.x, (int)p.y)) return p;
+    int reach = v->flic->width > v->flic->height ? v->flic->width : v->flic->height;
+    for (int r = 1; r <= reach; r++) {
+        int steps = r * 6 + 8;
+        for (int k = 0; k < steps; k++) {
+            float a = 6.2831853f * k / steps;
+            Vector2 q = {p.x + r * cosf(a), p.y + r * sinf(a)};
+            if (clip_hit(v, (int)q.x, (int)q.y)) return q;
+        }
+    }
+    return p;
+}
+
 static Vector2 case_steer(Game *g, int dx, int dy, int page) {
     if (page > 0 && (uint32_t)(g->case_first + CASE_PAGE) < g->vm->inventory_count) {
         g->case_first += CASE_PAGE;
@@ -1920,6 +1936,17 @@ static Vector2 case_steer(Game *g, int dx, int dy, int page) {
             if (best < 0 || score < best_score) { best = k; best_score = score; }
         }
         if (best >= 0) g->case_focus = best;
+    }
+    // The middle of a thing's rect can be a hole in it (the moustache of
+    // part 2's "nose with moustache" is a ring): the pointer goes to the
+    // point nearest the middle that clicks on the thing.
+    if (g->case_focus < CASE_PAGE) {
+        Visual *v = NULL;
+        int k = g->case_focus;
+        if (case_item(g, k, &v)) {
+            Vector2 local = clip_point(v, (Vector2){at[k].x - kCaseCell[k][0], at[k].y - kCaseCell[k][1]});
+            return (Vector2){local.x + kCaseCell[k][0], local.y + kCaseCell[k][1]};
+        }
     }
     return at[g->case_focus];
 }
