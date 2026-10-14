@@ -55,6 +55,14 @@ Films are decoded by FFmpeg's libraries built into the program
 (`ffmpeg.sh`: the AVI demuxer, Indeo 3, Microsoft Video 1, MS ADPCM and PCM
 only); the desktop launcher runs the ffmpeg program instead.
 
+## A log from the console
+
+Put an empty `trace.txt` in `sdmc:/switch/petka/` and the launcher writes
+its trace (the script's messages, clips, sounds) and raylib's messages to
+`sdmc:/switch/petka/petka.log`, line by line. Remove the file to turn it
+off. Started through nxlink (`nxlink -s petka.nro`), the output goes to the
+computer instead.
+
 ## Not done yet
 
 - the icon is libnx's default.

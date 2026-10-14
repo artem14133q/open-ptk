@@ -43,6 +43,9 @@ Font plat_system_font(int size, int *codepoints, int count) {
 
 #include <switch.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #define SURFACE_W 960
 #define SURFACE_H 720
 #define SCREEN_W 1280
@@ -64,6 +67,19 @@ void plat_init(void) {
     // the launcher's trace and messages. Started any other way this fails
     // quietly and nothing changes.
     if (R_SUCCEEDED(socketInitializeDefault()) && nxlinkStdio() < 0) socketExit();
+    // A trace.txt in the game's folder turns the trace on and puts it, with
+    // everything else said, in petka.log there: for what happens on the
+    // console alone. Line by line, so a hang leaves the lines before it.
+    FILE *flag = fopen("sdmc:/switch/petka/trace.txt", "r");
+    if (flag) {
+        fclose(flag);
+        if (freopen("sdmc:/switch/petka/petka.log", "w", stderr)) {
+            freopen("sdmc:/switch/petka/petka.log", "a", stdout);
+            setvbuf(stderr, NULL, _IOLBF, 0);
+            setvbuf(stdout, NULL, _IOLBF, 0);
+            setenv("PETKA_TRACE", "1", 1);
+        }
+    }
     s_surface = LoadRenderTexture(SURFACE_W, SURFACE_H);
     SetTextureFilter(s_surface.texture, TEXTURE_FILTER_BILINEAR);
 }
