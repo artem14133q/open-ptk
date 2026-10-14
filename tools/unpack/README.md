@@ -1,5 +1,7 @@
 # ptk-unpack
 
+[По-русски](README.ru.md)
+
 Gets the game's files out of its CD images, on Windows, Linux and macOS,
 with nothing else installed: one Go file, the standard library only.
 
