@@ -186,9 +186,9 @@ typedef struct {
     uint16_t talker;   // object speaking the current phrase, PETKA_NONE = nobody
     uint32_t menu[16]; // phrase indices of the lines the player may pick
     int menu_count;    // > 0 while the dialogue waits for that pick
-    // With a controller (plat_pad) the pointer is held on a line of the
-    // menu, the one picked out by up and down, from the first menu to the
-    // dialogue's end, and then goes back to where it was.
+    // With a controller (plat_pad) the pointer is held from a dialogue's
+    // first phrase to its end, and then goes back to where it was; while a
+    // menu is up it sits on the line picked out by up and down.
     int menu_focus;    // that line
     int pad_hold;      // the pointer is held
     Vector2 pad_return; // where it goes back to
@@ -3429,13 +3429,14 @@ int main(int argc, char **argv) {
             if (CheckCollisionPointRec(mouse, menu_rects[i])) menu_hover = i;
         if (plat_pad()) {
             int lines = g->menu_count < MENU_MAX ? g->menu_count : MENU_MAX;
+            int in_dialogue = lines > 0 || g->talking || g->paused;
+            if (in_dialogue && !g->pad_hold) {
+                g->pad_hold = 1;
+                g->pad_return = mouse;
+                g->menu_focus = 0;
+                plat_hold_pointer(true);
+            }
             if (lines > 0) {
-                if (!g->pad_hold) {
-                    g->pad_hold = 1;
-                    g->pad_return = mouse;
-                    g->menu_focus = 0;
-                    plat_hold_pointer(true);
-                }
                 // A touch on a line takes it; up and down step from it.
                 if (menu_hover >= 0) g->menu_focus = menu_hover;
                 // Past either end it comes round to the other.
@@ -3446,7 +3447,7 @@ int main(int argc, char **argv) {
                 mouse = (Vector2){r.x + r.width - 1, r.y + 10 * scale};
                 plat_set_pointer(mouse);
                 menu_hover = g->menu_focus;
-            } else if (g->pad_hold && !g->talking && !g->paused) {
+            } else if (g->pad_hold && !in_dialogue) {
                 g->pad_hold = 0;
                 plat_hold_pointer(false);
                 mouse = g->pad_return;
