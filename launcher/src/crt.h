@@ -16,6 +16,7 @@
 void crt_init(void);
 void crt_close(void);
 void crt_toggle(void);
+void crt_set(bool on);
 bool crt_on(void);
 
 // Draws `src` of `tex` over `dst`, through the shader when it is on.

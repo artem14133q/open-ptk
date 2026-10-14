@@ -11,7 +11,9 @@
 // The frame is drawn on a surface the size of the window, then put up
 // through the CRT shader (crt.h); F4 turns that on and off.
 static RenderTexture2D s_surface;
+static bool s_muted; // plat_mute(), until the next plat_poll()
 
+void plat_mute(void) { s_muted = true; }
 void plat_init(void) { crt_init(); }
 void plat_close(void) {
     if (s_surface.id) UnloadRenderTexture(s_surface);
@@ -38,15 +40,17 @@ void plat_end(void) {
 int plat_width(void) { return GetScreenWidth(); }
 int plat_height(void) { return GetScreenHeight(); }
 void plat_poll(void) {
+    s_muted = false;
     if (IsKeyPressed(KEY_F4)) crt_toggle();
 }
 Vector2 plat_pointer(void) { return GetMousePosition(); }
-bool plat_click(void) { return IsMouseButtonPressed(MOUSE_BUTTON_LEFT); }
-bool plat_rclick(void) { return IsMouseButtonPressed(MOUSE_BUTTON_RIGHT); }
-bool plat_key(int key) { return IsKeyPressed(key); }
-bool plat_key_down(int key) { return IsKeyDown(key); }
+bool plat_click(void) { return !s_muted && IsMouseButtonPressed(MOUSE_BUTTON_LEFT); }
+bool plat_rclick(void) { return !s_muted && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT); }
+bool plat_key(int key) { return !s_muted && IsKeyPressed(key); }
+bool plat_key_down(int key) { return !s_muted && IsKeyDown(key); }
 bool plat_any_key(void) {
-    return GetKeyPressed() || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+    return !s_muted &&
+           (GetKeyPressed() || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT));
 }
 bool plat_chapayev_held(void) { return false; }
 bool plat_walk_held(void) { return false; }
@@ -88,6 +92,9 @@ static float s_speed = 1; // plat_pointer_speed
 static int s_list_step; // this frame's step through a list
 static int s_stick_dir; // where the stick was pushed last frame: -1, 0, +1
 static int s_list_step_x, s_stick_dir_x; // the same across
+static bool s_muted; // plat_mute(), until the next plat_poll()
+
+void plat_mute(void) { s_muted = true; }
 
 void plat_init(void) {
     // Started by nxlink from a computer, stdout and stderr go back to it --
@@ -136,6 +143,7 @@ int plat_width(void) { return SURFACE_W; }
 int plat_height(void) { return SURFACE_H; }
 
 void plat_poll(void) {
+    s_muted = false;
     if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_THUMB)) crt_toggle(); // left stick press
     // The touch screen: a touch puts the pointer there, and its first frame
     // is a click.
@@ -193,15 +201,16 @@ Vector2 plat_pointer(void) { return s_pointer; }
 
 // raylib-nx: RIGHT_FACE_RIGHT is A, _DOWN B, _UP X, _LEFT Y; MIDDLE_RIGHT is
 // +, MIDDLE_LEFT -; the triggers are L, ZL, R, ZR.
-bool plat_click(void) { return s_tapped || IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT); }
-bool plat_rclick(void) { return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_FACE_DOWN); }
+bool plat_click(void) { return !s_muted && (s_tapped || IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)); }
+bool plat_rclick(void) { return !s_muted && IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_FACE_DOWN); }
 
 bool plat_key(int key) {
+    if (s_muted) return false;
     switch (key) {
     case KEY_I: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_FACE_UP);      // X: the case
     case KEY_M: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_FACE_LEFT);    // Y: the map
     case KEY_O: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_MIDDLE_RIGHT);       // +: the panel
-    case KEY_ESCAPE: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_MIDDLE_LEFT);   // -: back out
+    case KEY_TAB: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_MIDDLE_LEFT);      // -: the extras
     case KEY_F3: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_2);    // ZL: load
     case KEY_F2: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_2);   // ZR: save
     case KEY_F1: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_THUMB);       // right stick: debug
@@ -212,11 +221,11 @@ bool plat_key(int key) {
 bool plat_key_down(int key) { (void)key; return false; }
 
 bool plat_any_key(void) {
-    return s_tapped || GetGamepadButtonPressed() != GAMEPAD_BUTTON_UNKNOWN;
+    return !s_muted && (s_tapped || GetGamepadButtonPressed() != GAMEPAD_BUTTON_UNKNOWN);
 }
 
-bool plat_chapayev_held(void) { return IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1); } // R
-bool plat_walk_held(void) { return IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_1); }    // L
+bool plat_chapayev_held(void) { return !s_muted && IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1); } // R
+bool plat_walk_held(void) { return !s_muted && IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_1); }    // L
 
 bool plat_pad(void) { return true; }
 void plat_set_pointer(Vector2 at) { s_pointer = at; }
@@ -225,14 +234,16 @@ void plat_hold_pointer(bool hold) {
     if (s_held && !hold) s_latched = true;
     s_held = hold;
 }
-int plat_list_step(void) { return s_list_step; }
-int plat_list_step_x(void) { return s_list_step_x; }
+int plat_list_step(void) { return s_muted ? 0 : s_list_step; }
+int plat_list_step_x(void) { return s_muted ? 0 : s_list_step_x; }
 int plat_page_step(void) {
+    if (s_muted) return 0;
     if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) return -1;  // L
     if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) return 1;  // R
     return 0;
 }
 Vector2 plat_aim(void) {
+    if (s_muted) return (Vector2){0, 0};
     return (Vector2){GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_X), -GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_Y)};
 }
 

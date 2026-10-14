@@ -75,6 +75,10 @@ void crt_toggle(void) {
     if (IsShaderValid(s_shader) && s_shader.id != rlGetShaderIdDefault()) s_on = !s_on;
 }
 
+void crt_set(bool on) {
+    if (s_on != on) crt_toggle();
+}
+
 bool crt_on(void) { return s_on; }
 
 void crt_draw(Texture2D tex, Rectangle src, Rectangle dst) {

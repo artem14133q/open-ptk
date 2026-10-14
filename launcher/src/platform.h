@@ -13,6 +13,11 @@
 
 #include <stdbool.h>
 
+// For the rest of this frame the game hears no input: every call below
+// that reads a key, a button or a stick says nothing (the pointer still
+// moves). For a menu over the game that has had its input first.
+void plat_mute(void);
+
 // After InitWindow: makes the Switch's drawing surface.
 void plat_init(void);
 // Before CloseWindow.

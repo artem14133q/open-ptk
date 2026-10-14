@@ -37,6 +37,7 @@
 #else
 #include <unistd.h>
 
+#include "crt.h"
 #include "film.h"
 #include "platform.h"
 #endif
@@ -174,6 +175,10 @@ typedef struct {
     // With a controller the pointer in the case goes from thing to thing
     // only; L and R turn the pages, B shuts it.
     int case_focus;     // the place on the page (0..5) the pointer is on
+    // The extras menu (Tab, or - on the Switch) and what it switches.
+    int extras_open;
+    int extras_focus;
+    int opt_aim;        // the pointer is drawn to things nearby (a controller)
     // The lid's pictures in grey (case_lid_grey()): [0] all three, for the
     // case that picks a thing for an object; [1] Chapayev's alone -- a
     // controller sends him with R, and his button is dead in any case.
@@ -1762,7 +1767,10 @@ static void draw_rimmed(Font font, const char *text, Vector2 at, float size, Col
 
 // Ours, asked for: a dark, see-through band behind text over the picture,
 // so that it reads on any background. The original has none.
+static int s_band = 1; // the band is on (the extras menu)
+
 static void draw_band(Rectangle r, float scale) {
+    if (!s_band) return;
     float pad = 6 * scale;
     DrawRectangleRounded((Rectangle){r.x - pad, r.y - pad / 2, r.width + 2 * pad, r.height + pad}, 0.25f, 6,
                          Fade(BLACK, 0.7f));
@@ -3319,6 +3327,116 @@ static void play_tick(Game *g, int can_act) {
     s_play.waited = 0;
 }
 
+// ---- the extras ----
+//
+// What this launcher adds to the game, switched on and off in a menu of its
+// own over the game -- Tab on a desktop, - on the Switch -- and kept in
+// extras.ini beside the saves. The game goes on under it but hears no input.
+enum { EXTRA_CRT, EXTRA_BAND, EXTRA_AIM, EXTRA_DEBUG, EXTRA_COUNT };
+static const char *const kExtraName[EXTRA_COUNT] = {
+    "Вид ЭЛТ-монитора", "Тёмная подложка под текстом", "Притяжение указателя к предметам", "Отладочный экран",
+};
+#define EXTRAS_FILE "extras.ini"
+#define EXTRAS_X 110
+#define EXTRAS_W 420
+#define EXTRAS_Y 150
+#define EXTRAS_ROW 30
+
+// The rows shown: the pull is a controller's only.
+static int extras_rows(int *rows) {
+    int n = 0;
+    for (int i = 0; i < EXTRA_COUNT; i++)
+        if (i != EXTRA_AIM || plat_pad()) rows[n++] = i;
+    return n;
+}
+
+static int extra_value(const Game *g, int i, int debug) {
+    switch (i) {
+    case EXTRA_CRT: return crt_on();
+    case EXTRA_BAND: return s_band;
+    case EXTRA_AIM: return g->opt_aim;
+    default: return debug;
+    }
+}
+
+static Rectangle extras_row_rect(int k, float scale) {
+    return (Rectangle){EXTRAS_X * scale, (EXTRAS_Y + 44 + k * EXTRAS_ROW) * scale, EXTRAS_W * scale,
+                       EXTRAS_ROW * scale};
+}
+
+// The settings, not the debug overlay, which is a developer's.
+static void extras_save(const Game *g) {
+    FILE *f = fopen(EXTRAS_FILE, "w");
+    if (!f) return;
+    fprintf(f, "crt=%d\nband=%d\naim=%d\n", crt_on() ? 1 : 0, s_band, g->opt_aim);
+    fclose(f);
+}
+
+static void extras_load(Game *g) {
+    FILE *f = fopen(EXTRAS_FILE, "r");
+    if (!f) return;
+    char line[64];
+    int value;
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "crt=%d", &value) == 1) crt_set(value != 0);
+        else if (sscanf(line, "band=%d", &value) == 1) s_band = value != 0;
+        else if (sscanf(line, "aim=%d", &value) == 1) g->opt_aim = value != 0;
+    }
+    fclose(f);
+}
+
+// The menu's input, before the game's: up and down (keys or the
+// controller) or the mouse pick a row, a click, A, Enter or Space switch
+// it; Tab (-), Esc, the right button (B) shut the menu.
+static void extras_update(Game *g, Vector2 mouse, float scale, int *debug) {
+    int rows[EXTRA_COUNT], n = extras_rows(rows);
+    if (plat_key(KEY_TAB) || plat_key(KEY_ESCAPE) || plat_rclick()) { g->extras_open = 0; return; }
+    int step = plat_list_step() + plat_key(KEY_DOWN) - plat_key(KEY_UP);
+    g->extras_focus = ((g->extras_focus + step) % n + n) % n;
+    int over = -1;
+    for (int k = 0; k < n && !plat_pad(); k++)
+        if (CheckCollisionPointRec(mouse, extras_row_rect(k, scale))) over = k;
+    if (over >= 0) g->extras_focus = over;
+    int pick = plat_key(KEY_ENTER) || plat_key(KEY_SPACE) || (plat_click() && (plat_pad() || over >= 0));
+    if (!pick) return;
+    switch (rows[g->extras_focus]) {
+    case EXTRA_CRT: crt_toggle(); break;
+    case EXTRA_BAND: s_band = !s_band; break;
+    case EXTRA_AIM: g->opt_aim = !g->opt_aim; break;
+    case EXTRA_DEBUG: *debug = !*debug; return;
+    }
+    extras_save(g);
+}
+
+static void extras_draw(Game *g, Font font, float scale, Vector2 mouse, int debug) {
+    int rows[EXTRA_COUNT], n = extras_rows(rows);
+    DrawRectangle(0, 0, plat_width(), plat_height(), Fade(BLACK, 0.45f));
+    float h = 44 + n * EXTRAS_ROW + 40;
+    Rectangle panel = {(EXTRAS_X - 14) * scale, (EXTRAS_Y - 12) * scale, (EXTRAS_W + 28) * scale, h * scale};
+    DrawRectangleRounded(panel, 0.08f, 8, Fade(BLACK, 0.85f));
+    DrawRectangleRoundedLinesEx(panel, 0.08f, 8, 1.5f * scale, Fade(WHITE, 0.35f));
+    float size = 20 * scale;
+    DrawTextEx(font, "Дополнительно", (Vector2){EXTRAS_X * scale, EXTRAS_Y * scale}, 24 * scale, 1, WHITE);
+    for (int k = 0; k < n; k++) {
+        Rectangle r = extras_row_rect(k, scale);
+        int focus = k == g->extras_focus;
+        if (focus) DrawRectangleRounded(r, 0.3f, 6, Fade(BLUE_LINE, 0.22f));
+        Color ink = focus ? BLUE_LINE : WHITE;
+        float y = r.y + (r.height - size) / 2;
+        DrawTextEx(font, kExtraName[rows[k]], (Vector2){r.x + 8 * scale, y}, size, 1, ink);
+        const char *value = extra_value(g, rows[k], debug) ? "вкл" : "выкл";
+        float w = MeasureTextEx(font, value, size, 1).x;
+        DrawTextEx(font, value, (Vector2){r.x + r.width - w - 8 * scale, y}, size, 1, ink);
+    }
+    const char *hint = plat_pad() ? "A - переключить     B, \"-\" - закрыть" : "Клик, Enter - переключить     Tab, Esc - закрыть";
+    float hy = (EXTRAS_Y + 44 + n * EXTRAS_ROW + 10) * scale;
+    DrawTextEx(font, hint, (Vector2){EXTRAS_X * scale, hy}, 16 * scale, 1, Fade(WHITE, 0.7f));
+    if (!plat_pad()) {
+        HideCursor();
+        draw_cursor(g, CURSOR_INTERFACE, 0, 0, mouse, scale);
+    }
+}
+
 // A click with the cursor's action `verb` on `obj`, at mx, my in the room.
 static void act_on(Game *g, const PetkaObject *obj, int verb, float mx, float my) {
     PetkaScriptVM *vm = g->vm;
@@ -3453,6 +3571,11 @@ int main(int argc, char **argv) {
     }
 
     int debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
+    // The extras as last set -- not in an unattended dev run, which keeps
+    // to its defaults.
+    g->opt_aim = 1;
+    if (!unattended) extras_load(g);
+    int crt_saved = crt_on();
     Drawable scene[256];
     while (!WindowShouldClose() && !g->quit) {
         float scale = (float)plat_width() / GAME_W;
@@ -3463,6 +3586,22 @@ int main(int argc, char **argv) {
         float pin_x, pin_y;
         if (getenv("PETKA_MOUSE") && sscanf(getenv("PETKA_MOUSE"), "%f,%f", &pin_x, &pin_y) == 2)
             mouse = (Vector2){pin_x * scale, pin_y * scale};
+        // The extras menu has the input first; while it is up the game has
+        // none of it.
+        if (g->extras_open) {
+            extras_update(g, mouse, scale, &debug);
+            plat_mute();
+        } else if (plat_key(KEY_TAB) || (getenv("PETKA_EXTRAS") && atol(getenv("PETKA_EXTRAS")) == frame)) {
+            // dev: PETKA_EXTRAS=<frame> opens it on that frame of an unattended run.
+            g->extras_open = 1;
+            g->extras_focus = 0;
+            plat_mute();
+        }
+        // F4 (a press of the left stick) switches the CRT look by itself.
+        if (crt_on() != crt_saved) {
+            crt_saved = crt_on();
+            if (!unattended) extras_save(g);
+        }
         // dev: PETKA_CLICK=<frame>:<x>:<y>[:<verb>][,...] left-clicks at a
         // point of the screen (game pixels), optionally picking a verb first.
         int clicked = plat_click();
@@ -3757,7 +3896,7 @@ int main(int argc, char **argv) {
         while (g->case_first > 0 && (uint32_t)g->case_first >= vm->inventory_count) g->case_first -= CASE_PAGE;
         if (g->case_first < 0) g->case_first = 0;
         // dev: PETKA_MAP=<frame> presses M on that frame of an unattended run.
-        int map_key = plat_key(KEY_M) || plat_key(KEY_TAB) ||
+        int map_key = plat_key(KEY_M) ||
                       (getenv("PETKA_MAP") && atol(getenv("PETKA_MAP")) == frame);
         if (map_key && can_act && !g->menu_count) map_command(g);
         // dev: PETKA_PANEL=<frame> presses O on that frame of an unattended run.
@@ -3800,7 +3939,8 @@ int main(int argc, char **argv) {
         // With a controller the pointer is drawn to things nearby.
         // Not while L makes the cursor walk: then the floor beside a thing
         // is what is aimed at.
-        if (plat_pad() && can_act && !g->case_open && !g->star_open && !g->menu_count && !plat_walk_held()) {
+        if (plat_pad() && g->opt_aim && !g->extras_open && can_act && !g->case_open && !g->star_open &&
+            !g->menu_count && !plat_walk_held()) {
             Vector2 at = aim_assist(g, scene, scene_count, (Vector2){mx, my});
             if (at.x != mx || at.y != my) {
                 mx = at.x;
@@ -3965,7 +4105,8 @@ int main(int argc, char **argv) {
         }
 
         // The stick works the star while it is up, not the pointer.
-        if (plat_pad()) plat_hold_pointer(g->pad_hold || g->star_open || (g->case_open && can_act));
+        if (plat_pad())
+            plat_hold_pointer(g->pad_hold || g->star_open || g->extras_open || (g->case_open && can_act));
 
         plat_begin();
         ClearBackground(BLACK);
@@ -4107,8 +4248,10 @@ int main(int argc, char **argv) {
         // there whenever the cursor is shown; a dialogue hides it for its
         // phrases and brings it back for a menu.
         // With a controller the star stands for it while it is up.
-        if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) && (!g->talking || g->menu_count > 0) &&
-            !(plat_pad() && g->star_open)) {
+        if (g->extras_open) {
+            extras_draw(g, font, scale, mouse, debug);
+        } else if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) &&
+                   (!g->talking || g->menu_count > 0) && !(plat_pad() && g->star_open)) {
             uint16_t clip = g->map_open || g->save_mode ? CURSOR_INTERFACE
                           : send_chapayev || send_walk ? (uint16_t)(CURSOR_ACTION0 + verb)
                           : plat_pad() && vm->cursor_object == PETKA_NONE ? CURSOR_INTERFACE
