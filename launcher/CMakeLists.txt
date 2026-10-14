@@ -1,4 +1,4 @@
-add_executable(petka_launcher src/main.c)
+add_executable(petka_launcher src/main.c src/platform.c)
 
 target_link_libraries(petka_launcher PRIVATE petka_core)
 

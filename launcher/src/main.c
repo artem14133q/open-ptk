@@ -36,6 +36,8 @@
 #define pclose _pclose
 #else
 #include <unistd.h>
+
+#include "platform.h"
 #endif
 
 #define GAME_W 640
@@ -268,6 +270,8 @@ static Font load_cyrillic_font(void) {
     for (int c = 0x20; c <= 0x7E; c++) codepoints[n++] = c;
     for (int c = 0x400; c <= 0x4FF; c++) codepoints[n++] = c;
 
+    Font system = plat_system_font(32, codepoints, n);
+    if (system.glyphCount > 0) return system;
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
         if (!FileExists(candidates[i])) continue;
         Font f = LoadFontEx(candidates[i], 32, codepoints, n);
@@ -1180,6 +1184,7 @@ static void sequence_sounds(Game *g, int entering) {
 
 // ffmpeg, by its full path where it can be found: a program started from the
 // Finder does not have the shell's PATH. One put next to the launcher wins.
+#ifndef __SWITCH__
 static const char *ffmpeg_program(void) {
     static char beside[1100];
     snprintf(beside, sizeof(beside), "%sffmpeg", GetApplicationDirectory());
@@ -1189,6 +1194,7 @@ static const char *ffmpeg_program(void) {
         if (FileExists(places[i])) return places[i];
     return "ffmpeg";
 }
+#endif
 static int find_film(const Game *g, const char *name, char *out, size_t out_sz) {
     static const char *dirs[] = {"", "data1_out/Main/", "Main/"};
     char lower[256];
@@ -1222,6 +1228,11 @@ static void play_film(Game *g, const char *name) {
         set_status(g, TextFormat("(видео %s пропущено)", name));
         return;
     }
+    if (!plat_has_films()) {
+        set_status(g, TextFormat("(видео %s: на этой платформе пока не показывается)", name));
+        return;
+    }
+#ifndef __SWITCH__
     // The path goes into a shell command: nothing in it may end the quotes.
     if (strpbrk(path, "\"$`\\")) { set_status(g, "(видео: неподходящий путь к игре)"); return; }
 
@@ -1267,8 +1278,9 @@ static void play_film(Game *g, const char *name) {
     int ended = 0;
     while (!ended) {
         if (WindowShouldClose()) { g->quit = 1; break; }
+        plat_poll();
         // Any key or either mouse button ends it, as in the original.
-        if (GetKeyPressed() || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) break;
+        if (plat_any_key()) break;
         if (sound.frameCount > 0) UpdateMusicStream(sound);
         long due = (long)((GetTime() - start) * FILM_FPS);
         while (shown < due && !ended) {
@@ -1276,11 +1288,11 @@ static void play_film(Game *g, const char *name) {
             shown++;
         }
         if (!ended) UpdateTexture(screen, pixels);
-        BeginDrawing();
+        plat_begin();
         ClearBackground(BLACK);
         DrawTexturePro(screen, (Rectangle){0, 0, GAME_W, GAME_H},
-                       (Rectangle){0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()}, (Vector2){0, 0}, 0, WHITE);
-        EndDrawing();
+                       (Rectangle){0, 0, (float)plat_width(), (float)plat_height()}, (Vector2){0, 0}, 0, WHITE);
+        plat_end();
         if (dev && GetTime() - start >= shot_at) {
             if (shot_file[0]) ExportImage(first, shot_file);
             fprintf(stderr, "film: %s, %ld frames in %.1f s\n", name, shown, GetTime() - start);
@@ -1298,6 +1310,7 @@ static void play_film(Game *g, const char *name) {
         int held = i < 2 ? g->tracks_hushed : g->seq_tracks_paused;
         if (tracks[i]->frameCount > 0 && !held) ResumeMusicStream(*tracks[i]);
     }
+#endif
 }
 
 static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
@@ -2435,8 +2448,9 @@ static int run_menu(Game *g, Font font) {
     int result = -1;
     long frames = 0;
     while (!WindowShouldClose() && result < 0) {
-        float scale = (float)GetScreenWidth() / GAME_W;
-        Vector2 mouse = GetMousePosition();
+        float scale = (float)plat_width() / GAME_W;
+        plat_poll();
+        Vector2 mouse = plat_pointer();
         if (pin_x >= 0) mouse = (Vector2){pin_x * scale, pin_y * scale};
         int px = (int)(mouse.x / scale), py = (int)(mouse.y / scale), over = -1;
         for (int i = 4; i >= 0 && over < 0; i--)
@@ -2445,7 +2459,7 @@ static int run_menu(Game *g, Font font) {
             SetMusicVolume(tune, dial_gain(g, DIAL_MUSIC));
             UpdateMusicStream(tune);
         }
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && over >= 0) {
+        if (plat_click() && over >= 0) {
             switch (kButtons[over].action) {
             case MENU_NEW: result = 1; break;
             case MENU_LOAD: result = 2; break;
@@ -2460,7 +2474,7 @@ static int run_menu(Game *g, Font font) {
             default: break;
             }
         }
-        BeginDrawing();
+        plat_begin();
         ClearBackground(BLACK);
         Rectangle whole = {0, 0, GAME_W * scale, GAME_H * scale};
         if (bg.id) DrawTexturePro(bg, (Rectangle){0, 0, (float)bg.width, (float)bg.height}, whole, (Vector2){0, 0}, 0, WHITE);
@@ -2468,7 +2482,7 @@ static int run_menu(Game *g, Font font) {
             DrawTexturePro(buttons[over].tex, (Rectangle){0, 0, GAME_W, GAME_H}, whole, (Vector2){0, 0}, 0, WHITE);
         HideCursor();
         draw_cursor(g, CURSOR_INTERFACE, over >= 0, 0, mouse, scale);
-        EndDrawing();
+        plat_end();
         if (dev && ++frames == 30) {
             Image img = LoadImageFromScreen();
             if (shot[0]) ExportImage(img, shot);
@@ -2936,7 +2950,7 @@ int main(int argc, char **argv) {
     // With no arguments the game is where the program is: a copy dropped
     // into the game's folder runs it from there, however it was started, and
     // keeps its saved games and settings in that folder too.
-    const char *game_dir = argc > 1 ? argv[1] : GetApplicationDirectory();
+    const char *game_dir = argc > 1 ? argv[1] : plat_default_game_dir();
     if (argc <= 1) ChangeDirectory(game_dir);
     const char *part = argc > 2 ? argv[2] : "PART_1";
     const char *digit = part;
@@ -2976,6 +2990,7 @@ int main(int argc, char **argv) {
     // Esc belongs to the game (it backs out of things); the window's own
     // close button ends the program.
     SetExitKey(KEY_NULL);
+    plat_init();
     s_turbo = getenv("PETKA_TURBO") != NULL;
     SetTargetFPS(s_turbo ? 0 : 60);
     InitAudioDevice();
@@ -3012,7 +3027,7 @@ int main(int argc, char **argv) {
         play_film(g, "adv.avi");
     }
     int menu = unattended && !getenv("PETKA_MENU") ? 1 : run_menu(g, font);
-    if (g->quit || !menu) { CloseWindow(); return 0; }
+    if (g->quit || !menu) { plat_close(); CloseWindow(); return 0; }
 
     if (menu == 2) {
         // "Load": the script is set going, and the save screen comes first.
@@ -3026,8 +3041,9 @@ int main(int argc, char **argv) {
     int debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
     Drawable scene[256];
     while (!WindowShouldClose() && !g->quit) {
-        float scale = (float)GetScreenWidth() / GAME_W;
-        Vector2 mouse = GetMousePosition();
+        float scale = (float)plat_width() / GAME_W;
+        plat_poll();
+        Vector2 mouse = plat_pointer();
         // dev: PETKA_MOUSE=<x>,<y> pins the pointer (game pixels) for
         // unattended runs, so hovering can be screenshotted.
         float pin_x, pin_y;
@@ -3035,7 +3051,7 @@ int main(int argc, char **argv) {
             mouse = (Vector2){pin_x * scale, pin_y * scale};
         // dev: PETKA_CLICK=<frame>:<x>:<y>[:<verb>][,...] left-clicks at a
         // point of the screen (game pixels), optionally picking a verb first.
-        int clicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        int clicked = plat_click();
         for (const char *p = getenv("PETKA_CLICK"); p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : "") {
             long at = 0;
             float cx = 0, cy = 0;
@@ -3109,7 +3125,7 @@ int main(int argc, char **argv) {
         }
         PetkaScriptVM *vm = g->vm;
 
-        if (IsKeyPressed(KEY_F1)) debug = !debug;
+        if (plat_key(KEY_F1)) debug = !debug;
         // The cursor's action keys, from the exe's accelerator table: a digit
         // and a letter each (note 3 is "take" and 4 is "use"). The exe's
         // handlers do nothing unless the panel is switched on, and they put
@@ -3120,8 +3136,14 @@ int main(int argc, char **argv) {
         };
         // (A description on screen switches the panel off, too.)
         for (int k = 0; k < 6 && !g->menu_count && vm->interface_enabled && !g->map_open && !g->desc[0]; k++) {
-            if (!IsKeyPressed(kActionKeys[k].digit) && !IsKeyPressed(kActionKeys[k].letter)) continue;
+            if (!plat_key(kActionKeys[k].digit) && !plat_key(kActionKeys[k].letter)) continue;
             g->verb = kActionKeys[k].action;
+            drop_item(g);
+        }
+        // The Switch has no keys for them: L and R step through the actions.
+        int step = plat_action_step();
+        if (step && !g->menu_count && vm->interface_enabled && !g->map_open && !g->desc[0]) {
+            g->verb = (g->verb + step + VERB_COUNT) % VERB_COUNT;
             drop_item(g);
         }
 
@@ -3244,7 +3266,7 @@ int main(int argc, char **argv) {
         // Alt+R (the exe's command 32787, 0x4181F0) gets the player out of
         // a game left with no cursor: the dialogue's pause is lifted, the
         // cursor shown and the star -- the whole interface -- switched on.
-        if ((IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) && IsKeyPressed(KEY_R)) {
+        if ((plat_key_down(KEY_LEFT_ALT) || plat_key_down(KEY_RIGHT_ALT)) && plat_key(KEY_R)) {
             g->paused = 0;
             vm->cursor_visible = 1;
             vm->interface_enabled = 1;
@@ -3253,7 +3275,7 @@ int main(int argc, char **argv) {
         // the screen that is up is left -- the map, the panel and the save
         // screen go back to the game; the game's own screen only takes a
         // description down. dev: PETKA_ESC=<frame> presses it.
-        int escape = IsKeyPressed(KEY_ESCAPE) || (getenv("PETKA_ESC") && atol(getenv("PETKA_ESC")) == frame);
+        int escape = plat_key(KEY_ESCAPE) || (getenv("PETKA_ESC") && atol(getenv("PETKA_ESC")) == frame);
         int desc_shown = g->desc[0] != 0;
         int shut_desc = 0;
         if (escape) {
@@ -3264,7 +3286,7 @@ int main(int argc, char **argv) {
         }
         // A description stays up until a click, which it takes. Shutting
         // it (sub_414AC0) switches the panel on, whatever it was before.
-        if (desc_shown && (shut_desc || clicked || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_SPACE))) {
+        if (desc_shown && (shut_desc || clicked || plat_rclick() || plat_key(KEY_SPACE))) {
             g->desc[0] = 0;
             vm->interface_enabled = 1;
             clicked = 0;
@@ -3275,7 +3297,7 @@ int main(int argc, char **argv) {
         // The save screen takes the mouse to itself. Esc leaves it, as in
         // the original; so, here, do the right button and O.
         if (g->save_mode) {
-            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_O)) saves_close(g);
+            if (plat_rclick() || plat_key(KEY_O)) saves_close(g);
             else if (clicked) saves_click(g, (Vector2){mouse.x / scale, mouse.y / scale});
         }
         // dev: PETKA_SAVE=<frame> and PETKA_LOAD=<frame> write and read
@@ -3289,36 +3311,36 @@ int main(int argc, char **argv) {
         // The case is opened and shut with I (the exe's command 32779),
         // while the panel is on. Open, it takes the mouse off the room.
         // dev: PETKA_CASE=<frame> opens it on that frame of an unattended run.
-        int case_key = IsKeyPressed(KEY_I) || (getenv("PETKA_CASE") && atol(getenv("PETKA_CASE")) == frame);
+        int case_key = plat_key(KEY_I) || (getenv("PETKA_CASE") && atol(getenv("PETKA_CASE")) == frame);
         if (case_key && can_act && vm->interface_enabled && !g->menu_count && !g->map_open)
             g->case_open = !g->case_open;
         while (g->case_first > 0 && (uint32_t)g->case_first >= vm->inventory_count) g->case_first -= CASE_PAGE;
         if (g->case_first < 0) g->case_first = 0;
         // dev: PETKA_MAP=<frame> presses M on that frame of an unattended run.
-        int map_key = IsKeyPressed(KEY_M) || IsKeyPressed(KEY_TAB) ||
+        int map_key = plat_key(KEY_M) || plat_key(KEY_TAB) ||
                       (getenv("PETKA_MAP") && atol(getenv("PETKA_MAP")) == frame);
         if (map_key && can_act && !g->menu_count) map_command(g);
         // dev: PETKA_PANEL=<frame> presses O on that frame of an unattended run.
-        int panel_key = IsKeyPressed(KEY_O) || (getenv("PETKA_PANEL") && atol(getenv("PETKA_PANEL")) == frame);
+        int panel_key = plat_key(KEY_O) || (getenv("PETKA_PANEL") && atol(getenv("PETKA_PANEL")) == frame);
         if (panel_key && can_act && !g->menu_count) panel_command(g);
         // F2 and F3 (the exe's commands 32771 and 32772, 0x417B80 and
         // 0x417C00) go straight from the game's own screen to the save
         // screen: F2 to save -- only while the star is active; the case is
         // shut and the slot picture taken first -- and F3 to load.
         int on_main = can_act && !g->menu_count && !g->map_open && !g->star_open;
-        if (IsKeyPressed(KEY_F2) && on_main && vm->interface_enabled) {
+        if (plat_key(KEY_F2) && on_main && vm->interface_enabled) {
             g->case_open = 0;
             take_thumb(g);
             saves_open(g, 2);
         }
-        if (IsKeyPressed(KEY_F3) && on_main) saves_open(g, 1);
+        if (plat_key(KEY_F3) && on_main) saves_open(g, 1);
         // The star is up only while the player can act, and while it is up
         // nothing else is under the pointer.
         if (!can_act || g->map_open) g->star_open = 0;
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
         g->star_lit = g->star_open ? star_part(g, screen_x, screen_y) : 6;
         // dev: PETKA_RCLICK=<frame> presses the right button on that frame.
-        int right_click = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
+        int right_click = plat_rclick() ||
                           (getenv("PETKA_RCLICK") && atol(getenv("PETKA_RCLICK")) == frame);
         int in_case = g->case_open && can_act && !g->star_open;
         if (!in_case) g->case_lit = -1;
@@ -3342,14 +3364,14 @@ int main(int argc, char **argv) {
             // The dialogue waits for the player's line: click it or press
             // its number.
             int pick = clicked ? menu_hover : -1;
-            for (int k = 0; k < g->menu_count && k < 9; k++) if (IsKeyPressed(KEY_ONE + k)) pick = k;
+            for (int k = 0; k < g->menu_count && k < 9; k++) if (plat_key(KEY_ONE + k)) pick = k;
             if (pick >= 0 && petka_dialoguevm_choose(&g->dvm, pick) == 0) {
                 g->menu_count = 0;
                 next_phrase(g);
             }
         } else if (g->talking) {
             int voiced = g->voice.frameCount > 0;
-            if (clicked || IsKeyPressed(KEY_SPACE) ||
+            if (clicked || plat_key(KEY_SPACE) ||
                 (voiced ? !IsSoundPlaying(g->voice) : game_now() >= g->line_until))
                 next_phrase(g);
         } else if (can_act) {
@@ -3416,7 +3438,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        BeginDrawing();
+        plat_begin();
         ClearBackground(BLACK);
         BeginMode2D(view);
         if (g->bg_tex.id)
@@ -3476,7 +3498,7 @@ int main(int argc, char **argv) {
         // The bar along the top (the cursor's action, the room's name) is
         // the launcher's own, not the original's: shown with F1 only.
         if (debug) {
-            DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
+            DrawRectangle(0, 0, plat_width(), 30, Fade(BLACK, 0.6f));
             DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, WHITE);
         }
         // (The panel's mouse function names nothing: no captions there.)
@@ -3484,7 +3506,7 @@ int main(int argc, char **argv) {
         if (room && debug) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
-            DrawTextEx(font, name, (Vector2){GetScreenWidth() - size.x - 10, 6}, 18, 1, SKYBLUE);
+            DrawTextEx(font, name, (Vector2){plat_width() - size.x - 10, 6}, 18, 1, SKYBLUE);
         }
 
         if (g->talking && g->line[0] && g->subtitles) {
@@ -3576,7 +3598,7 @@ int main(int argc, char **argv) {
         } else {
             ShowCursor();
         }
-        EndDrawing();
+        plat_end();
         // A play's screenshot is taken two frames on: read right after the
         // buffers are swapped, the screen can still be the frame before.
         if (s_play.shot[0] && ++s_play.shot_wait > 2) {
@@ -3610,6 +3632,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < MAX_SOUNDS; i++) if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
     if (font.texture.id != GetFontDefault().texture.id) UnloadFont(font);
     CloseAudioDevice();
+    plat_close();
     CloseWindow();
     return s_play.failed ? 3 : 0;
 }
