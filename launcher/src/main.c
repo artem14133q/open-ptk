@@ -764,6 +764,7 @@ static void visual_update(Game *g, const PetkaObject *obj) {
     if (v->resource != st->resource || v->restart) {
         visual_load(g, v, st->resource);
         v->restart = 0;
+        if (g->trace) fprintf(stderr, "clip: %u starts %u at %.3f\n", obj->id, st->resource, game_now());
     }
     if (!v->flic) return;
     v->live = 1;
@@ -786,10 +787,12 @@ static void visual_update(Game *g, const PetkaObject *obj) {
     // the game's frame -- more for clips updated later in it, after others
     // were decoded -- so clips ran slow, and two started together drifted
     // apart (part 2's pentagram ended well after Petka's clip in the church,
-    // and the sequence waiting on it stood still meanwhile). Far behind --
-    // a stall -- it goes on from now rather than rushing to catch up.
+    // and the sequence waiting on it stood still meanwhile). Behind, it
+    // catches up a frame of its own a frame of the game -- so a stall of
+    // the game holds back every clip alike -- unless it is far behind, after
+    // a film or the save screen, when it goes on from now.
     v->next_frame += period;
-    if (v->next_frame < now) v->next_frame = now + period;
+    if (v->next_frame < now - 1.0) v->next_frame = now + period;
 
     if (v->sound_pending && v->flic->frame_index == 0) {
         char wav[512];
@@ -802,6 +805,7 @@ static void visual_update(Game *g, const PetkaObject *obj) {
 
     int frame = v->flic->frame_index + 1; // the exe counts frames from 1
     if (frame == v->flic->frame_count) {
+        if (g->trace) fprintf(stderr, "clip: %u ends %u at %.3f\n", obj->id, v->resource, now);
         if (st->repeat_sound || is_hero(obj->id)) v->sound_pending = 1;
         petka_scriptvm_animation_ended(g->vm, obj->id, v->resource);
     }
