@@ -1,0 +1,9 @@
+wait 500
+room 746
+go 230 120
+wait 600
+near 241 269
+walk 523
+walk 523
+wait 600
+near 245 269

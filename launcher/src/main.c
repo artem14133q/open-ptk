@@ -68,6 +68,7 @@ typedef struct {
 
 #define SAVE_SLOTS 6
 #define BLUE_LINE ((Color){0, 0, 255, 255}) // the menu line under the pointer, the exe's 0xFF0000
+#define NO_CAST_INK ((Color){10, 10, 10, 255}) // a subtitle whose speaker has no CAST.INI colour
 #define MAX_WAYPOINTS 32
 #define MAX_GAITS 8
 
@@ -186,6 +187,7 @@ typedef struct {
     uint16_t seq_music_id, seq_ambience_id;
     int seq_tracks_paused;
     Sound sounds[MAX_SOUNDS];
+    const uint8_t *sound_src[MAX_SOUNDS]; // which file each slot holds
     unsigned char sound_paused[MAX_SOUNDS]; // stopped for a sequence, to go on after it
     int voice_paused;
 
@@ -416,11 +418,24 @@ static void play_sound(Game *g, const char *path) {
     size_t len = 0;
     const uint8_t *bytes = res_find(g, path, &len);
     if (!bytes) return;
+    // The exe's sound manager keeps one buffer per file (a map by name), so
+    // a sound started again starts over; it is never heard twice at once.
+    // Started anew each time, a looping clip's sound piled up into a loud
+    // rasp (the bar in part 3), and a door clicked twice creaked twice.
+    for (int i = 0; i < MAX_SOUNDS; i++) {
+        if (g->sounds[i].frameCount <= 0 || g->sound_src[i] != bytes) continue;
+        StopSound(g->sounds[i]);
+        g->sound_paused[i] = 0;
+        SetSoundVolume(g->sounds[i], dial_gain(g, DIAL_SFX));
+        PlaySound(g->sounds[i]);
+        return;
+    }
     for (int i = 0; i < MAX_SOUNDS; i++) {
         if (g->sounds[i].frameCount > 0 && (IsSoundPlaying(g->sounds[i]) || g->sound_paused[i])) continue;
         if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
         Wave wave = LoadWaveFromMemory(".wav", bytes, (int)len);
         g->sounds[i] = LoadSoundFromWave(wave);
+        g->sound_src[i] = bytes;
         UnloadWave(wave);
         SetSoundVolume(g->sounds[i], dial_gain(g, DIAL_SFX));
         PlaySound(g->sounds[i]);
@@ -638,7 +653,7 @@ static void load_names(Game *g, const char *part) {
     for (uint32_t i = 0; i < g->script->object_count; i++) {
         const char *key = g->script->objects[i].name;
         char value[256];
-        g->colors[i] = WHITE;
+        g->colors[i] = NO_CAST_INK;
         if (names && petka_ini_get(names, names_len, "all", key, value, sizeof(value)) && value[0]) {
             g->names[i] = (char *)malloc(strlen(value) + 1);
             strcpy(g->names[i], value);
@@ -745,7 +760,13 @@ static void load_mesh(Game *g) {
 static int host_walk(void *user, uint16_t hero_id, int32_t x, int32_t y) {
     Game *g = (Game *)user;
     PetkaObjectState *st = petka_scriptvm_state(g->vm, hero_id);
-    if (!st || !st->visible || hero_id > 1) return 0;
+    if (!st || hero_id > 1) return 0;
+    if (!st->visible) {
+        // Nobody sees him go: he is simply there.
+        st->x = x;
+        st->y = y;
+        return 0;
+    }
     Walk *w = &g->walk[hero_id];
     load_mesh(g);
     PetkaPoint route[MAX_WAYPOINTS];
@@ -1469,7 +1490,22 @@ static int wrap_text(Font font, const char *text, float size, float limit, char 
     return count;
 }
 
-static void draw_bottom_text(Font font, const char *text, Color ink, int centre_lines, float scale) {
+// The exe draws these texts antialiased onto a surface filled with a
+// "second colour" and then keys that colour out. The pixels on the letters'
+// edges, part ink and part fill, stay: a thin rim of the fill colour round
+// every letter -- dark red under a speaker's coloured subtitle, near-black
+// under a caption or a menu line. Drawn here as the text in the fill colour,
+// faint, a pixel off in each direction, under the text itself.
+static void draw_rimmed(Font font, const char *text, Vector2 at, float size, Color ink, Color fill, float scale) {
+    float d = scale > 1 ? scale * 0.75f : 1;
+    Color rim = Fade(fill, 0.55f);
+    static const float kOff[8][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}};
+    for (int i = 0; i < 8; i++)
+        DrawTextEx(font, text, (Vector2){at.x + kOff[i][0] * d, at.y + kOff[i][1] * d}, size, 1, rim);
+    DrawTextEx(font, text, at, size, 1, ink);
+}
+
+static void draw_bottom_text(Font font, const char *text, Color ink, Color fill, int centre_lines, float scale) {
     enum { MAX_LINES = 12 };
     static char lines[MAX_LINES][512];
     float size = 20 * scale, widest = 0;
@@ -1482,7 +1518,7 @@ static void draw_bottom_text(Font font, const char *text, Color ink, int centre_
     float left = (GAME_W * scale - widest) / 2;
     for (int i = 0; i < count; i++) {
         float x = centre_lines ? (GAME_W * scale - MeasureTextEx(font, lines[i], size, 1).x) / 2 : left;
-        DrawTextEx(font, lines[i], (Vector2){x, top + i * size}, size, 1, ink);
+        draw_rimmed(font, lines[i], (Vector2){x, top + i * size}, size, ink, fill, scale);
     }
 }
 
@@ -2236,11 +2272,22 @@ static void menu_lines(const Game *g, Font font, float scale, Rectangle *rects, 
         if (rows[i] < 1) rows[i] = 1;
         total += rows[i];
     }
+    // The lines start at one x, the block they make sits in the middle of
+    // the screen, as in the original.
+    float widest = 0;
+    for (int i = 0; i < count; i++)
+        for (int r = 0; r < rows[i]; r++) {
+            float w = MeasureTextEx(font, lines[i][r], size, 1).x;
+            if (w > widest) widest = w;
+        }
+    float left = (GAME_W * scale - widest) / 2;
+    if (left < 5 * scale) left = 5 * scale;
     float y = 479 * scale - (total * size + 4 * scale);
     for (int i = 0; i < count; i++) {
-        rects[i] = (Rectangle){5 * scale, y, 630 * scale, rows[i] * size};
+        rects[i] = (Rectangle){left, y, widest, rows[i] * size};
         for (int r = 0; draw && r < rows[i]; r++)
-            DrawTextEx(font, lines[i][r], (Vector2){5 * scale, y + r * size}, size, 1, i == hover ? BLUE_LINE : WHITE);
+            draw_rimmed(font, lines[i][r], (Vector2){left, y + r * size}, size, i == hover ? BLUE_LINE : WHITE,
+                        (Color){10, 10, 10, 255}, scale);
         y += rows[i] * size;
     }
 }
@@ -2573,7 +2620,8 @@ static struct {
     int picks[64], pick_count, pick_at;
     long rest, waited, hold;
     int phase;       // a step in two parts: the map is up, the place not picked yet
-    char shot[256];  // a screenshot to save when this frame is drawn
+    char shot[256];  // a screenshot to save once this frame is on the screen
+    int shot_wait;
     int over, failed;
 } s_play;
 
@@ -2654,6 +2702,12 @@ static const PetkaObject *play_target(Game *g, int id, char *why, size_t why_sz)
 static void play_tick(Game *g, int can_act) {
     PetkaScriptVM *vm = g->vm;
     if (s_play.over) return;
+    // PETKA_PLAY_SUBSHOT=<file.png>: a screenshot of the first phrase said.
+    static int subshot_taken;
+    if (!subshot_taken && getenv("PETKA_PLAY_SUBSHOT") && g->talking && g->line[0] && !s_play.shot[0]) {
+        snprintf(s_play.shot, sizeof(s_play.shot), "%s", getenv("PETKA_PLAY_SUBSHOT"));
+        subshot_taken = 1;
+    }
     if (g->menu_count > 0) {
         // PETKA_PLAY_LAST=1: a menu with no pick named for it is answered
         // with its last line, which as a rule is the goodbye.
@@ -3302,7 +3356,7 @@ int main(int argc, char **argv) {
         DrawRectangle(0, 0, GetScreenWidth(), 30, Fade(BLACK, 0.6f));
         DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, ORANGE);
         // (The panel's mouse function names nothing: no captions there.)
-        if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, 0, scale);
+        if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, (Color){10, 10, 10, 255}, 0, scale);
         if (room) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
@@ -3312,8 +3366,11 @@ int main(int argc, char **argv) {
         if (g->talking && g->line[0] && g->subtitles) {
             // Each speaker's lines are in his own colour.
             const PetkaObject *talker = petka_script_find(g->script, g->talker);
-            Color ink = talker ? g->colors[obj_index(g, talker)] : WHITE;
-            draw_bottom_text(font, g->line, ink, 1, scale);
+            // A speaker with a colour of his own (CAST.INI) is drawn on
+            // 0x00007F, dark red; one without in 0x0A0A0A on white.
+            Color ink = talker ? g->colors[obj_index(g, talker)] : NO_CAST_INK;
+            int cast = ink.r != NO_CAST_INK.r || ink.g != NO_CAST_INK.g || ink.b != NO_CAST_INK.b;
+            draw_bottom_text(font, g->line, ink, cast ? (Color){127, 0, 0, 255} : WHITE, 1, scale);
         }
         if (g->desc[0]) draw_description(g, font, scale);
 
@@ -3390,13 +3447,16 @@ int main(int argc, char **argv) {
             ShowCursor();
         }
         EndDrawing();
-        if (s_play.shot[0]) {
+        // A play's screenshot is taken two frames on: read right after the
+        // buffers are swapped, the screen can still be the frame before.
+        if (s_play.shot[0] && ++s_play.shot_wait > 2) {
             Image shot = LoadImageFromScreen();
             ExportImage(shot, s_play.shot);
             UnloadImage(shot);
             s_play.shot[0] = 0;
+            s_play.shot_wait = 0;
         }
-        if (s_play.over) break;
+        if (s_play.over && !s_play.shot[0]) break;
         long series_start = 0, series_step = 1, series_count = 0;
         if (shot_path && getenv("PETKA_SHOT_SERIES") &&
             sscanf(getenv("PETKA_SHOT_SERIES"), "%ld:%ld:%ld", &series_start, &series_step, &series_count) == 3 &&

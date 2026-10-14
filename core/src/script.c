@@ -308,14 +308,18 @@ static void walk_hero(PetkaScriptVM *vm, uint16_t hero_id, int32_t x, int32_t y)
     if (vm->host.walk && vm->host.walk(vm->host.user, hero_id, x, y)) {
         hero->busy = 1;
     } else {
-        // No walk happened: the hero is simply there -- and has arrived, as
-        // at the end of any walk. That matters when he is on his way out:
-        // the arrival is what holds his pose and appends "stand up" to the
-        // parked reaction. Clicking a door again while it was opening
-        // parked the reaction anew without that, and he stayed frozen from
-        // the first arrival for good.
-        hero->x = x;
-        hero->y = y;
+        // No walk happened -- he is there already, or the point is off the
+        // floor and its nearest floor point is where he stands. He stays
+        // put (the host moves a hero itself when that is right: a hidden
+        // one, or one it cannot walk), and has arrived, as at the end of
+        // any walk. That matters when he is on his way out: the arrival is
+        // what holds his pose and appends "stand up" to the parked
+        // reaction. Clicking a door again while it was opening parked the
+        // reaction anew without that, and he stayed frozen for good.
+        if (!vm->host.walk) {
+            hero->x = x;
+            hero->y = y;
+        }
         petka_scriptvm_walk_ended(vm, hero_id);
     }
 }

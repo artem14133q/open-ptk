@@ -953,8 +953,14 @@ the step. There are no numbers before the lines and nothing behind them.
 
 So the "second colour" passed with every caption and subtitle (see the
 dialogue step) is the surface's fill, which by the calls after it is keyed
-out -- a background chosen to differ from the text, not an outline: the
-words stand straight on the picture with nothing behind them. The launcher
+out -- a background chosen to differ from the text. Not an outline as such,
+but the text is antialiased onto it, and the pixels of the letters' edges,
+part ink and part fill, are not the key: a thin rim of the fill colour is
+left round every letter, dark red under a coloured subtitle and near-black
+under a caption or a menu line, which is how the original's text reads on
+any background. The launcher draws that rim (`draw_rimmed`), and sets a
+menu's lines, which start at one x, as a block in the middle of the screen
+as the original shows them. The launcher
 draws all three this way (`draw_bottom_text`, `menu_lines`); a menu line can
 still be picked by its number on the keyboard, which the original has not; it keeps a bar of its own along
 the top, with the cursor's action and the room's name, which the original
