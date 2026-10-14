@@ -37,6 +37,9 @@ bool plat_any_key(void);    // any key or button at all (to end a film)
 // The controller's R held down: the cursor sends Chapayev while it is
 // (always false on a desktop, which has a key for that action).
 bool plat_chapayev_held(void);
+// The controller's L held down: the cursor walks while it is (always false
+// on a desktop).
+bool plat_walk_held(void);
 
 // Picking from a list with the controller (the Switch): the pointer is
 // put on an entry, held there -- the stick and the D-pad stop moving it,

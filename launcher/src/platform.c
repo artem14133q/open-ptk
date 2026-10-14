@@ -22,6 +22,7 @@ bool plat_any_key(void) {
     return GetKeyPressed() || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
 }
 bool plat_chapayev_held(void) { return false; }
+bool plat_walk_held(void) { return false; }
 bool plat_pad(void) { return false; }
 void plat_set_pointer(Vector2 at) { (void)at; }
 void plat_hold_pointer(bool hold) { (void)hold; }
@@ -164,6 +165,7 @@ bool plat_any_key(void) {
 }
 
 bool plat_chapayev_held(void) { return IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1); } // R
+bool plat_walk_held(void) { return IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_1); }    // L
 
 bool plat_pad(void) { return true; }
 void plat_set_pointer(Vector2 at) { s_pointer = at; }

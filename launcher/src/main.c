@@ -130,7 +130,7 @@ typedef struct {
     // With a controller (plat_pad) the cursor is the plain pointer: A on an
     // object puts the star up for it, the stick picks a part, A does it.
     // While R is held the cursor sends Chapayev instead, the one action the
-    // star has not.
+    // star has not; while L is held it walks, things or no things.
     uint16_t pad_target; // the object the star is up for
     float pad_x, pad_y;  // and where it was clicked, in the room
     Visual star;
@@ -3677,7 +3677,9 @@ int main(int argc, char **argv) {
             my = mouse.y / scale;
         }
         // With a controller the pointer is drawn to things nearby.
-        if (plat_pad() && can_act && !g->case_open && !g->star_open && !g->menu_count) {
+        // Not while L makes the cursor walk: then the floor beside a thing
+        // is what is aimed at.
+        if (plat_pad() && can_act && !g->case_open && !g->star_open && !g->menu_count && !plat_walk_held()) {
             Vector2 at = aim_assist(g, scene, scene_count, (Vector2){mx, my});
             if (at.x != mx || at.y != my) {
                 mx = at.x;
@@ -3689,12 +3691,14 @@ int main(int argc, char **argv) {
             plat_pointer_speed(1.0f);
         }
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
-        // R held: the cursor sends Chapayev; otherwise a controller works
-        // the star.
-        int send_chapayev = plat_pad() && plat_chapayev_held() && vm->cursor_object == PETKA_NONE && !g->case_open;
-        int pad_star = plat_pad() && !send_chapayev;
-        if (send_chapayev) g->star_open = 0;
-        int verb = send_chapayev ? VERB_COUNT - 1 : g->verb;
+        // R held: the cursor sends Chapayev; L held: it walks; otherwise a
+        // controller works the star. (In the case L and R turn pages.)
+        int held = plat_pad() && vm->cursor_object == PETKA_NONE && !g->case_open;
+        int send_chapayev = held && plat_chapayev_held();
+        int send_walk = held && !send_chapayev && plat_walk_held();
+        int pad_star = plat_pad() && !send_chapayev && !send_walk;
+        if (send_chapayev || send_walk) g->star_open = 0;
+        int verb = send_chapayev ? VERB_COUNT - 1 : send_walk ? 1 : g->verb;
         g->star_lit = !g->star_open ? 6 : pad_star ? star_aim(!g->case_open) : star_part(g, screen_x, screen_y);
         // dev: PETKA_RCLICK=<frame> presses the right button on that frame.
         int right_click = plat_rclick() ||
@@ -3985,7 +3989,7 @@ int main(int argc, char **argv) {
         if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) && (!g->talking || g->menu_count > 0) &&
             !(plat_pad() && g->star_open)) {
             uint16_t clip = g->map_open || g->save_mode ? CURSOR_INTERFACE
-                          : send_chapayev ? (uint16_t)(CURSOR_ACTION0 + VERB_COUNT - 1)
+                          : send_chapayev || send_walk ? (uint16_t)(CURSOR_ACTION0 + verb)
                           : plat_pad() && vm->cursor_object == PETKA_NONE ? CURSOR_INTERFACE
                           : g->menu_count > 0 ? CURSOR_POINTER
                           : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
