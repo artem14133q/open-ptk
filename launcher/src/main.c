@@ -161,6 +161,11 @@ typedef struct {
     int case_first;  // number of the first thing shown, a page is six
     int case_lit;    // the button under the pointer, -1 = none
     Visual case_body, case_exit, case_strip, case_button[6];
+    // With a controller the star's middle opens the case to pick a thing
+    // for the object the star was up for: a thing clicked is used on it at
+    // once. That case has no Chapayev, diskette or map on its lid.
+    uint16_t case_for;  // that object, PETKA_NONE = the case as usual
+    Texture2D case_bare; // the case's body with those three painted out
     Texture2D bg_tex;
     float camera_x;         // left edge of the view, in background pixels
     float camera_target;    // where the view has been asked to move to
@@ -1717,11 +1722,11 @@ static int star_part(const Game *g, int px, int py) {
 
 // The part of the star the left stick points at: of the five round the
 // middle, the one whose direction from the middle is nearest the stick's;
-// 6 while the stick is at rest.
+// the middle, the case, while the stick is at rest.
 static int star_aim(void) {
     Vector2 aim = plat_aim();
     float len = sqrtf(aim.x * aim.x + aim.y * aim.y);
-    if (len < 0.5f) return 6;
+    if (len < 0.5f) return 0;
     const Rectangle *m = &kStarPart[0];
     float cx = m->x + m->width / 2, cy = m->y + m->height / 2;
     int best = 6;
@@ -2331,6 +2336,8 @@ static const PetkaObject *case_hover(Game *g, int px, int py) {
         const PetkaObjectState *chapayev = petka_scriptvm_state(g->vm, PETKA_ID_CHAPAYEV);
         if (i == 0 && !(chapayev && chapayev->visible)) break;
         if (i == 2 && !map_allowed(g)) break;
+        // Picking a thing for an object, the lid is bare.
+        if (i <= 2 && g->case_for != PETKA_NONE) break;
         g->case_lit = i;
         break;
     }
@@ -2364,10 +2371,71 @@ static void case_click(Game *g) {
     }
 }
 
+// The case's body with the lid's three buttons painted out, made the
+// first time it is wanted: each row of the lid across them goes evenly from
+// the lid's colour left of them to its colour right of them (the middle of
+// a few pixels on each side, not to catch a line of the drawing).
+static int case_bare(Game *g) {
+    if (g->case_bare.id) return 1;
+    const PetkaFlic *body = g->case_body.flic;
+    if (!body || body->width != GAME_W || body->height != GAME_H) return 0;
+    PetkaMskRect span = {GAME_W, GAME_H, 0, 0};
+    for (int i = 0; i < 3; i++) {
+        Visual *b = &g->case_button[i];
+        if (b->resource == PETKA_NONE) visual_load(g, b, (uint16_t)(CASE_BUTTON0 + i));
+        if (!b->flic) return 0;
+        if (b->rect.left < span.left) span.left = b->rect.left;
+        if (b->rect.top < span.top) span.top = b->rect.top;
+        if (b->rect.right > span.right) span.right = b->rect.right;
+        if (b->rect.bottom > span.bottom) span.bottom = b->rect.bottom;
+    }
+    span.left -= 2; span.top -= 2; span.right += 2; span.bottom += 4;
+    enum { SIDE = 8 };
+    if (span.left < SIDE || span.top < 0 || span.right > GAME_W - SIDE || span.bottom > GAME_H) return 0;
+    const uint8_t *rgba = flic_to_rgba(body, (PetkaMskRect){0, 0, GAME_W, GAME_H});
+    if (!rgba) return 0;
+    uint8_t *px = (uint8_t *)malloc((size_t)GAME_W * GAME_H * 4);
+    if (!px) return 0;
+    memcpy(px, rgba, (size_t)GAME_W * GAME_H * 4);
+    for (int y = span.top; y < span.bottom; y++) {
+        uint8_t *row = px + (size_t)y * GAME_W * 4;
+        const uint8_t *ends[2];
+        for (int e = 0; e < 2; e++) {
+            // The middle by brightness of SIDE pixels beside the span.
+            int x0 = e == 0 ? span.left - SIDE : span.right;
+            int order[SIDE];
+            for (int k = 0; k < SIDE; k++) order[k] = x0 + k;
+            for (int a = 1; a < SIDE; a++)
+                for (int b = a; b > 0; b--) {
+                    const uint8_t *p = row + order[b] * 4, *q = row + order[b - 1] * 4;
+                    if (p[0] + p[1] + p[2] >= q[0] + q[1] + q[2]) break;
+                    int t = order[b]; order[b] = order[b - 1]; order[b - 1] = t;
+                }
+            ends[e] = row + order[SIDE / 2] * 4;
+        }
+        uint8_t left[4], right[4];
+        memcpy(left, ends[0], 4);
+        memcpy(right, ends[1], 4);
+        int n = span.right - span.left + 1;
+        for (int x = span.left; x < span.right; x++) {
+            float t = (float)(x - span.left + 1) / n;
+            for (int c = 0; c < 3; c++) row[x * 4 + c] = (uint8_t)(left[c] * (1 - t) + right[c] * t);
+            row[x * 4 + 3] = 255;
+        }
+    }
+    Image img = {.data = px, .width = GAME_W, .height = GAME_H, .mipmaps = 1,
+                 .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    g->case_bare = LoadTextureFromImage(img);
+    free(px);
+    return g->case_bare.id != 0;
+}
+
 static void draw_case(Game *g, float scale) {
     Rectangle screen = {0, 0, GAME_W * scale, GAME_H * scale};
     clip_show(g, &g->case_body, CASE_BODY, 0);
-    if (g->case_body.flic)
+    if (g->case_for != PETKA_NONE && case_bare(g))
+        DrawTexturePro(g->case_bare, (Rectangle){0, 0, GAME_W, GAME_H}, screen, (Vector2){0, 0}, 0, WHITE);
+    else if (g->case_body.flic)
         visual_draw(&g->case_body, screen);
     // The lit button's clip goes over the case, inside its own rect; the
     // others are put back on their first frame.
@@ -2571,6 +2639,8 @@ static void part_close(Game *g) {
     g->desc[0] = 0;
     saves_unload(g);
     visual_free(&g->case_body);
+    if (g->case_bare.id) UnloadTexture(g->case_bare);
+    g->case_bare = (Texture2D){0};
     visual_free(&g->case_exit);
     visual_free(&g->case_strip);
     for (int i = 0; i < 6; i++) visual_free(&g->case_button[i]);
@@ -2705,6 +2775,7 @@ static void game_switch(Game *g, int part, int chapter) {
     g->walk[0].active = g->walk[1].active = 0;
     g->case_open = g->case_first = 0;
     g->case_lit = -1;
+    g->case_for = PETKA_NONE;
     g->verb = 0;
     g->camera_x = g->camera_target = 0;
     g->camera_snap = 1;
@@ -3006,7 +3077,15 @@ static void act_on(Game *g, const PetkaObject *obj, int verb, float mx, float my
 static void star_pick(Game *g) {
     int part = g->star_lit;
     g->star_open = 0;
-    if (part == 0) { g->case_open = 1; return; }
+    if (part == 0) {
+        // The case, to pick a thing for the object -- unless the star is up
+        // over the case already, for one of its things.
+        if (!g->case_open) {
+            g->case_open = 1;
+            g->case_for = g->pad_target;
+        }
+        return;
+    }
     if (part < 1 || part > 5) return;
     g->verb = part - 1;
     const PetkaObject *obj = petka_script_find(g->script, g->pad_target);
@@ -3039,6 +3118,7 @@ int main(int argc, char **argv) {
     g->case_body.resource = g->case_exit.resource = g->case_strip.resource = PETKA_NONE;
     for (int i = 0; i < 6; i++) g->case_button[i].resource = PETKA_NONE;
     g->case_lit = -1;
+    g->case_for = PETKA_NONE;
     g->subtitles = 1;
     for (int i = 0; i < 4; i++) g->dial[i] = kDialDefault[i];
     options_load(g);
@@ -3409,6 +3489,7 @@ int main(int argc, char **argv) {
         // dev: PETKA_RCLICK=<frame> presses the right button on that frame.
         int right_click = plat_rclick() ||
                           (getenv("PETKA_RCLICK") && atol(getenv("PETKA_RCLICK")) == frame);
+        if (!g->case_open) g->case_for = PETKA_NONE;
         int in_case = g->case_open && can_act && !g->star_open;
         if (!in_case) g->case_lit = -1;
         const PetkaObject *hover = !can_act || g->star_open ? NULL
@@ -3498,6 +3579,15 @@ int main(int argc, char **argv) {
                     else star_click(g, g->star_lit);
                 } else if (g->panel_open) {
                     if (hover) panel_click(g, hover);
+                } else if (hover && in_case && g->case_for != PETKA_NONE) {
+                    // A thing picked for the object: used on it, as if
+                    // taken and clicked there.
+                    uint16_t target = g->case_for;
+                    g->case_open = 0;
+                    g->case_for = PETKA_NONE;
+                    drop_item(g);
+                    stop_heroes(g);
+                    petka_scriptvm_post(vm, target, PETKA_OP_OBJECTUSE, 0, 0, 0, hover->id);
                 } else if (hover && vm->cursor_object != PETKA_NONE) {
                     uint16_t item = vm->cursor_object;
                     stop_heroes(g);
