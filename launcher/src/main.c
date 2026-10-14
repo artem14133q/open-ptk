@@ -129,9 +129,8 @@ typedef struct {
     int star_lit;       // the part under the pointer, 0..5, or 6 for none
     // With a controller (plat_pad) the cursor is the plain pointer: A on an
     // object puts the star up for it, the stick picks a part, A does it.
-    // L and R bring back the cursor with an action (for "send Chapayev",
-    // which the star has not), B takes it away again.
-    int pad_verbs;      // the cursor has an action: clicks do it
+    // While R is held the cursor sends Chapayev instead, the one action the
+    // star has not.
     uint16_t pad_target; // the object the star is up for
     float pad_x, pad_y;  // and where it was clicked, in the room
     Visual star;
@@ -3208,16 +3207,6 @@ int main(int argc, char **argv) {
             g->verb = kActionKeys[k].action;
             drop_item(g);
         }
-        // The Switch has no keys for them: L and R step through the actions.
-        int step = plat_action_step();
-        if (step && !g->menu_count && vm->interface_enabled && !g->map_open && !g->desc[0]) {
-            // The first press shows the action the cursor has; the next
-            // ones step on from it.
-            if (g->pad_verbs) g->verb = (g->verb + step + VERB_COUNT) % VERB_COUNT;
-            g->pad_verbs = 1;
-            g->star_open = 0;
-            drop_item(g);
-        }
 
         frame++;
         s_clock += 1.0 / 60.0;
@@ -3410,7 +3399,12 @@ int main(int argc, char **argv) {
         // nothing else is under the pointer.
         if (!can_act || g->map_open) g->star_open = 0;
         int screen_x = (int)(mouse.x / scale), screen_y = (int)(mouse.y / scale);
-        int pad_star = plat_pad() && !g->pad_verbs; // the star as a controller works it
+        // R held: the cursor sends Chapayev; otherwise a controller works
+        // the star.
+        int send_chapayev = plat_pad() && plat_chapayev_held() && vm->cursor_object == PETKA_NONE;
+        int pad_star = plat_pad() && !send_chapayev;
+        if (send_chapayev) g->star_open = 0;
+        int verb = send_chapayev ? VERB_COUNT - 1 : g->verb;
         g->star_lit = !g->star_open ? 6 : pad_star ? star_aim() : star_part(g, screen_x, screen_y);
         // dev: PETKA_RCLICK=<frame> presses the right button on that frame.
         int right_click = plat_rclick() ||
@@ -3444,9 +3438,8 @@ int main(int argc, char **argv) {
                 }
                 // A touch on a line takes it; up and down step from it.
                 if (menu_hover >= 0) g->menu_focus = menu_hover;
-                g->menu_focus += plat_list_step();
-                if (g->menu_focus < 0) g->menu_focus = 0;
-                if (g->menu_focus >= lines) g->menu_focus = lines - 1;
+                // Past either end it comes round to the other.
+                g->menu_focus = (g->menu_focus + plat_list_step() + lines) % lines;
                 // The pointer sits at the right end of the line's first row,
                 // where it hides the least of the text.
                 Rectangle r = menu_rects[g->menu_focus];
@@ -3471,7 +3464,10 @@ int main(int argc, char **argv) {
             }
         } else if (g->talking) {
             int voiced = g->voice.frameCount > 0;
-            if (clicked || plat_key(KEY_SPACE) ||
+            // With a controller B skips a phrase: A, pressed again to pick
+            // a line of the menu, would skip the first one said after it.
+            int skip = plat_pad() ? right_click : clicked;
+            if (skip || plat_key(KEY_SPACE) ||
                 (voiced ? !IsSoundPlaying(g->voice) : game_now() >= g->line_until))
                 next_phrase(g);
         } else if (can_act) {
@@ -3480,15 +3476,12 @@ int main(int argc, char **argv) {
             // and the cursor becomes "take"; otherwise the star comes up at
             // the pointer, or goes away.
             if (right_click && plat_pad()) {
-                // B: the star down, the thing on the cursor put back, or
-                // the cursor's action gone -- whichever there is.
+                // B: the star down, or the thing on the cursor put back.
                 if (g->star_open) {
                     g->star_open = 0;
                 } else if (vm->cursor_object != PETKA_NONE) {
                     drop_item(g);
                     if (g->case_open) g->verb = 3;
-                } else {
-                    g->pad_verbs = 0;
                 }
             } else if (right_click && !g->map_open && vm->interface_enabled) {
                 if (g->case_open && vm->cursor_object != PETKA_NONE) {
@@ -3515,14 +3508,14 @@ int main(int argc, char **argv) {
                     g->pad_x = mx;
                     g->pad_y = my;
                 } else if (hover) {
-                    act_on(g, hover, g->verb, mx, my);
+                    act_on(g, hover, verb, mx, my);
                 } else if (in_case) {
                     case_click(g);
                 } else if (vm->cursor_object == PETKA_NONE && !g->map_open) {
                     // Nothing under the click (the end of sub_414320): only
                     // two of the cursor's actions do anything. The
                     // controller's plain pointer walks.
-                    uint16_t op = pad_star ? PETKA_OP_WALK : kVerbs[g->verb].op;
+                    uint16_t op = pad_star ? PETKA_OP_WALK : kVerbs[verb].op;
                     if (op == PETKA_OP_WALK) {
                         PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
                         // Sent somewhere else: whatever he was walking for is
@@ -3685,9 +3678,12 @@ int main(int argc, char **argv) {
         // The pointer goes on last, over everything (its z is 1000). It is
         // there whenever the cursor is shown; a dialogue hides it for its
         // phrases and brings it back for a menu.
-        if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) && (!g->talking || g->menu_count > 0)) {
+        // With a controller the star stands for it while it is up.
+        if (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) && (!g->talking || g->menu_count > 0) &&
+            !(plat_pad() && g->star_open)) {
             uint16_t clip = g->map_open || g->save_mode ? CURSOR_INTERFACE
-                          : plat_pad() && !g->pad_verbs && vm->cursor_object == PETKA_NONE ? CURSOR_INTERFACE
+                          : send_chapayev ? (uint16_t)(CURSOR_ACTION0 + VERB_COUNT - 1)
+                          : plat_pad() && vm->cursor_object == PETKA_NONE ? CURSOR_INTERFACE
                           : g->menu_count > 0 ? CURSOR_POINTER
                           : vm->cursor_resource != PETKA_NONE ? vm->cursor_resource
                           : (uint16_t)(CURSOR_ACTION0 + g->verb);

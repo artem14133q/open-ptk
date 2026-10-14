@@ -21,7 +21,7 @@ bool plat_key_down(int key) { return IsKeyDown(key); }
 bool plat_any_key(void) {
     return GetKeyPressed() || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
 }
-int plat_action_step(void) { return 0; }
+bool plat_chapayev_held(void) { return false; }
 bool plat_pad(void) { return false; }
 void plat_set_pointer(Vector2 at) { (void)at; }
 void plat_hold_pointer(bool hold) { (void)hold; }
@@ -147,11 +147,7 @@ bool plat_any_key(void) {
     return s_tapped || GetGamepadButtonPressed() != GAMEPAD_BUTTON_UNKNOWN;
 }
 
-int plat_action_step(void) {
-    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) return -1;  // L
-    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) return 1;  // R
-    return 0;
-}
+bool plat_chapayev_held(void) { return IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1); } // R
 
 bool plat_pad(void) { return true; }
 void plat_set_pointer(Vector2 at) { s_pointer = at; }

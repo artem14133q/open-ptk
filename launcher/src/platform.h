@@ -34,9 +34,9 @@ bool plat_rclick(void);     // the right button, B
 bool plat_key(int key);     // IsKeyPressed, or the controller's stand-in for that key
 bool plat_key_down(int key);
 bool plat_any_key(void);    // any key or button at all (to end a film)
-// The controller's L and R: -1 or +1 to step through the cursor's actions,
-// 0 otherwise (always 0 on a desktop, which has a key for each).
-int plat_action_step(void);
+// The controller's R held down: the cursor sends Chapayev while it is
+// (always false on a desktop, which has a key for that action).
+bool plat_chapayev_held(void);
 
 // Picking from a list with the controller (the Switch): the pointer is
 // put on an entry, held there -- the stick and the D-pad stop moving it,
