@@ -37,6 +37,7 @@
 #else
 #include <unistd.h>
 
+#include "film.h"
 #include "platform.h"
 #endif
 
@@ -1222,22 +1223,9 @@ static void sequence_sounds(Game *g, int entering) {
 // and sits in a loop until the film ends or a key or a mouse button is
 // pressed. The one the script plays, INTRO.AVI, is Indeo 3 video, which
 // nothing here decodes; so, in the same spirit, the launcher hands the file
-// to ffmpeg if there is one, and shows the frames it sends back.
+// to FFmpeg (film.h) and shows the frames it sends back.
 #define FILM_FPS 24
 
-// ffmpeg, by its full path where it can be found: a program started from the
-// Finder does not have the shell's PATH. One put next to the launcher wins.
-#ifndef __SWITCH__
-static const char *ffmpeg_program(void) {
-    static char beside[1100];
-    snprintf(beside, sizeof(beside), "%sffmpeg", GetApplicationDirectory());
-    if (FileExists(beside) && !strpbrk(beside, "\"$`\\")) return beside;
-    static const char *const places[] = {"/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"};
-    for (size_t i = 0; i < sizeof(places) / sizeof(places[0]); i++)
-        if (FileExists(places[i])) return places[i];
-    return "ffmpeg";
-}
-#endif
 static int find_film(const Game *g, const char *name, char *out, size_t out_sz) {
     static const char *dirs[] = {"", "data1_out/Main/", "Main/"};
     char lower[256];
@@ -1271,31 +1259,14 @@ static void play_film(Game *g, const char *name) {
         set_status(g, TextFormat("(видео %s пропущено)", name));
         return;
     }
-    if (!plat_has_films()) {
-        set_status(g, TextFormat("(видео %s: на этой платформе пока не показывается)", name));
-        return;
-    }
-#ifndef __SWITCH__
-    // The path goes into a shell command: nothing in it may end the quotes.
-    if (strpbrk(path, "\"$`\\")) { set_status(g, "(видео: неподходящий путь к игре)"); return; }
-
-    char command[2048], sound_file[512];
-    const char *tmp = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
-    snprintf(sound_file, sizeof(sound_file), "%s/petka_film_%d.wav", tmp, (int)getpid());
-    const char *ffmpeg = ffmpeg_program();
-    snprintf(command, sizeof(command), "\"%s\" -v error -y -i \"%s\" -vn -f wav \"%s\"", ffmpeg, path, sound_file);
-    int have_sound = system(command) == 0 && FileExists(sound_file);
-    snprintf(command, sizeof(command),
-             "\"%s\" -v error -i \"%s\" -an -vf fps=%d,scale=%d:%d -f rawvideo -pix_fmt rgba -", ffmpeg, path, FILM_FPS,
-             GAME_W, GAME_H);
-    FILE *frames = popen(command, "r");
+    const char *why = "";
+    Film *film = film_open(path, GAME_W, GAME_H, FILM_FPS, &why);
     size_t frame_bytes = (size_t)GAME_W * GAME_H * 4;
-    uint8_t *pixels = (uint8_t *)malloc(frame_bytes);
-    if (!frames || !pixels || fread(pixels, 1, frame_bytes, frames) != frame_bytes) {
-        if (frames) pclose(frames);
+    uint8_t *pixels = film ? (uint8_t *)malloc(frame_bytes) : NULL;
+    if (!pixels || !film_next(film, pixels)) {
+        film_close(film);
         free(pixels);
-        remove(sound_file);
-        set_status(g, TextFormat("(видео %s: нужен ffmpeg, пропущено)", name));
+        set_status(g, TextFormat("(видео %s: %s, пропущено)", name, film ? "нет кадров" : why));
         return;
     }
 
@@ -1303,8 +1274,10 @@ static void play_film(Game *g, const char *name) {
     for (int i = 0; i < 4; i++)
         if (tracks[i]->frameCount > 0) PauseMusicStream(*tracks[i]);
     Music sound = {0};
-    if (have_sound) {
-        sound = LoadMusicStream(sound_file);
+    size_t sound_len = 0;
+    const uint8_t *sound_data = film_sound(film, &sound_len);
+    if (sound_data) {
+        sound = LoadMusicStreamFromMemory(".wav", sound_data, (int)sound_len);
         sound.looping = false;
         if (sound.frameCount > 0) {
             SetMusicVolume(sound, dial_gain(g, DIAL_SPEECH));
@@ -1327,7 +1300,7 @@ static void play_film(Game *g, const char *name) {
         if (sound.frameCount > 0) UpdateMusicStream(sound);
         long due = (long)((GetTime() - start) * FILM_FPS);
         while (shown < due && !ended) {
-            if (fread(pixels, 1, frame_bytes, frames) != frame_bytes) ended = 1;
+            if (!film_next(film, pixels)) ended = 1;
             shown++;
         }
         if (!ended) UpdateTexture(screen, pixels);
@@ -1345,15 +1318,13 @@ static void play_film(Game *g, const char *name) {
 
     UnloadTexture(screen);
     if (sound.frameCount > 0) { StopMusicStream(sound); UnloadMusicStream(sound); }
-    pclose(frames);
+    film_close(film);
     free(pixels);
-    remove(sound_file);
     // Back to what each was doing: a sequence may have had some paused.
     for (int i = 0; i < 4; i++) {
         int held = i < 2 ? g->tracks_hushed : g->seq_tracks_paused;
         if (tracks[i]->frameCount > 0 && !held) ResumeMusicStream(*tracks[i]);
     }
-#endif
 }
 
 static void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,

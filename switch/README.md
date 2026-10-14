@@ -13,6 +13,7 @@ Needs devkitPro with `switch-dev`, `switch-mesa` and `switch-libdrm_nouveau`.
 ```
 cd switch
 ./raylib.sh        # once: gets raylib-nx 6.0 and builds it into deps/
+./ffmpeg.sh        # once: builds FFmpeg 7.1 with the films' formats into deps/
 make               # petka.nro
 ```
 
@@ -50,8 +51,10 @@ there.
 The picture is the game's 640x480 at one and a half, 960x720 in the middle
 of the screen.
 
+Films are decoded by FFmpeg's libraries built into the program
+(`ffmpeg.sh`: the AVI demuxer, Indeo 3, Microsoft Video 1, MS ADPCM and PCM
+only); the desktop launcher runs the ffmpeg program instead.
+
 ## Not done yet
 
-- films: the desktop launcher has ffmpeg decode them, which the Switch has
-  not; they are passed over with a note;
 - the icon is libnx's default.

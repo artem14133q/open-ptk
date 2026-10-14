@@ -27,7 +27,6 @@ Font plat_system_font(int size, int *codepoints, int count) {
     (void)size; (void)codepoints; (void)count;
     return (Font){0};
 }
-bool plat_has_films(void) { return true; }
 
 #else
 
@@ -147,7 +146,5 @@ Font plat_system_font(int size, int *codepoints, int count) {
         font = LoadFontFromMemory(".ttf", (const unsigned char *)data.address, (int)data.size, size, codepoints, count);
     return font;
 }
-
-bool plat_has_films(void) { return false; }
 
 #endif

@@ -18,7 +18,7 @@ TARGET		:=	petka
 BUILD		:=	build
 SOURCES		:=	../core/src ../launcher/src
 DATA		:=
-INCLUDES	:=	../core/include deps/raylib-nx/src
+INCLUDES	:=	../core/include deps/raylib-nx/src deps/ffmpeg/include
 
 APP_TITLE	:=	Петька и Василий Иванович спасают галактику
 APP_AUTHOR	:=	open-ptk
@@ -38,9 +38,11 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map) \
-			-L$(TOPDIR)/deps/raylib-nx/src
+			-L$(TOPDIR)/deps/raylib-nx/src -L$(TOPDIR)/deps/ffmpeg/lib
 
-LIBS	:= -lraylib -lEGL -lGLESv2 -lglapi -ldrm_nouveau -lnx -lm
+# The films: FFmpeg as switch/ffmpeg.sh builds it.
+LIBS	:= -lavformat -lavcodec -lswscale -lswresample -lavutil \
+			-lraylib -lEGL -lGLESv2 -lglapi -ldrm_nouveau -lnx -lm
 
 LIBDIRS	:= $(PORTLIBS) $(LIBNX)
 

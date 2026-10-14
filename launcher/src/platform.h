@@ -46,7 +46,4 @@ const char *plat_default_game_dir(void);
 // this is the console's shared font.
 Font plat_system_font(int size, int *codepoints, int count);
 
-// Whether films can be played (they need ffmpeg, which the Switch has not).
-bool plat_has_films(void);
-
 #endif
