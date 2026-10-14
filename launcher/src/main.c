@@ -1577,7 +1577,7 @@ static void draw_rimmed(Font font, const char *text, Vector2 at, float size, Col
 static void draw_band(Rectangle r, float scale) {
     float pad = 6 * scale;
     DrawRectangleRounded((Rectangle){r.x - pad, r.y - pad / 2, r.width + 2 * pad, r.height + pad}, 0.25f, 6,
-                         Fade(BLACK, 0.5f));
+                         Fade(BLACK, 0.7f));
 }
 
 static void draw_bottom_text(Font font, const char *text, Color ink, Color fill, int centre_lines, int backdrop,
