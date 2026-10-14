@@ -9,11 +9,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static uint32_t hash(const PetkaFlic *f) {
+static uint32_t hash(PetkaFlic *f) {
     uint32_t h = 2166136261u;
     size_t n = (size_t)f->width * (size_t)f->height;
     for (size_t i = 0; i < n; i++) { h ^= f->indices[i]; h *= 16777619u; }
-    for (size_t i = 0; i < n * 3; i += 7) { h ^= f->rgb[i]; h *= 16777619u; }
+    const uint8_t *rgb = petka_flic_rgb(f);
+    for (size_t i = 0; i < n * 3; i += 7) { h ^= rgb[i]; h *= 16777619u; }
     return h;
 }
 

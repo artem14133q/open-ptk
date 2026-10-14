@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
         FILE *f = fopen(path, "wb");
         if (!f) { perror("fopen"); break; }
         fprintf(f, "P6\n%d %d\n255\n", flic->width, flic->height);
-        fwrite(flic->rgb, 1, (size_t)flic->width * flic->height * 3, f);
+        fwrite(petka_flic_rgb(flic), 1, (size_t)flic->width * flic->height * 3, f);
         fclose(f);
         printf("wrote %s (frame_index=%d)\n", path, flic->frame_index);
         if (petka_flic_advance(flic) != 0) { fprintf(stderr, "advance failed at %d\n", i); break; }

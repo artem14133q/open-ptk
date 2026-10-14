@@ -153,7 +153,14 @@ static void decode_color64(Reader *r, PetkaFlic *f) {
     }
 }
 
-static void rebuild_rgb(PetkaFlic *f) {
+const uint8_t *petka_flic_rgb(PetkaFlic *f) {
+    if (!f->rgb) {
+        f->rgb = (uint8_t *)malloc((size_t)f->width * f->height * 3);
+        if (!f->rgb) return NULL;
+        f->rgb_stale = 1;
+    }
+    if (!f->rgb_stale) return f->rgb;
+    f->rgb_stale = 0;
     int n = f->width * f->height;
     for (int i = 0; i < n; i++) {
         uint8_t idx = f->indices[i];
@@ -161,6 +168,7 @@ static void rebuild_rgb(PetkaFlic *f) {
         f->rgb[i * 3 + 1] = f->palette[idx][1];
         f->rgb[i * 3 + 2] = f->palette[idx][2];
     }
+    return f->rgb;
 }
 
 static int decode_frame_at(PetkaFlic *f, uint32_t off) {
@@ -194,7 +202,7 @@ static int decode_frame_at(PetkaFlic *f, uint32_t off) {
         r.pos = chunk_start + csize;
     }
 
-    rebuild_rgb(f);
+    f->rgb_stale = 1;
     return 0;
 }
 
@@ -228,8 +236,7 @@ PetkaFlic *petka_flic_open(const uint8_t *data, size_t len) {
     f->frame_index = 0;
 
     f->indices = (uint8_t *)calloc((size_t)width * height, 1);
-    f->rgb = (uint8_t *)calloc((size_t)width * height * 3, 1);
-    if (!f->indices || !f->rgb) {
+    if (!f->indices) {
         petka_flic_close(f);
         return NULL;
     }

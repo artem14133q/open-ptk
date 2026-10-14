@@ -31,7 +31,11 @@ typedef struct {
     uint8_t exe_palette[256][3];
     int key_is_fixed;
     uint8_t *indices;    // width*height, current frame as palette indices
-    uint8_t *rgb;         // width*height*3, derived from indices+palette
+    // width*height*3, the frame in colour: made from indices+palette only
+    // when petka_flic_rgb() asks for it -- a player that converts just the
+    // part it draws should not pay for the whole frame on every decode.
+    uint8_t *rgb;
+    int rgb_stale;
 } PetkaFlic;
 
 // Parses the header and decodes frame 1. `data` is NOT copied -- it must
@@ -41,10 +45,14 @@ PetkaFlic *petka_flic_open(const uint8_t *data, size_t len);
 
 void petka_flic_close(PetkaFlic *flic);
 
-// Decodes the next frame into ->indices/->rgb. After the last frame the
+// Decodes the next frame into ->indices. After the last frame the
 // first one comes round again (frame_index 0), exactly as it first was.
 // Returns 0 on success, -1 on error.
 int petka_flic_advance(PetkaFlic *flic);
+
+// The current frame in colour (->rgb), brought up to date; NULL if out of
+// memory.
+const uint8_t *petka_flic_rgb(PetkaFlic *flic);
 
 // Whether a palette entry is the clip's transparent colour. The exe keeps
 // a 16-bit colour for every palette entry, draws with those, and keys out

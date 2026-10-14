@@ -60,6 +60,7 @@ typedef struct {
     PetkaFlic *flic;
     Texture2D tex;
     PetkaMskRect rect; // bounding rect of the clip inside its frame
+    PetkaMskRect area; // the part of the frame the texture holds
     const uint8_t *msk; // the clip's .MSK, NULL if it has none
     size_t msk_len;
     double next_frame;
@@ -380,19 +381,49 @@ static void swap_ext(const char *path, const char *ext, char *out, size_t out_sz
     if (n >= 3) memcpy(out + n - 3, ext, 3);
 }
 
-static uint8_t *flic_to_rgba(const PetkaFlic *flic) {
-    int n = flic->width * flic->height;
-    uint8_t *rgba = (uint8_t *)malloc((size_t)n * 4);
+// The part of `flic`'s frame `area` in RGBA, in a buffer that is reused
+// from call to call.
+static const uint8_t *flic_to_rgba(const PetkaFlic *flic, PetkaMskRect area) {
+    static uint8_t *rgba;
+    static size_t cap;
+    int w = area.right - area.left, h = area.bottom - area.top;
+    size_t need = (size_t)w * h * 4;
+    if (need > cap) {
+        free(rgba);
+        rgba = (uint8_t *)malloc(need);
+        cap = rgba ? need : 0;
+        if (!rgba) return NULL;
+    }
     // The colour key is palette entry 0's colour, not the entry itself.
-    uint8_t alpha[256];
-    for (int i = 0; i < 256; i++) alpha[i] = petka_flic_keyed(flic, (uint8_t)i) ? 0 : 255;
-    for (int i = 0; i < n; i++) {
-        rgba[i * 4 + 0] = flic->rgb[i * 3 + 0];
-        rgba[i * 4 + 1] = flic->rgb[i * 3 + 1];
-        rgba[i * 4 + 2] = flic->rgb[i * 3 + 2];
-        rgba[i * 4 + 3] = alpha[flic->indices[i]];
+    uint32_t colour[256];
+    for (int i = 0; i < 256; i++) {
+        const uint8_t *c = flic->palette[i];
+        uint8_t px[4] = {c[0], c[1], c[2], petka_flic_keyed(flic, (uint8_t)i) ? 0 : 255};
+        memcpy(&colour[i], px, 4);
+    }
+    uint32_t *out = (uint32_t *)rgba;
+    for (int y = 0; y < h; y++) {
+        const uint8_t *row = flic->indices + (size_t)(area.top + y) * flic->width + area.left;
+        for (int x = 0; x < w; x++) *out++ = colour[row[x]];
     }
     return rgba;
+}
+
+// The part of a clip's frame its texture holds: the MSK's covering rect
+// with a pixel to spare all round (the files give the bottom edge
+// inclusive), or the whole frame when there is no usable rect -- two
+// explosions' files have it upside down. Checked on every clip of the game:
+// no opaque pixel of any frame falls outside. Most objects are small things
+// in full-screen clips, so this spares most of the converting, uploading
+// and drawing.
+static PetkaMskRect clip_area(const PetkaFlic *flic, PetkaMskRect r) {
+    r.left -= 1; r.top -= 1; r.right += 1; r.bottom += 1;
+    if (r.left < 0) r.left = 0;
+    if (r.top < 0) r.top = 0;
+    if (r.right > flic->width) r.right = flic->width;
+    if (r.bottom > flic->height) r.bottom = flic->height;
+    if (r.right <= r.left || r.bottom <= r.top) r = (PetkaMskRect){0, 0, flic->width, flic->height};
+    return r;
 }
 
 static Texture2D load_bmp_texture(const Game *g, const char *path) {
@@ -573,12 +604,30 @@ static void visual_load_path(Game *g, Visual *v, const char *path) {
     v->msk = mbytes;
     v->msk_len = mlen;
 
-    uint8_t *rgba = flic_to_rgba(v->flic);
-    Image img = {.data = rgba, .width = v->flic->width, .height = v->flic->height, .mipmaps = 1,
-                 .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    v->area = clip_area(v->flic, v->rect);
+    const uint8_t *rgba = flic_to_rgba(v->flic, v->area);
+    if (!rgba) return;
+    Image img = {.data = (void *)rgba, .width = v->area.right - v->area.left, .height = v->area.bottom - v->area.top,
+                 .mipmaps = 1, .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
     v->tex = LoadTextureFromImage(img);
-    UnloadImage(img);
     v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
+}
+
+// Brings the texture up to the clip's current frame.
+static void visual_upload(Visual *v) {
+    const uint8_t *rgba = v->tex.id ? flic_to_rgba(v->flic, v->area) : NULL;
+    if (rgba) UpdateTexture(v->tex, rgba);
+}
+
+// Draws the clip's frame so that the whole frame would cover `frame` (on
+// the screen): only the part the texture holds is drawn.
+static void visual_draw(const Visual *v, Rectangle frame) {
+    if (!v->tex.id) return;
+    float sx = frame.width / v->flic->width, sy = frame.height / v->flic->height;
+    DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->tex.width, (float)v->tex.height},
+                   (Rectangle){frame.x + v->area.left * sx, frame.y + v->area.top * sy, v->tex.width * sx,
+                               v->tex.height * sy},
+                   (Vector2){0, 0}, 0, WHITE);
 }
 
 // The pointer. The exe's cursor is an object with a clip (sub_402280): one
@@ -598,9 +647,7 @@ static void clip_show(Game *g, Visual *v, uint16_t resource, int run) {
     if (!v->flic || !run || v->flic->frame_count <= 1 || game_now() < v->next_frame) return;
     v->next_frame = game_now() + (v->flic->speed_ms > 0 ? v->flic->speed_ms : 70) / 1000.0;
     petka_flic_advance(v->flic);
-    uint8_t *rgba = flic_to_rgba(v->flic);
-    UpdateTexture(v->tex, rgba);
-    free(rgba);
+    visual_upload(v);
 }
 
 // `centre` is the last argument of the exe's cursor move: the room's mouse
@@ -614,9 +661,7 @@ static void draw_cursor(Game *g, uint16_t resource, int over_object, int centre,
         x -= v->rect.left + (v->rect.right - v->rect.left) / 2;
         y -= v->rect.top + (v->rect.bottom - v->rect.top) / 2;
     }
-    DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
-                   (Rectangle){x * scale, y * scale, v->flic->width * scale, v->flic->height * scale},
-                   (Vector2){0, 0}, 0, WHITE);
+    visual_draw(v, (Rectangle){x * scale, y * scale, v->flic->width * scale, v->flic->height * scale});
 }
 
 static int obj_index(const Game *g, const PetkaObject *obj) {
@@ -677,9 +722,7 @@ static void visual_update(Game *g, const PetkaObject *obj) {
         v->sound_pending = 0;
     }
     petka_flic_advance(v->flic);
-    uint8_t *rgba = flic_to_rgba(v->flic);
-    UpdateTexture(v->tex, rgba);
-    free(rgba);
+    visual_upload(v);
 
     int frame = v->flic->frame_index + 1; // the exe counts frames from 1
     if (frame == v->flic->frame_count) {
@@ -1637,12 +1680,9 @@ static void draw_description(Game *g, Font font, float scale) {
         if (v->flic->frame_index != g->desc_frame - 1) {
             for (int guard = 0; guard < v->flic->frame_count && v->flic->frame_index != g->desc_frame - 1; guard++)
                 petka_flic_advance(v->flic);
-            uint8_t *rgba = flic_to_rgba(v->flic);
-            UpdateTexture(v->tex, rgba);
-            free(rgba);
+            visual_upload(v);
         }
-        DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
-                       (Rectangle){0, 0, v->flic->width * scale, v->flic->height * scale}, (Vector2){0, 0}, 0, WHITE);
+        visual_draw(v, (Rectangle){0, 0, v->flic->width * scale, v->flic->height * scale});
     }
     // The exe's font for this is the 16-pixel one.
     draw_wrapped(font, g->desc, 160 * scale, 275 * scale, 438 * scale, 16 * scale, 16 * scale, BLACK);
@@ -1709,13 +1749,9 @@ static void draw_star(Game *g, float scale) {
     if (frame <= v->flic->frame_count && v->flic->frame_index != frame - 1) {
         for (int guard = 0; guard < v->flic->frame_count && v->flic->frame_index != frame - 1; guard++)
             petka_flic_advance(v->flic);
-        uint8_t *rgba = flic_to_rgba(v->flic);
-        UpdateTexture(v->tex, rgba);
-        free(rgba);
+        visual_upload(v);
     }
-    DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
-                   (Rectangle){g->star_x * scale, g->star_y * scale, v->flic->width * scale, v->flic->height * scale},
-                   (Vector2){0, 0}, 0, WHITE);
+    visual_draw(v, (Rectangle){g->star_x * scale, g->star_y * scale, v->flic->width * scale, v->flic->height * scale});
 }
 
 // ---- the case ----
@@ -2225,9 +2261,7 @@ static void show_frame(Game *g, const PetkaObject *obj, int frame) {
     if (!v->flic || frame < 1 || frame > v->flic->frame_count || v->flic->frame_index == frame - 1) return;
     for (int guard = 0; guard < v->flic->frame_count && v->flic->frame_index != frame - 1; guard++)
         petka_flic_advance(v->flic);
-    uint8_t *rgba = flic_to_rgba(v->flic);
-    UpdateTexture(v->tex, rgba);
-    free(rgba);
+    visual_upload(v);
 }
 
 // The panel shows the subtitle switch on two of its objects (the end of
@@ -2329,29 +2363,25 @@ static void draw_case(Game *g, float scale) {
     Rectangle screen = {0, 0, GAME_W * scale, GAME_H * scale};
     clip_show(g, &g->case_body, CASE_BODY, 0);
     if (g->case_body.flic)
-        DrawTexturePro(g->case_body.tex, (Rectangle){0, 0, GAME_W, GAME_H}, screen, (Vector2){0, 0}, 0, WHITE);
+        visual_draw(&g->case_body, screen);
     // The lit button's clip goes over the case, inside its own rect; the
     // others are put back on their first frame.
     for (int i = 0; i < 6; i++) {
         Visual *b = &g->case_button[i];
         clip_show(g, b, (uint16_t)(CASE_BUTTON0 + i), i == g->case_lit);
         if (i != g->case_lit || !b->flic) continue;
-        Rectangle part = {(float)b->rect.left, (float)b->rect.top, (float)(b->rect.right - b->rect.left),
-                          (float)(b->rect.bottom - b->rect.top)};
-        DrawTexturePro(b->tex, part, (Rectangle){part.x * scale, part.y * scale, part.width * scale, part.height * scale},
-                       (Vector2){0, 0}, 0, WHITE);
+        visual_draw(b, screen);
     }
     for (int k = 0; k < CASE_PAGE; k++) {
         Visual *v = NULL;
         if (!case_item(g, k, &v)) continue;
-        DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
-                       (Rectangle){kCaseCell[k][0] * scale, kCaseCell[k][1] * scale, v->flic->width * scale,
-                                   v->flic->height * scale}, (Vector2){0, 0}, 0, WHITE);
+        visual_draw(v, (Rectangle){kCaseCell[k][0] * scale, kCaseCell[k][1] * scale, v->flic->width * scale,
+                                   v->flic->height * scale});
     }
     // "Полоска в чемодане", the strap, lies across the things.
     clip_show(g, &g->case_strip, CASE_STRAP, 0);
     if (g->case_strip.flic)
-        DrawTexturePro(g->case_strip.tex, (Rectangle){0, 0, GAME_W, GAME_H}, screen, (Vector2){0, 0}, 0, WHITE);
+        visual_draw(&g->case_strip, screen);
 }
 
 // The dialogue's menu, as the exe's menu object lays it out (sub_420020):
@@ -2479,7 +2509,7 @@ static int run_menu(Game *g, Font font) {
         Rectangle whole = {0, 0, GAME_W * scale, GAME_H * scale};
         if (bg.id) DrawTexturePro(bg, (Rectangle){0, 0, (float)bg.width, (float)bg.height}, whole, (Vector2){0, 0}, 0, WHITE);
         if (over >= 0)
-            DrawTexturePro(buttons[over].tex, (Rectangle){0, 0, GAME_W, GAME_H}, whole, (Vector2){0, 0}, 0, WHITE);
+            visual_draw(&buttons[over], whole);
         HideCursor();
         draw_cursor(g, CURSOR_INTERFACE, over >= 0, 0, mouse, scale);
         plat_end();
@@ -3452,9 +3482,7 @@ int main(int argc, char **argv) {
             // hidden, and the map's mouse function (sub_41D4D0) shows the one
             // under the pointer, on its first frame, and hides the rest.
             if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover))
-                DrawTexturePro(v->tex, (Rectangle){0, 0, (float)v->flic->width, (float)v->flic->height},
-                           (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale},
-                           (Vector2){0, 0}, 0, WHITE);
+                visual_draw(v, (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale});
             if (debug && !is_hero(scene[i].obj->id)) {
                 Rectangle r = {v->rect.left * scale, v->rect.top * scale,
                                (v->rect.right - v->rect.left) * scale, (v->rect.bottom - v->rect.top) * scale};
