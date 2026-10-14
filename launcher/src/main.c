@@ -112,6 +112,10 @@ typedef struct {
     char speech_prefix[16];
 
     Visual *visuals; // parallel to script->objects
+    uint16_t *z_order;  // the screen's objects in draw order (z_order_sort())
+    int z_order_n;
+    uint16_t z_order_room; // the screen they were listed for
+    int z_order_heroes;    // ... with the heroes or not
     Visual cursor;   // the pointer's own clip
     // The case: the game's panel, with the things carried.
     int map_open;    // a room of the script is up as a screen of its own:
@@ -1506,53 +1510,86 @@ typedef struct {
     int z;
 } Drawable;
 
-static int by_z(const void *a, const void *b) {
-    return ((const Drawable *)a)->z - ((const Drawable *)b)->z;
+// The screen's objects in draw order, kept from frame to frame as the exe
+// keeps its list (QSystem+0x210): filled in the room's order, then the
+// heroes, and sorted again every frame by z ascending with the exe's own
+// selection sort (sub_422580) -- for each place, the first object after it
+// with a strictly lower z than the lowest so far is swapped in. Objects of
+// equal z (hidden hot spots are often all at -1) keep the order that
+// gives; the C library's qsort put them in an order of its own, different
+// on the Switch than on a Mac -- in part 3's hall the window, big and
+// hidden, came over the way out in front of it on one and not the other.
+static void z_order_sort(Game *g) {
+    uint16_t key = screen_room(g);
+    int heroes = g->seq_room == PETKA_NONE;
+    if (key != g->z_order_room || heroes != g->z_order_heroes) {
+        g->z_order_n = 0;
+        const PetkaObject *room = petka_script_find(g->script, key);
+        for (uint32_t i = 0; room && i < room->attached_count; i++)
+            if (petka_script_find(g->script, room->attached[i].obj_id))
+                g->z_order[g->z_order_n++] = room->attached[i].obj_id;
+        for (uint16_t id = 0; id < 2 && heroes; id++) {
+            int listed = 0;
+            for (int k = 0; k < g->z_order_n && !listed; k++) listed = g->z_order[k] == id;
+            if (!listed && petka_script_find(g->script, id)) g->z_order[g->z_order_n++] = id;
+        }
+        g->z_order_room = key;
+        g->z_order_heroes = heroes;
+    }
+    int n = g->z_order_n;
+    for (int i = 0; i < n; i++) {
+        int lowest = i;
+        int32_t lowest_z = petka_scriptvm_state(g->vm, g->z_order[i])->z;
+        for (int j = i + 1; j < n; j++) {
+            int32_t z = petka_scriptvm_state(g->vm, g->z_order[j])->z;
+            if (z < lowest_z) { lowest = j; lowest_z = z; }
+        }
+        uint16_t t = g->z_order[i];
+        g->z_order[i] = g->z_order[lowest];
+        g->z_order[lowest] = t;
+    }
 }
 
 // Collects what is on screen right now, back to front: by z ascending, as
 // the exe sorts each frame.
 static int build_scene(Game *g, Drawable *out, int max) {
-    int n = 0;
+    // The exe's z update first: an animated, visible object with auto_z
+    // gets a new z every frame; otherwise z stays whatever it was last given.
     const PetkaObject *room = petka_script_find(g->script, screen_room(g));
-    // The heroes walk the game's room; a sequence shows only its own objects.
     uint32_t extra = g->seq_room != PETKA_NONE ? 0 : 2;
-    for (uint32_t i = 0; room && i < room->attached_count + extra && n < max; i++) {
+    for (uint32_t i = 0; room && i < room->attached_count + extra; i++) {
         const PetkaObject *obj = i < room->attached_count
             ? petka_script_find(g->script, room->attached[i].obj_id)
-            : petka_script_find(g->script, (uint16_t)(i - room->attached_count)); // then the two heroes
+            : petka_script_find(g->script, (uint16_t)(i - room->attached_count));
         if (!obj) continue;
         const Visual *v = &g->visuals[obj_index(g, obj)];
-        const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
-        if (!v->live) continue;
-        int hero_here = is_hero(obj->id);
-        // A hero attached to this room explicitly was already listed.
-        if (i >= room->attached_count && st->room == room->id) continue;
-        out[n].obj = obj;
-        // The exe's z update: an animated, visible object with auto_z gets a
-        // new z every frame; otherwise z stays whatever it was last given.
         PetkaObjectState *state = &g->vm->state[obj_index(g, obj)];
-        if (state->auto_z && state->animate && state->visible) {
-            if (hero_here) {
-                // A hero (sub_409530): the bottom edge of his scaled frame
-                // when standing, which is where the launcher keeps him; the
-                // walk's own point, cut to whole pixels (sub_424210), when
-                // walking.
-                const Walk *walk = &g->walk[obj->id];
-                state->z = walk->active ? (int32_t)walk->walker.y : st->y;
-            } else {
-                // A scene object (sub_401810): the lowest edge of its
-                // current frame's MSK rects (its sprite sits at y 0), never
-                // less than 1.
-                int bottom = petka_msk_frame_bottom(v->msk, v->msk_len, v->flic->frame_count, v->flic->frame_index);
-                bottom += state->y;
-                state->z = bottom > 1 ? bottom : 1;
-            }
+        if (!v->live || !state->auto_z || !state->animate || !state->visible) continue;
+        if (is_hero(obj->id)) {
+            // A hero (sub_409530): the bottom edge of his scaled frame
+            // when standing, which is where the launcher keeps him; the
+            // walk's own point, cut to whole pixels (sub_424210), when
+            // walking.
+            const Walk *walk = &g->walk[obj->id];
+            state->z = walk->active ? (int32_t)walk->walker.y : state->y;
+        } else {
+            // A scene object (sub_401810): the lowest edge of its current
+            // frame's MSK rects (its sprite sits at y 0), never less than 1.
+            int bottom = petka_msk_frame_bottom(v->msk, v->msk_len, v->flic->frame_count, v->flic->frame_index);
+            bottom += state->y;
+            state->z = bottom > 1 ? bottom : 1;
         }
-        out[n].z = state->z;
+    }
+    z_order_sort(g);
+    // The heroes walk the game's room; a sequence shows only its own objects.
+    int n = 0;
+    for (int k = 0; k < g->z_order_n && n < max; k++) {
+        const PetkaObject *obj = petka_script_find(g->script, g->z_order[k]);
+        if (!obj || !g->visuals[obj_index(g, obj)].live) continue;
+        out[n].obj = obj;
+        out[n].z = g->vm->state[obj_index(g, obj)].z;
         n++;
     }
-    qsort(out, (size_t)n, sizeof(Drawable), by_z);
     return n;
 }
 
@@ -2851,6 +2888,10 @@ static void part_close(Game *g) {
     for (uint32_t i = 0; g->script && g->visuals && i < g->script->object_count; i++) visual_free(&g->visuals[i]);
     free(g->visuals);
     g->visuals = NULL;
+    free(g->z_order);
+    g->z_order = NULL;
+    g->z_order_n = 0;
+    g->z_order_room = PETKA_NONE;
     visual_free(&g->cursor);
     visual_free(&g->star);
     g->star_open = 0;
@@ -2949,6 +2990,9 @@ static int part_open(Game *g, int number, int chapter) {
     g->vm = petka_scriptvm_open(g->script, &g->host);
     load_names(g, g->part);
     g->visuals = (Visual *)calloc(g->script->object_count, sizeof(Visual));
+    g->z_order = (uint16_t *)calloc(g->script->object_count + 2, sizeof(uint16_t));
+    g->z_order_n = 0;
+    g->z_order_room = PETKA_NONE;
     for (uint32_t i = 0; i < g->script->object_count; i++) g->visuals[i].resource = PETKA_NONE;
     return 1;
 }
