@@ -41,11 +41,16 @@ Film *film_open(const char *path, int width, int height, int fps, const char **w
     const char *tmp = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
     snprintf(sound_file, sizeof(sound_file), "%s/petka_film_%d.wav", tmp, (int)getpid());
     const char *ffmpeg = ffmpeg_program();
-    snprintf(command, sizeof(command), "\"%s\" -v error -y -i \"%s\" -vn -f wav \"%s\"", ffmpeg, path, sound_file);
+    // Quiet: a film without sound (adv.avi, credits.avi) fails here, and
+    // is played without it, as the exe does.
+    snprintf(command, sizeof(command), "\"%s\" -v quiet -y -i \"%s\" -vn -f wav \"%s\"", ffmpeg, path, sound_file);
     if (system(command) == 0 && FileExists(sound_file)) film->sound = LoadFileData(sound_file, &film->sound_len);
     remove(sound_file);
 
-    snprintf(command, sizeof(command), "\"%s\" -v error -i \"%s\" -an -vf fps=%d,scale=%d:%d -f rawvideo -pix_fmt rgba -",
+    // Fatal errors only: a film cut short closes the pipe, and ffmpeg would
+    // complain of it ("Broken pipe"). A film it cannot read at all shows
+    // as no first frame below.
+    snprintf(command, sizeof(command), "\"%s\" -v fatal -i \"%s\" -an -vf fps=%d,scale=%d:%d -f rawvideo -pix_fmt rgba -",
              ffmpeg, path, fps, width, height);
     film->frames = popen(command, "r");
     film->frame_bytes = (size_t)width * height * 4;
