@@ -1882,6 +1882,21 @@ found in `CAST.INI`/`NAMES.INI`/`INVNTR.TXT` to confirm which `item_id`
 is which inventory item by number; inferred only from each reply's joke
 content matching a specific item.
 
+**Topic 0xFFFE: the game's stock replies.** Besides the per-object topics
+there is one topic whose id is `0xFFFE` (65534) and that belongs to no
+object. Its verbs are the replies to anything without a line of its own:
+`1` (use) — *"Я не могу использовать это." / "Зачем?" / "Я не могу этого
+сделать."*, `6` (take) — *"Я не могу взять это."*, `(1<<16)|26` (send
+Chapayev) — *"Нет, Петька." / "Отстань, Петька."*, and `(item<<16)|26` for
+each inventory item — *"Так ничего не получится."*, *"Этот ключ служит только
+для одного - открыть свой замок."*. The exe's lookup (`sub_40BEB0`) gives no
+dialogue for END and HALF; else the object's own verb equal to the message
+key; else, for an OBJECTUSE, the object's own `0xFFFE` verb; else topic
+`0xFFFE`'s verb equal to the key. The last two are flagged generic, and of
+its two callers the one in a matching script reaction (`0x403342`) takes
+only a non-generic dialogue, while the one for a message no reaction takes
+(`0x403514`) takes any and starts it.
+
 ### Bytecode instruction set (word = `u32`, opcode = top byte)
 
 | opcode | mnemonic | operand (low 24 bits)                    | meaning |
