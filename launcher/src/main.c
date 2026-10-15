@@ -662,8 +662,10 @@ int main(int argc, char **argv) {
                            (Rectangle){0, 0, g->bg_tex.width * scale, g->bg_tex.height * scale}, (Vector2){0, 0}, 0, WHITE);
         // The thing under the pointer gets a yellow outline (the extras) --
         // drawn or painted on the background, not a character -- while the
-        // player can act in the room itself.
-        int outline = g->opt_highlight && can_act && !g->map_open && g->seq_room == PETKA_NONE;
+        // player can act in the room itself, or on the map round the place
+        // under the pointer (not on the panel, which is a map too).
+        int outline = g->opt_highlight && can_act &&
+                      (g->map_open ? !g->panel_open : g->seq_room == PETKA_NONE);
         for (int i = 0; i < scene_count; i++) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
             Rectangle d = visual_dest(g, scene[i].obj);
