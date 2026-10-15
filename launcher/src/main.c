@@ -2408,6 +2408,10 @@ static void saves_click(Game *g, Vector2 p) {
         int loading = g->save_mode == 1;
         if (loading && !g->save_slot[i].present) return;
         saves_close(g);
+        // A save picked from the screen "load" put up at start-up, or after
+        // the end: that screen was not left empty-handed, so not back to the
+        // menu (the end's went back there at once, the game loaded or not).
+        if (loading) g->boot_load = g->menu_on_back = 0;
         if (loading) { if (game_load(g, path)) set_status(g, "(игра загружена)"); }
         else set_status(g, game_save(g, path) ? "(игра сохранена)" : "(не удалось записать сохранение)");
         return;
