@@ -207,6 +207,7 @@ typedef struct {
     int extras_focus;
     int opt_aim;        // the pointer is drawn to things nearby (a controller)
     int opt_highlight;  // a yellow outline round the things that can be clicked
+    uint16_t case_outline; // the thing in the case under the pointer, outlined; PETKA_NONE = none
     // The lid's pictures in grey (case_lid_grey()): [0] all three, for the
     // case that picks a thing for an object; [1] Chapayev's alone -- a
     // controller sends him with R, and his button is dead in any case.

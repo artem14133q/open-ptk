@@ -189,9 +189,13 @@ void draw_case(Game *g, float scale) {
     }
     for (int k = 0; k < CASE_PAGE; k++) {
         Visual *v = NULL;
-        if (!case_item(g, k, &v)) continue;
-        visual_draw(v, (Rectangle){kCaseCell[k][0] * scale, kCaseCell[k][1] * scale, v->flic->width * scale,
-                                   v->flic->height * scale});
+        const PetkaObject *thing = case_item(g, k, &v);
+        if (!thing) continue;
+        Rectangle at = {kCaseCell[k][0] * scale, kCaseCell[k][1] * scale, v->flic->width * scale,
+                        v->flic->height * scale};
+        visual_draw(v, at);
+        // The thing under the pointer gets the yellow outline (the extras).
+        if (thing->id == g->case_outline) highlight_draw(v, at);
     }
     // "Полоска в чемодане", the strap, lies across the things.
     clip_show(g, &g->case_strip, CASE_STRAP, 0);

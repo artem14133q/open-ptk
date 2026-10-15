@@ -20,8 +20,8 @@ void highlight_close(void);
 // EN: Draws the outline of a clip's frame placed as visual_draw() would put it.
 // RU: Рисует обводку кадра клипа там, куда его поставил бы visual_draw().
 void highlight_draw(const Visual *v, Rectangle frame);
-// EN: Whether an object gets the outline: seen, clickable, not a hero.
-// RU: Обводить ли объект: виден, на него можно нажать, не герой.
+// EN: Whether an object gets the outline: seen and clickable (heroes too).
+// RU: Обводить ли объект: виден и на него можно нажать (герои тоже).
 int highlight_wanted(const Game *g, const PetkaObject *obj);
 
 #endif

@@ -682,6 +682,7 @@ int main(int argc, char **argv) {
 
         EndMode2D();
 
+        g->case_outline = g->opt_highlight && in_case && hover ? hover->id : PETKA_NONE;
         if (g->case_open) draw_case(g, scale);
         if (g->star_open) draw_star(g, scale);
         if (g->save_mode) draw_saves(g, font, scale);

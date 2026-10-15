@@ -67,7 +67,6 @@ void highlight_close(void) {
 }
 
 int highlight_wanted(const Game *g, const PetkaObject *obj) {
-    if (is_hero(obj->id)) return 0;
     const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
     return st->visible && st->active;
 }
