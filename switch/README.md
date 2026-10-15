@@ -46,7 +46,7 @@ there.
 | X | the case: up, down, left, right go from thing to thing, L / R turn the pages |
 | Y | the map |
 | + | the panel (menu, options, saving) |
-| - | the extras menu: the CRT look, the band under texts, the pull to things |
+| - | the extras menu: the CRT look, the band under texts, the outline of things, the pull to things |
 | ZL / ZR | load / save screen |
 | left stick press | the CRT look on and off |
 | right stick press | the debug overlay |

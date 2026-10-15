@@ -1,6 +1,6 @@
 add_executable(petka_launcher
     src/main.c src/platform.c src/film_pipe.c src/film_av.c src/crt.c
-    src/common.c src/text.c src/resources.c src/audio.c src/visual.c src/scene.c src/heroes.c src/conversation.c src/host.c src/film_play.c src/inventory.c src/pad.c src/star.c src/screens.c src/saves.c src/menu.c src/part.c src/play.c src/extras.c)
+    src/common.c src/text.c src/resources.c src/audio.c src/visual.c src/scene.c src/heroes.c src/conversation.c src/host.c src/film_play.c src/inventory.c src/pad.c src/star.c src/screens.c src/saves.c src/menu.c src/part.c src/play.c src/extras.c src/highlight.c)
 
 target_link_libraries(petka_launcher PRIVATE petka_core)
 

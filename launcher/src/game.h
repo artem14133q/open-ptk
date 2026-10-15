@@ -35,6 +35,7 @@
 //   menu.c         Стартовое меню.
 //   part.c         Часть игры: открытие и закрытие её архивов и сценария, запуск и смена частей.
 //   play.c         Для разработки: прохождение по сценарию (PETKA_PLAY) из списка шагов.
+//   highlight.c    Жёлтая обводка вокруг предметов, с которыми можно взаимодействовать.
 //   extras.c       Меню «Дополнительно» (Tab, на Switch - минус): что добавляет лаунчер, вкл/выкл.
 #ifndef PETKA_LAUNCHER_GAME_H
 #define PETKA_LAUNCHER_GAME_H
@@ -205,6 +206,7 @@ typedef struct {
     int extras_open;
     int extras_focus;
     int opt_aim;        // the pointer is drawn to things nearby (a controller)
+    int opt_highlight;  // a yellow outline round the things that can be clicked
     // The lid's pictures in grey (case_lid_grey()): [0] all three, for the
     // case that picks a thing for an object; [1] Chapayev's alone -- a
     // controller sends him with R, and his button is dead in any case.
@@ -306,5 +308,6 @@ typedef struct {
 #include "part.h"
 #include "play.h"
 #include "extras.h"
+#include "highlight.h"
 
 #endif

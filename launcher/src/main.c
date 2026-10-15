@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
     // close button ends the program.
     SetExitKey(KEY_NULL);
     plat_init();
+    highlight_init();
     s_turbo = getenv("PETKA_TURBO") != NULL;
     SetTargetFPS(s_turbo ? 0 : 60);
     InitAudioDevice();
@@ -88,6 +89,9 @@ int main(int argc, char **argv) {
     // The extras as last set -- not in an unattended dev run, which keeps
     // to its defaults.
     g->opt_aim = 1;
+    // On by default -- but not in an unattended dev run, whose screenshots
+    // are compared pixel for pixel with older ones.
+    g->opt_highlight = !unattended || getenv("PETKA_HIGHLIGHT");
     if (!unattended) extras_load(g);
     int crt_saved = crt_on();
     Drawable scene[256];
@@ -653,15 +657,20 @@ int main(int argc, char **argv) {
         if (g->bg_tex.id)
             DrawTexturePro(g->bg_tex, (Rectangle){0, 0, (float)g->bg_tex.width, (float)g->bg_tex.height},
                            (Rectangle){0, 0, g->bg_tex.width * scale, g->bg_tex.height * scale}, (Vector2){0, 0}, 0, WHITE);
+        // The things that can be clicked get a yellow outline (the extras),
+        // while the player can act in the room itself.
+        int outline = g->opt_highlight && can_act && !g->map_open && g->seq_room == PETKA_NONE;
         for (int i = 0; i < scene_count; i++) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
             Rectangle d = visual_dest(g, scene[i].obj);
             int shown = vm->state[obj_index(g, scene[i].obj)].visible;
+            Rectangle at = {d.x * scale, d.y * scale, d.width * scale, d.height * scale};
             // On the map a place's clip is its highlight: the script keeps it
             // hidden, and the map's mouse function (sub_41D4D0) shows the one
             // under the pointer, on its first frame, and hides the rest.
-            if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover))
-                visual_draw(v, (Rectangle){d.x * scale, d.y * scale, d.width * scale, d.height * scale});
+            if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover)) visual_draw(v, at);
+            // Drawn with the thing, in z order: what stands nearer covers it.
+            if (outline && highlight_wanted(g, scene[i].obj)) highlight_draw(v, at);
             if (debug && !is_hero(scene[i].obj->id)) {
                 Rectangle r = {v->rect.left * scale, v->rect.top * scale,
                                (v->rect.right - v->rect.left) * scale, (v->rect.bottom - v->rect.top) * scale};
@@ -872,6 +881,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < MAX_SOUNDS; i++) if (g->sounds[i].frameCount > 0) UnloadSound(g->sounds[i]);
     if (font.texture.id != GetFontDefault().texture.id) UnloadFont(font);
     CloseAudioDevice();
+    highlight_close();
     plat_close();
     CloseWindow();
     return s_play.failed ? 3 : 0;

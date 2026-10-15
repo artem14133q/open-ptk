@@ -4,7 +4,8 @@
 // RU: Меню «Дополнительно» (Tab, на Switch - минус): что добавляет лаунчер, вкл/выкл.
 #include "game.h"
 const char *const kExtraName[EXTRA_COUNT] = {
-    "Вид ЭЛТ-монитора", "Тёмная подложка под текстом", "Притяжение указателя к предметам", "Отладочный экран",
+    "Вид ЭЛТ-монитора", "Тёмная подложка под текстом", "Подсветка предметов", "Притяжение указателя к предметам",
+    "Отладочный экран",
 };
 
 // The rows shown: the pull is a controller's only.
@@ -20,6 +21,7 @@ int extra_value(const Game *g, int i, int debug) {
     case EXTRA_CRT: return crt_on();
     case EXTRA_BAND: return s_band;
     case EXTRA_AIM: return g->opt_aim;
+    case EXTRA_HIGHLIGHT: return g->opt_highlight;
     default: return debug;
     }
 }
@@ -33,7 +35,7 @@ Rectangle extras_row_rect(int k, float scale) {
 void extras_save(const Game *g) {
     FILE *f = fopen(EXTRAS_FILE, "w");
     if (!f) return;
-    fprintf(f, "crt=%d\nband=%d\naim=%d\n", crt_on() ? 1 : 0, s_band, g->opt_aim);
+    fprintf(f, "crt=%d\nband=%d\naim=%d\nhighlight=%d\n", crt_on() ? 1 : 0, s_band, g->opt_aim, g->opt_highlight);
     fclose(f);
 }
 
@@ -46,6 +48,7 @@ void extras_load(Game *g) {
         if (sscanf(line, "crt=%d", &value) == 1) crt_set(value != 0);
         else if (sscanf(line, "band=%d", &value) == 1) s_band = value != 0;
         else if (sscanf(line, "aim=%d", &value) == 1) g->opt_aim = value != 0;
+        else if (sscanf(line, "highlight=%d", &value) == 1) g->opt_highlight = value != 0;
     }
     fclose(f);
 }
@@ -68,6 +71,7 @@ void extras_update(Game *g, Vector2 mouse, float scale, int *debug) {
     case EXTRA_CRT: crt_toggle(); break;
     case EXTRA_BAND: s_band = !s_band; break;
     case EXTRA_AIM: g->opt_aim = !g->opt_aim; break;
+    case EXTRA_HIGHLIGHT: g->opt_highlight = !g->opt_highlight; break;
     case EXTRA_DEBUG: *debug = !*debug; return;
     }
     extras_save(g);
