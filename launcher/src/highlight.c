@@ -245,7 +245,12 @@ int highlight_wanted(const Game *g, const PetkaObject *obj) {
 // One loop as a closed curve: Catmull-Rom wants the points before the
 // first and after the last too, so the loop is passed round once more.
 static void draw_loop(const Vector2 *p, int count, Rectangle frame, float sx, float sy, float thick, Color ink) {
-    Vector2 stack[512], *ring = count + 3 <= 512 ? stack : (Vector2 *)malloc((size_t)(count + 3) * sizeof(Vector2));
+    static Vector2 *ring;
+    static int ring_cap;
+    if (count + 3 > ring_cap) {
+        ring_cap = count + 3 > 2 * ring_cap ? count + 3 : 2 * ring_cap;
+        ring = (Vector2 *)realloc(ring, (size_t)ring_cap * sizeof(Vector2));
+    }
     for (int i = 0; i < count + 3; i++) {
         Vector2 q = p[(i + count - 1) % count];
         ring[i] = (Vector2){frame.x + q.x * sx, frame.y + q.y * sy};
@@ -253,7 +258,6 @@ static void draw_loop(const Vector2 *p, int count, Rectangle frame, float sx, fl
     DrawSplineCatmullRom(ring, count + 3, thick, ink);
     // Round joins: no notches where the pieces of the curve meet.
     for (int i = 1; i < count + 1; i++) DrawCircleV(ring[i], thick / 2, ink);
-    if (ring != stack) free(ring);
 }
 
 void highlight_draw(const Visual *v, Rectangle frame) {
