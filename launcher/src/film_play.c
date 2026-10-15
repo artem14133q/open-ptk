@@ -69,12 +69,15 @@ void play_film(Game *g, const char *name) {
 
     double start = GetTime();
     long shown = 0;
-    int ended = 0;
+    int ended = 0, polled = 0;
     while (!ended) {
         if (WindowShouldClose()) { g->quit = 1; break; }
         plat_poll();
-        // Any key or either mouse button ends it, as in the original.
-        if (plat_any_key()) break;
+        // Any key or either mouse button ends it, as in the original --
+        // once a frame of it has been shown: before that the input is still
+        // the frame's that started it, and the click on "credits" in the
+        // menu, or on the thing whose film it is, ended it at once.
+        if (polled && plat_any_key()) break;
         if (sound.frameCount > 0) UpdateMusicStream(sound);
         long due = (long)((GetTime() - start) * FILM_FPS);
         while (shown < due && !ended) {
@@ -87,6 +90,7 @@ void play_film(Game *g, const char *name) {
         DrawTexturePro(screen, (Rectangle){0, 0, GAME_W, GAME_H},
                        (Rectangle){0, 0, (float)plat_width(), (float)plat_height()}, (Vector2){0, 0}, 0, WHITE);
         plat_end();
+        polled = 1; // the input is read afresh at the end of a frame
         if (dev && GetTime() - start >= shot_at) {
             if (shot_file[0]) ExportImage(first, shot_file);
             fprintf(stderr, "film: %s, %ld frames in %.1f s\n", name, shown, GetTime() - start);
