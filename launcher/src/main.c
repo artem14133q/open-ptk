@@ -657,8 +657,9 @@ int main(int argc, char **argv) {
         if (g->bg_tex.id)
             DrawTexturePro(g->bg_tex, (Rectangle){0, 0, (float)g->bg_tex.width, (float)g->bg_tex.height},
                            (Rectangle){0, 0, g->bg_tex.width * scale, g->bg_tex.height * scale}, (Vector2){0, 0}, 0, WHITE);
-        // The thing under the pointer gets a yellow outline (the extras), if
-        // it can be seen and clicked, while the player can act in the room.
+        // The thing under the pointer gets a yellow outline (the extras) --
+        // drawn or painted on the background, not a character -- while the
+        // player can act in the room itself.
         int outline = g->opt_highlight && can_act && !g->map_open && g->seq_room == PETKA_NONE;
         for (int i = 0; i < scene_count; i++) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
@@ -682,7 +683,6 @@ int main(int argc, char **argv) {
 
         EndMode2D();
 
-        g->case_outline = g->opt_highlight && in_case && hover ? hover->id : PETKA_NONE;
         if (g->case_open) draw_case(g, scale);
         if (g->star_open) draw_star(g, scale);
         if (g->save_mode) draw_saves(g, font, scale);

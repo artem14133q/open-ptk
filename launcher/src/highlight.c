@@ -67,8 +67,14 @@ void highlight_close(void) {
 }
 
 int highlight_wanted(const Game *g, const PetkaObject *obj) {
-    const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
-    return st->visible && st->active;
+    if (is_hero(obj->id)) return 0;
+    // Nor the other characters: CAST.INI gives the lines of everyone who
+    // speaks a colour of their own.
+    Color ink = g->colors[obj_index(g, obj)], none = NO_CAST_INK;
+    if (ink.r != none.r || ink.g != none.g || ink.b != none.b) return 0;
+    // Seen or not: a hidden one that can be clicked is a thing painted on
+    // the background, and its clip is that thing cut out of it.
+    return g->vm->state[obj_index(g, obj)].active;
 }
 
 void highlight_draw(const Visual *v, Rectangle frame) {
