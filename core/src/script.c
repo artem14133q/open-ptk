@@ -600,8 +600,22 @@ static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
 
         // In a reaction only the object's own dialogue (the exe's call at
         // 0x40333D takes it only when not generic).
-        if (has_dialogue(vm, obj->id, key) == 1 && vm->host.select_dialogue)
-            vm->host.select_dialogue(vm->host.user, obj->id, key);
+        int own = has_dialogue(vm, obj->id, key) == 1;
+        if (own && vm->host.select_dialogue) vm->host.select_dialogue(vm->host.user, obj->id, key);
+
+        // A line the exe never says, put back by the host (restore_dialogue):
+        // the object's own dialogue first, the whole reaction after it.
+        if (own && vm->host.restore_dialogue && vm->host.start_dialogue) {
+            int says = 0;
+            for (uint32_t i = 0; i < re->message_count; i++) says |= re->messages[i].opcode == PETKA_OP_DIALOG;
+            if (!says && vm->host.restore_dialogue(vm->host.user, obj->id, key, re->status)) {
+                vm->dialog_sender = obj->id;
+                tail_set(&vm->dialog_tail, re->messages, re->message_count, 0);
+                vm->host.start_dialogue(vm->host.user, obj->id, PETKA_NONE);
+                reacted = 1;
+                continue;
+            }
+        }
 
         for (uint32_t i = 0; i < re->message_count; i++) {
             PetkaMessage *m = &re->messages[i];

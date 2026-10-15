@@ -92,6 +92,9 @@ int main(int argc, char **argv) {
     // On by default -- but not in an unattended dev run, whose screenshots
     // are compared pixel for pixel with older ones.
     g->opt_highlight = !unattended || getenv("PETKA_HIGHLIGHT");
+    // The restored dialogues likewise: on, but not in an unattended run
+    // unless PETKA_RESTORED asks.
+    g->opt_restored = !unattended || getenv("PETKA_RESTORED");
     if (!unattended) extras_load(g);
     int crt_saved = crt_on();
     Drawable scene[256];

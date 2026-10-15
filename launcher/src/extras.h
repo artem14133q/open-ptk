@@ -12,7 +12,7 @@
 // What this launcher adds to the game, switched on and off in a menu of its
 // own over the game -- Tab on a desktop, - on the Switch -- and kept in
 // extras.ini beside the saves. The game goes on under it but hears no input.
-enum { EXTRA_CRT, EXTRA_BAND, EXTRA_HIGHLIGHT, EXTRA_AIM, EXTRA_DEBUG, EXTRA_COUNT };
+enum { EXTRA_CRT, EXTRA_BAND, EXTRA_HIGHLIGHT, EXTRA_RESTORED, EXTRA_AIM, EXTRA_DEBUG, EXTRA_COUNT };
 
 #define EXTRAS_FILE "extras.ini"
 

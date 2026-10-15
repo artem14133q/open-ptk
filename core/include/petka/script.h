@@ -216,6 +216,13 @@ typedef struct {
     // Start the current dialogue. Call petka_scriptvm_dialogue_ended() once
     // it is over.
     void (*start_dialogue)(void *user, uint16_t obj_id, uint16_t arg);
+    // Optional: play the object's own dialogue before a reaction of the
+    // script that has no DIALOG of its own? (status is the reaction's, 0xFF
+    // for any.) The exe never does -- a dialogue starts only from DIALOG or
+    // for a message no reaction takes, and so some lines of DIALOGUE.FIX are
+    // never said -- but a host may put such lines back. Then the dialogue
+    // plays first and the reaction runs after it, as a DIALOG's tail does.
+    int (*restore_dialogue)(void *user, uint16_t obj_id, uint32_t verb_key, uint8_t status);
 
     // Start walking a hero. Return non-zero if the walk actually started;
     // the hero is then busy until petka_scriptvm_walk_ended(). Returning 0
