@@ -277,9 +277,22 @@ void draw_saves(Game *g, Font font, float scale) {
         Rectangle r = kSaveSlot[i];
         DrawTexturePro(g->save_slot[i].tex, (Rectangle){0, 0, PETKA_SAVE_THUMB_W, PETKA_SAVE_THUMB_H},
                        (Rectangle){r.x * scale, r.y * scale, r.width * scale, r.height * scale}, (Vector2){0, 0}, 0, WHITE);
-        // The label, in the exe's dark green and its 20-pixel font, in a
-        // box 240 wide a pixel below the picture.
-        draw_wrapped(font, g->save_slot[i].label, r.x * scale, (r.y + r.height + 1) * scale, 240 * scale, 20 * scale,
-                     20 * scale, (Color){0, 127, 0, 255});
+        // The label in a box 240 wide a pixel below the picture, in the
+        // exe's 20-pixel font -- not its dark green, but as the subtitles
+        // are drawn: white, rimmed in black, on the dark band.
+        enum { LABEL_LINES = 4 };
+        char lines[LABEL_LINES][512];
+        const float size = 20 * scale, x = r.x * scale, y = (r.y + r.height + 1) * scale;
+        int count = wrap_text(font, g->save_slot[i].label, size, 240 * scale, lines, LABEL_LINES);
+        float widest = 0;
+        for (int k = 0; k < count; k++) {
+            size_t n = strlen(lines[k]);
+            while (n && lines[k][n - 1] == ' ') lines[k][--n] = 0; // the space the line broke at
+            float w = MeasureTextEx(font, lines[k], size, 1).x;
+            if (w > widest) widest = w;
+        }
+        if (count > 0) draw_band((Rectangle){x, y, widest, count * size}, scale);
+        for (int k = 0; k < count; k++)
+            draw_rimmed(font, lines[k], (Vector2){x, y + k * size}, size, WHITE, BLACK, scale);
     }
 }
