@@ -219,6 +219,11 @@ typedef struct {
     // is held, and drawn again it is back where it was last seen.
     int pad_hidden;     // it was not drawn last frame
     Vector2 pad_seen;   // where it was last drawn
+    // The case takes the pointer to its things; shut, it gives it back
+    // where it was before -- on the object the star was up for, if that is
+    // how the case was opened.
+    int pad_case_was_open;
+    Vector2 pad_case_return;
     int auto_pick;     // dev: line to pick without asking; -1 = the last one, -2 = ask
     int dialogue_done; // tell the VM on the next frame
     char line[512];    // current phrase, UTF-8
@@ -3053,8 +3058,9 @@ static void chapter_open(Game *g, int chapter) {
 // part (sub_412040): nothing of the old game is kept -- and since the game
 // writes into its script and dialogue code as it goes, this is also how a
 // part is started over.
-static void game_switch(Game *g, int part, int chapter) {
-    int old_part = g->part_number, old_chapter = g->chapter;
+// Whatever the launcher has up for the game -- the map, the save screen,
+// a dialogue, a sequence, the case, a walk -- is taken down.
+static void game_screens_down(Game *g) {
     map_leave(g);
     saves_close(g);
     g->dialogue = NULL;
@@ -3070,7 +3076,13 @@ static void game_switch(Game *g, int part, int chapter) {
     g->verb = 0;
     g->camera_x = g->camera_target = 0;
     g->camera_snap = 1;
+    g->star_open = 0;
+    g->desc[0] = 0;
+}
 
+static void game_switch(Game *g, int part, int chapter) {
+    int old_part = g->part_number, old_chapter = g->chapter;
+    game_screens_down(g);
     part_close(g);
     if (!part_open(g, part, chapter)) {
         part_close(g);
@@ -3660,6 +3672,12 @@ int main(int argc, char **argv) {
             int again = run_menu(g, font);
             if (g->quit || !again) break;
             if (again == 2) {
+                // As "load" at start-up: the script set going afresh, no
+                // room yet, and the save screen over it -- not over the end
+                // still running, which hid the pointer and in a while took
+                // the save screen down.
+                game_screens_down(g);
+                game_init(g);
                 g->boot_load = g->menu_on_back = 1;
                 saves_open(g, 1);
             } else {
@@ -4270,10 +4288,24 @@ int main(int argc, char **argv) {
         // phrases and brings it back for a menu.
         // With a controller the star stands for it while it is up, and in a
         // dialogue's menu the lit line does.
-        int pointer_shown = !g->extras_open && vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) &&
-                            (!g->talking || g->menu_count > 0) &&
-                            !(plat_pad() && (g->star_open || g->menu_count > 0));
+        // The save screen is the launcher's own and has it always, whatever
+        // the script did with the cursor: after "load" from the start-up
+        // menu the script has just been set going, with the cursor off.
+        int pointer_shown = !g->extras_open &&
+                            (g->save_mode ||
+                             (vm->cursor_visible && (g->seq_room == PETKA_NONE || g->map_open) &&
+                              (!g->talking || g->menu_count > 0) &&
+                              !(plat_pad() && (g->star_open || g->menu_count > 0))));
         if (plat_pad()) {
+            if (g->case_open && !g->pad_case_was_open) g->pad_case_return = g->pad_seen;
+            if (!g->case_open && g->pad_case_was_open) {
+                g->pad_seen = g->pad_case_return;
+                if (pointer_shown) {
+                    mouse = g->pad_seen;
+                    plat_set_pointer(mouse);
+                }
+            }
+            g->pad_case_was_open = g->case_open;
             if (pointer_shown && g->pad_hidden) {
                 mouse = g->pad_seen;
                 plat_set_pointer(mouse);
