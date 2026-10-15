@@ -25,8 +25,8 @@
 // EN: The dialogue an object has for a verb and sender.
 // RU: Диалог объекта для действия и отправителя.
 const PetkaDialogueVerb *find_dialogue(const Game *g, uint16_t obj_id, uint32_t key);
-// EN: Whether an object has a dialogue (the VM's callback).
-// RU: Есть ли у объекта диалог (обратный вызов машины).
+// EN: Whether an object has a dialogue: 0 none, 1 its own, 2 a generic one (the VM's callback).
+// RU: Есть ли у объекта диалог: 0 - нет, 1 - свой, 2 - общий (обратный вызов машины).
 int host_has_dialogue(void *user, uint16_t obj_id, uint32_t key);
 // EN: Picks the dialogue to play (the VM's callback).
 // RU: Выбирает диалог для проигрывания (обратный вызов машины).

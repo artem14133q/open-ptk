@@ -6,61 +6,16 @@
 
 // ---- dialogue ----
 
-// Whether the script has a reaction of the object that takes this message
-// (the VM's own match: the opcode, the object's status, the sender). The
-// sender is in the key for OBJECTUSE only; for the rest it is the object
-// itself, as a click sends it.
-static int has_reaction(const Game *g, uint16_t obj_id, uint32_t key) {
-    const PetkaObject *obj = petka_script_find(g->script, obj_id);
-    if (!obj) return 0;
-    const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
-    uint16_t op = (uint16_t)(key & 0xFFFF);
-    int sender = op == PETKA_OP_OBJECTUSE && key > 0xFFFF ? (int)(key >> 16) : obj_id;
-    for (uint32_t r = 0; r < obj->reaction_count; r++) {
-        const PetkaReaction *re = &obj->reactions[r];
-        if (re->opcode != op) continue;
-        if (re->status != 0xFF && re->status != st->status) continue;
-        if (re->sender != PETKA_NONE && (int)re->sender != sender) continue;
-        return 1;
-    }
-    return 0;
-}
-
-// The dialogue for a message to an object, as the exe looks it up
-// (sub_40BEB0): none for END and HALF; the object's own line for the
-// message; failing that, for an OBJECTUSE, the object's reply to any item
-// (verb 0xFFFE); failing that, the game's stock replies -- topic 0xFFFE:
-// "Я не могу взять это.", "Зачем?", Chapayev's "Нет, Петька.", a line for
-// each thing used where it does nothing. Those last two are the exe's
-// generic ones, and it takes them only for a message no reaction of the
-// script takes (its two callers, 0x403342 and 0x403514): a reaction may
-// start only the object's own dialogue.
+// The dialogue for a message to an object: the core looks it up as the
+// exe does (petka_dialoguetree_find), the stock replies included.
 const PetkaDialogueVerb *find_dialogue(const Game *g, uint16_t obj_id, uint32_t key) {
-    if (!g->dtree) return NULL;
-    uint16_t op = (uint16_t)(key & 0xFFFF);
-    if (op == PETKA_OP_END || op == PETKA_OP_HALF) return NULL;
-    const PetkaDialogueVerb *generic = NULL;
-    for (uint32_t t = 0; t < g->dtree->topic_count; t++) {
-        const PetkaDialogueTopic *topic = &g->dtree->topics[t];
-        if (topic->topic_id != obj_id) continue;
-        for (uint32_t v = 0; v < topic->verb_count; v++) {
-            if (!topic->verbs[v].entry_count) continue;
-            if (topic->verbs[v].verb_id == key) return &topic->verbs[v];
-            if (op == PETKA_OP_OBJECTUSE && topic->verbs[v].verb_id == 0xFFFE && !generic) generic = &topic->verbs[v];
-        }
-    }
-    for (uint32_t t = 0; t < g->dtree->topic_count && !generic; t++) {
-        const PetkaDialogueTopic *topic = &g->dtree->topics[t];
-        if (topic->topic_id != 0xFFFE) continue;
-        for (uint32_t v = 0; v < topic->verb_count && !generic; v++)
-            if (topic->verbs[v].entry_count && topic->verbs[v].verb_id == key) generic = &topic->verbs[v];
-    }
-    if (generic && has_reaction(g, obj_id, key)) return NULL;
-    return generic;
+    return petka_dialoguetree_find(g->dtree, obj_id, key, NULL);
 }
 
 int host_has_dialogue(void *user, uint16_t obj_id, uint32_t key) {
-    return find_dialogue((Game *)user, obj_id, key) != NULL;
+    int generic = 0;
+    const PetkaDialogueVerb *verb = petka_dialoguetree_find(((Game *)user)->dtree, obj_id, key, &generic);
+    return !verb ? 0 : generic ? 2 : 1;
 }
 
 void host_select_dialogue(void *user, uint16_t obj_id, uint32_t key) {

@@ -102,6 +102,21 @@ typedef struct {
     int skip_shown;    // standing on a SKIPN whose phrase is being shown
 } PetkaDialogueVM;
 
+// What the game says for a message to an object, as the exe looks it up
+// (sub_40BEB0): no dialogue for END (11) and HALF (34); the object's own
+// verb equal to `key` (the opcode, or (sender << 16) | 26 for OBJECTUSE);
+// failing that, for an OBJECTUSE, the object's reply to any item (verb
+// 0xFFFE); failing that, the game's stock replies -- topic 0xFFFE, which
+// belongs to no object: "Я не могу взять это.", Chapayev's "Нет, Петька.",
+// a line for each thing used where it does nothing. Those two last are
+// generic: *generic (if given) says so. NULL if there is none.
+// RU: Диалог на сообщение объекту, как его ищет exe (sub_40BEB0): для END и
+// HALF - никакого; своё действие объекта, равное ключу; иначе для OBJECTUSE -
+// ответ объекта «на любой предмет»; иначе стандартные ответы темы 0xFFFE.
+// Два последних - общие (*generic = 1). NULL, если диалога нет.
+const PetkaDialogueVerb *petka_dialoguetree_find(const PetkaDialogueTree *tree, uint16_t obj_id, uint32_t key,
+                                                 int *generic);
+
 // EN: Starts a dialogue from its beginning.
 // RU: Начинает диалог с его начала.
 void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32_t start_offset);

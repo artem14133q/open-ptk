@@ -306,8 +306,10 @@ void petka_scriptvm_broadcast(PetkaScriptVM *vm, uint16_t opcode, uint16_t arg1,
         petka_scriptvm_post(vm, vm->script->objects[i].id, opcode, arg1, arg2, arg3, sender);
 }
 
+// 0 none, 1 the object's own dialogue, 2 a generic one (see the host's
+// has_dialogue).
 static int has_dialogue(PetkaScriptVM *vm, uint16_t obj_id, uint32_t key) {
-    return vm->host.has_dialogue && vm->host.has_dialogue(vm->host.user, obj_id, key);
+    return vm->host.has_dialogue ? vm->host.has_dialogue(vm->host.user, obj_id, key) : 0;
 }
 
 static void walk_hero(PetkaScriptVM *vm, uint16_t hero_id, int32_t x, int32_t y) {
@@ -596,7 +598,9 @@ static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
         if (re->status != 0xFF && re->status != st->status) continue;
         if (re->sender != PETKA_NONE && (int)re->sender != q->sender) continue;
 
-        if (has_dialogue(vm, obj->id, key) && vm->host.select_dialogue)
+        // In a reaction only the object's own dialogue (the exe's call at
+        // 0x40333D takes it only when not generic).
+        if (has_dialogue(vm, obj->id, key) == 1 && vm->host.select_dialogue)
             vm->host.select_dialogue(vm->host.user, obj->id, key);
 
         for (uint32_t i = 0; i < re->message_count; i++) {
@@ -619,7 +623,8 @@ static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
     }
 
     if (!reacted && has_dialogue(vm, obj->id, key)) {
-        // No scripted reaction, but DIALOGUE.FIX has a line for this verb.
+        // No scripted reaction, but DIALOGUE.FIX has a line for this verb --
+        // the object's own or a generic one (the exe's call at 0x403514).
         if (vm->host.select_dialogue) vm->host.select_dialogue(vm->host.user, obj->id, key);
         vm->dialog_sender = obj->id;
         tail_clear(&vm->dialog_tail);

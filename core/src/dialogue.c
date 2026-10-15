@@ -167,6 +167,35 @@ void petka_dialoguetree_close(PetkaDialogueTree *tree) {
     free(tree);
 }
 
+const PetkaDialogueVerb *petka_dialoguetree_find(const PetkaDialogueTree *tree, uint16_t obj_id, uint32_t key,
+                                                 int *generic) {
+    if (generic) *generic = 0;
+    if (!tree) return NULL;
+    uint32_t op = key & 0xFFFF;
+    if (op == 11 || op == 34) return NULL; // END, HALF
+    const PetkaDialogueVerb *any_item = NULL;
+    for (uint32_t t = 0; t < tree->topic_count; t++) {
+        const PetkaDialogueTopic *topic = &tree->topics[t];
+        if (topic->topic_id != obj_id) continue;
+        for (uint32_t v = 0; v < topic->verb_count; v++) {
+            const PetkaDialogueVerb *verb = &topic->verbs[v];
+            if (!verb->entry_count) continue;
+            if (verb->verb_id == key) return verb;
+            if (op == 26 && verb->verb_id == 0xFFFE && !any_item) any_item = verb; // OBJECTUSE
+        }
+    }
+    if (!any_item) {
+        for (uint32_t t = 0; t < tree->topic_count && !any_item; t++) {
+            const PetkaDialogueTopic *topic = &tree->topics[t];
+            if (topic->topic_id != 0xFFFE) continue;
+            for (uint32_t v = 0; v < topic->verb_count && !any_item; v++)
+                if (topic->verbs[v].entry_count && topic->verbs[v].verb_id == key) any_item = &topic->verbs[v];
+        }
+    }
+    if (any_item && generic) *generic = 1;
+    return any_item;
+}
+
 // ---- VM ----
 
 void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32_t start_offset) {

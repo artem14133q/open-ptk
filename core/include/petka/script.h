@@ -205,8 +205,11 @@ typedef struct {
     void *user;
 
     // Is there a DIALOGUE.FIX entry for this object and verb? verb_key is
-    // the opcode, or (item_id << 16) | 26 for OBJECTUSE. Without this
-    // callback the VM assumes there is none.
+    // the opcode, or (item_id << 16) | 26 for OBJECTUSE. 0 for none, 1 for
+    // the object's own, 2 for a generic one -- the reply to any item or a
+    // stock reply (petka_dialoguetree_find): as in the exe, a reaction of
+    // the script may start only the object's own, a message no reaction
+    // takes any. Without this callback the VM assumes there is none.
     int (*has_dialogue)(void *user, uint16_t obj_id, uint32_t verb_key);
     // Make that entry the current one (the next DIALOG message plays it).
     void (*select_dialogue)(void *user, uint16_t obj_id, uint32_t verb_key);

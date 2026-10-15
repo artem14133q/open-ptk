@@ -1895,7 +1895,8 @@ key; else, for an OBJECTUSE, the object's own `0xFFFE` verb; else topic
 `0xFFFE`'s verb equal to the key. The last two are flagged generic, and of
 its two callers the one in a matching script reaction (`0x403342`) takes
 only a non-generic dialogue, while the one for a message no reaction takes
-(`0x403514`) takes any and starts it.
+(`0x403514`) takes any and starts it. Implemented in `core/src/dialogue.c`
+(`petka_dialoguetree_find`) and the VM's use of `has_dialogue`.
 
 ### Bytecode instruction set (word = `u32`, opcode = top byte)
 
