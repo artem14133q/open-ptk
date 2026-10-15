@@ -74,6 +74,7 @@ Font plat_system_font(int size, int *codepoints, int count) {
 
 #include <switch.h>
 
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -93,14 +94,20 @@ static int s_list_step; // this frame's step through a list
 static int s_stick_dir; // where the stick was pushed last frame: -1, 0, +1
 static int s_list_step_x, s_stick_dir_x; // the same across
 static bool s_muted; // plat_mute(), until the next plat_poll()
+static bool s_sockets; // started by nxlink: sockets up, the output going there
 
 void plat_mute(void) { s_muted = true; }
 
 void plat_init(void) {
     // Started by nxlink from a computer, stdout and stderr go back to it --
-    // the launcher's trace and messages. Started any other way this fails
-    // quietly and nothing changes.
-    if (R_SUCCEEDED(socketInitializeDefault()) && nxlinkStdio() < 0) socketExit();
+    // the launcher's trace and messages. Started any other way the
+    // network is left alone: the console's socket service (bsdsocket) has
+    // been seen to die under a game that brought sockets up for nothing,
+    // and its death takes the whole console down (2162-0002).
+    if (__nxlink_host.s_addr != 0 && R_SUCCEEDED(socketInitializeDefault())) {
+        s_sockets = nxlinkStdio() >= 0;
+        if (!s_sockets) socketExit();
+    }
     // A trace.txt in the game's folder turns the trace on and puts it, with
     // everything else said, in petka.log there: for what happens on the
     // console alone. Line by line, so a hang leaves the lines before it.
@@ -124,6 +131,7 @@ void plat_init(void) {
 void plat_close(void) {
     UnloadRenderTexture(s_surface);
     crt_close();
+    if (s_sockets) socketExit();
 }
 
 void plat_begin(void) { BeginTextureMode(s_surface); }
