@@ -158,12 +158,14 @@ void play_tick(Game *g, int can_act) {
         stop_heroes(g);
         petka_scriptvm_post(vm, obj->id, op, point ? (uint16_t)px : 0, point ? (uint16_t)py : 0, 0,
                             op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)obj->id);
+        restored_player_action(g, obj->id, op);
     } else if (!strcmp(st->verb, "item")) {
         if (!play_has(g, st->a)) { snprintf(why, sizeof(why), "thing %d is not in the case", st->a); play_fail(g, why); return; }
         const PetkaObject *obj = play_target(g, st->b, why, sizeof(why));
         if (!obj) { play_fail(g, why); return; }
         stop_heroes(g);
         petka_scriptvm_post(vm, obj->id, PETKA_OP_OBJECTUSE, 0, 0, 0, st->a);
+        restored_player_action(g, obj->id, PETKA_OP_OBJECTUSE);
     } else if (!strcmp(st->verb, "go")) {
         // A "walk" click on the bare floor, as the mouse does it.
         PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);

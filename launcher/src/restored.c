@@ -76,12 +76,21 @@ static const struct {
     {3, 349, 0x1001A, 255}, // Почему бы и нет?
 };
 
+void restored_player_action(Game *g, uint16_t obj, uint16_t op) {
+    g->acted_obj = obj;
+    g->acted_op = op;
+}
+
 int host_restore_dialogue(void *user, uint16_t obj_id, uint32_t key, uint8_t status) {
-    const Game *g = (const Game *)user;
+    Game *g = (Game *)user;
     if (!g->opt_restored) return 0;
+    // Only for the player's own action, and once.
+    if (obj_id != g->acted_obj || (key & 0xFFFF) != g->acted_op) return 0;
     for (size_t i = 0; i < sizeof(kRestored) / sizeof(kRestored[0]); i++)
         if (kRestored[i].part == g->part_number && kRestored[i].obj == obj_id && kRestored[i].key == key &&
-            kRestored[i].status == status)
+            kRestored[i].status == status) {
+            g->acted_obj = PETKA_NONE;
             return 1;
+        }
     return 0;
 }

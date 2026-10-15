@@ -209,6 +209,9 @@ typedef struct {
     int opt_aim;        // the pointer is drawn to things nearby (a controller)
     int opt_highlight;  // a yellow outline round the things that can be clicked
     int opt_restored;   // the restored dialogues (restored.c) are said
+    // The player's last action, until a reaction to it asks for a restored
+    // line (restored_player_action): PETKA_NONE = none waiting.
+    uint16_t acted_obj, acted_op;
     // The lid's pictures in grey (case_lid_grey()): [0] all three, for the
     // case that picks a thing for an object; [1] Chapayev's alone -- a
     // controller sends him with R, and his button is dead in any case.

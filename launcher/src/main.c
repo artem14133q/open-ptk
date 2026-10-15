@@ -609,11 +609,13 @@ int main(int argc, char **argv) {
                     drop_item(g);
                     stop_heroes(g);
                     petka_scriptvm_post(vm, target, PETKA_OP_OBJECTUSE, 0, 0, 0, hover->id);
+                    restored_player_action(g, target, PETKA_OP_OBJECTUSE);
                 } else if (hover && vm->cursor_object != PETKA_NONE) {
                     uint16_t item = vm->cursor_object;
                     stop_heroes(g);
                     drop_item(g);
                     petka_scriptvm_post(vm, hover->id, PETKA_OP_OBJECTUSE, 0, 0, 0, item);
+                    restored_player_action(g, hover->id, PETKA_OP_OBJECTUSE);
                 } else if (hover && pad_star && !g->map_open && vm->interface_enabled) {
                     star_toggle(g, screen_x, screen_y);
                     g->pad_target = hover->id;

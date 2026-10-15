@@ -217,6 +217,7 @@ void game_switch(Game *g, int part, int chapter) {
 // панели прочитаны, обратные вызовы лаунчера для машины сценария.
 void game_setup(Game *g, const char *game_dir) {
     g->bg_resource = g->shown_room = g->music_id = g->ambience_id = g->mesh_resource = PETKA_NONE;
+    g->acted_obj = PETKA_NONE;
     g->seq_music_id = g->seq_ambience_id = PETKA_NONE;
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;

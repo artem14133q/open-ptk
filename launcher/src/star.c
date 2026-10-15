@@ -149,6 +149,7 @@ void act_on(Game *g, const PetkaObject *obj, const int verb, const float mx, con
         0,
         op == PETKA_OP_OBJECTUSE ? (int)PETKA_ID_CHAPAYEV : (int)obj->id
     );
+    restored_player_action(g, obj->id, op);
 }
 
 // The star put up with a controller: its lit part done to the object it is
