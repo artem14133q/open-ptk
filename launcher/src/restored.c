@@ -14,16 +14,19 @@
 // the safe's "I won't open the safe even with the code" to the toilet
 // handle); and reactions that pass the action on to an object with no
 // reaction to it, whose stock reply would follow the line. The comment is
-// the dialogue's first line.
+// the dialogue's first line. `instead`: Reloaded only says the line there,
+// and the reaction's work is done another way -- the line is said in its
+// place (the wardrobe opens by its door, which passes USE on to it).
 static const struct {
     uint8_t part;
     uint16_t obj;
     uint32_t key;
     uint8_t status;
+    uint8_t instead;
 } kRestored[] = {
     {1, 89, 0x6, 1}, // Ой, что это там на дне блестит?
-    {1, 93, 0x1, 0}, // Спрятаться в шкаф?
-    {1, 93, 0x1, 2}, // Спрятаться в шкаф?
+    {1, 93, 0x1, 0, 1}, // Спрятаться в шкаф?
+    {1, 93, 0x1, 2, 1}, // Спрятаться в шкаф?
     {1, 128, 0x28001A, 0}, // Ай да Петька!
     {1, 136, 0x1001A, 0}, // Василий Иванович, огоньку не найдется?
     {1, 164, 0x1, 0}, // Василий Иванович, а, может, лучше я один с Анкой поговорю?
@@ -90,7 +93,7 @@ int host_restore_dialogue(void *user, uint16_t obj_id, uint32_t key, uint8_t sta
         if (kRestored[i].part == g->part_number && kRestored[i].obj == obj_id && kRestored[i].key == key &&
             kRestored[i].status == status) {
             g->acted_obj = PETKA_NONE;
-            return 1;
+            return kRestored[i].instead ? 2 : 1;
         }
     return 0;
 }

@@ -220,8 +220,10 @@ typedef struct {
     // script that has no DIALOG of its own? (status is the reaction's, 0xFF
     // for any.) The exe never does -- a dialogue starts only from DIALOG or
     // for a message no reaction takes, and so some lines of DIALOGUE.FIX are
-    // never said -- but a host may put such lines back. Then the dialogue
-    // plays first and the reaction runs after it, as a DIALOG's tail does.
+    // never said -- but a host may put such lines back. 1: the dialogue
+    // plays first and the reaction runs after it, as a DIALOG's tail does;
+    // 2: the dialogue plays instead of the reaction (a later edition that
+    // only says the line there, the reaction's work done elsewhere); 0: no.
     int (*restore_dialogue)(void *user, uint16_t obj_id, uint32_t verb_key, uint8_t status);
 
     // Start walking a hero. Return non-zero if the walk actually started;

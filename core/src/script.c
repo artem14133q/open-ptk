@@ -604,13 +604,15 @@ static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
         if (own && vm->host.select_dialogue) vm->host.select_dialogue(vm->host.user, obj->id, key);
 
         // A line the exe never says, put back by the host (restore_dialogue):
-        // the object's own dialogue first, the whole reaction after it.
+        // the object's own dialogue first, the whole reaction after it -- or
+        // none of it (2).
         if (own && vm->host.restore_dialogue && vm->host.start_dialogue) {
             int says = 0;
             for (uint32_t i = 0; i < re->message_count; i++) says |= re->messages[i].opcode == PETKA_OP_DIALOG;
-            if (!says && vm->host.restore_dialogue(vm->host.user, obj->id, key, re->status)) {
+            int restore = says ? 0 : vm->host.restore_dialogue(vm->host.user, obj->id, key, re->status);
+            if (restore) {
                 vm->dialog_sender = obj->id;
-                tail_set(&vm->dialog_tail, re->messages, re->message_count, 0);
+                tail_set(&vm->dialog_tail, re->messages, re->message_count, restore == 2 ? re->message_count : 0);
                 vm->host.start_dialogue(vm->host.user, obj->id, PETKA_NONE);
                 reacted = 1;
                 continue;
