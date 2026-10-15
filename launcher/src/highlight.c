@@ -66,8 +66,20 @@ void highlight_close(void) {
     if (shader_ok()) UnloadShader(s_shader);
 }
 
+// A way out: walking to it takes the heroes to another room -- a WALK
+// reaction with a GOTO in it.
+static int is_exit(const PetkaObject *obj) {
+    for (uint32_t r = 0; r < obj->reaction_count; r++) {
+        const PetkaReaction *re = &obj->reactions[r];
+        if (re->opcode != PETKA_OP_WALK) continue;
+        for (uint32_t m = 0; m < re->message_count; m++)
+            if (re->messages[m].opcode == PETKA_OP_GOTO) return 1;
+    }
+    return 0;
+}
+
 int highlight_wanted(const Game *g, const PetkaObject *obj) {
-    if (is_hero(obj->id)) return 0;
+    if (is_hero(obj->id) || is_exit(obj)) return 0;
     // Nor the other characters: CAST.INI gives the lines of everyone who
     // speaks a colour of their own.
     Color ink = g->colors[obj_index(g, obj)], none = NO_CAST_INK;
