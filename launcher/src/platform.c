@@ -220,8 +220,15 @@ bool plat_key(int key) {
 
 bool plat_key_down(int key) { (void)key; return false; }
 
+// Not raylib-nx's GetGamepadButtonPressed(): it names a button while it is
+// held, not as it goes down, so the A that picked "new game" from the menu,
+// still held, ended the film that came next at once.
 bool plat_any_key(void) {
-    return !s_muted && (s_tapped || GetGamepadButtonPressed() != GAMEPAD_BUTTON_UNKNOWN);
+    if (s_muted) return false;
+    if (s_tapped) return true;
+    for (int b = GAMEPAD_BUTTON_LEFT_FACE_UP; b <= GAMEPAD_BUTTON_RIGHT_THUMB; b++)
+        if (IsGamepadButtonPressed(PAD, b)) return true;
+    return false;
 }
 
 bool plat_chapayev_held(void) { return !s_muted && IsGamepadButtonDown(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_1); } // R

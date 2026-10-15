@@ -1989,20 +1989,32 @@ static Vector2 case_steer(Game *g, int dx, int dy, int page) {
     if (!any) return (Vector2){GAME_W / 2.0f, GAME_H / 2.0f};
     if (g->case_focus < 0 || g->case_focus >= CASE_PLACES || !present[g->case_focus])
         for (g->case_focus = 0; !present[g->case_focus]; g->case_focus++) {}
-    if (dx || dy) {
-        // Of the places that way, the nearest, going straight counted
-        // over going aside.
-        int from = g->case_focus, best = -1;
-        float best_score = 0;
-        for (int k = 0; k < CASE_PLACES; k++) {
-            if (!present[k] || k == from) continue;
-            float ox = at[k].x - at[from].x, oy = at[k].y - at[from].y;
-            float along = ox * dx + oy * dy, aside = fabsf(ox * dy) + fabsf(oy * dx);
-            if (along <= 0) continue;
-            float score = along + 2 * aside;
-            if (best < 0 || score < best_score) { best = k; best_score = score; }
-        }
-        if (best >= 0) g->case_focus = best;
+    // The places are a grid: the page's two rows of three, and above them
+    // the lid's buttons, in the order they lie (Chapayev, the map, the
+    // diskette). Across goes along the row to the next thing there; up and
+    // down go to the nearest row with anything in it, to the thing in the
+    // nearest column -- not by where the pictures sit, which in their cells
+    // are high and low and sent "right" off to the other row.
+    static const int kLidColumn[3] = {0, 2, 1};
+    int row[CASE_PLACES], column[CASE_PLACES];
+    for (int k = 0; k < CASE_PLACES; k++) {
+        row[k] = k < CASE_PAGE ? k / 3 : -1;
+        column[k] = k < CASE_PAGE ? k % 3 : kLidColumn[k - CASE_PAGE];
+    }
+    int from = g->case_focus;
+    for (int c = column[from] + dx; dx && c >= 0 && c < 3; c += dx) {
+        int found = -1;
+        for (int k = 0; k < CASE_PLACES && found < 0; k++)
+            if (present[k] && row[k] == row[from] && column[k] == c) found = k;
+        if (found >= 0) { g->case_focus = found; break; }
+    }
+    for (int r = row[from] + dy; dy && r >= -1 && r <= 1; r += dy) {
+        int found = -1;
+        for (int k = 0; k < CASE_PLACES; k++)
+            if (present[k] && row[k] == r &&
+                (found < 0 || abs(column[k] - column[from]) < abs(column[found] - column[from])))
+                found = k;
+        if (found >= 0) { g->case_focus = found; break; }
     }
     // The middle of a thing's rect can be a hole in it (the moustache of
     // part 2's "nose with moustache" is a ring): the pointer goes to the
@@ -3638,6 +3650,13 @@ int main(int argc, char **argv) {
                 g->sound_paused[i] = 0;
             }
             if (g->voice.frameCount > 0) StopSound(g->voice);
+            // The game ends in a sequence, where a controller's pointer is
+            // hidden and held: the menu has it free again, in the middle.
+            if (plat_pad()) {
+                g->pad_hidden = g->pad_hold = 0;
+                plat_hold_pointer(false);
+                plat_set_pointer((Vector2){plat_width() / 2.0f, plat_height() / 2.0f});
+            }
             int again = run_menu(g, font);
             if (g->quit || !again) break;
             if (again == 2) {
