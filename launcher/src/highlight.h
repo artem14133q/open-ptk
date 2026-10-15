@@ -1,21 +1,25 @@
 // highlight.h -- part of the launcher (launcher/src).
 //
 // EN: The yellow outline round the thing under the pointer, if it can be
-// clicked: a shader draws a clip's frame again, colouring only the clear
-// pixels next to its opaque ones, so the outline follows the thing's shape.
+// clicked: the edge of the clip's frame -- grown a little, its notches and
+// holes filled -- is followed into loops, their steps are taken out, and
+// they are drawn as smooth closed curves (Catmull-Rom), a soft glow under a
+// thin line. Made again only when the frame changes.
 // RU: Жёлтая обводка вокруг предмета под указателем, если с ним можно
-// взаимодействовать: шейдер ещё раз рисует кадр клипа и закрашивает только
-// прозрачные пиксели рядом с непрозрачными, так что обводка повторяет форму.
+// взаимодействовать: край кадра клипа (немного расширенный, с заполненными
+// впадинами и дырками) обходится в замкнутые контуры, ступеньки убираются, и
+// контуры рисуются плавными кривыми (Catmull-Rom): мягкое свечение под
+// тонкой линией. Пересчитывается только при смене кадра.
 #ifndef PETKA_LAUNCHER_HIGHLIGHT_H
 #define PETKA_LAUNCHER_HIGHLIGHT_H
 
 #include "game.h"
 
-// EN: After the window: loads the outline shader.
-// RU: После создания окна: загружает шейдер обводки.
+// EN: After the window (nothing to load now; kept for the start-up order).
+// RU: После создания окна (сейчас загружать нечего).
 void highlight_init(void);
-// EN: Frees the outline shader.
-// RU: Освобождает шейдер обводки.
+// EN: Frees the outline last made.
+// RU: Освобождает последний построенный контур.
 void highlight_close(void);
 // EN: Draws the outline of a clip's frame placed as visual_draw() would put it.
 // RU: Рисует обводку кадра клипа там, куда его поставил бы visual_draw().
