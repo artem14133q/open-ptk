@@ -4,13 +4,15 @@
 // RU: Жёлтая обводка вокруг предмета под указателем, если с ним можно взаимодействовать.
 #include "game.h"
 
+#include "rlgl.h"
+
 // ---- the shape's outline as curves ----
 //
 // The clip's opaque pixels, grown by GROW pixels all round (so the line
 // lies just outside the thing) and with their holes filled, make one or
 // more solid shapes; the edge of each is followed along the pixels' sides
 // into a loop of corners, the steps are taken out of it (Ramer-Douglas-Peucker, SIMPLIFY pixels), and what
-// is left is drawn as a closed Catmull-Rom curve through its corners. All
+// is left is rounded (smooth_loops) and drawn as a closed band. All
 // in the clip's frame pixels; made again only when the frame changes.
 #define GROW 2
 // Before that the shape is closed: grown by CLOSE and shrunk back by
@@ -58,6 +60,63 @@ static void simplify(const Vector2 *pts, int a, int b, char *keep) {
     keep[at] = 1;
     simplify(pts, a, at, keep);
     simplify(pts, at, b, keep);
+}
+
+// The corners made round: each loop cut into pieces of at most SEGMENT
+// pixels, then its corners cut off CHAIKIN times (Chaikin: each piece gives
+// the points a quarter and three quarters along it). The curve stays inside
+// the corners it rounds -- no overshoot -- and on a long straight side
+// only its ends are rounded, by a few pixels.
+#define SEGMENT 6.0f
+#define CHAIKIN 3
+
+static void smooth_loops(void) {
+    int total = 0;
+    for (int l = 0; l < s_outline.loops; l++) {
+        int count = s_outline.starts[l + 1] - s_outline.starts[l];
+        const Vector2 *p = s_outline.pts + s_outline.starts[l];
+        int pieces = 0;
+        for (int i = 0; i < count; i++) {
+            Vector2 a = p[i], b = p[(i + 1) % count];
+            pieces += 1 + (int)(sqrtf((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)) / SEGMENT);
+        }
+        total += pieces << CHAIKIN;
+    }
+    Vector2 *out = (Vector2 *)malloc((size_t)(total + 1) * sizeof(Vector2));
+    Vector2 *work = (Vector2 *)malloc((size_t)(total + 1) * sizeof(Vector2));
+    int *starts = (int *)malloc((size_t)(s_outline.loops + 1) * sizeof(int));
+    int n = 0;
+    for (int l = 0; l < s_outline.loops; l++) {
+        int count = s_outline.starts[l + 1] - s_outline.starts[l];
+        const Vector2 *p = s_outline.pts + s_outline.starts[l];
+        Vector2 *cur = out + n, *other = work + n;
+        int m = 0;
+        for (int i = 0; i < count; i++) {
+            Vector2 a = p[i], b = p[(i + 1) % count];
+            int k = 1 + (int)(sqrtf((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)) / SEGMENT);
+            for (int j = 0; j < k; j++)
+                cur[m++] = (Vector2){a.x + (b.x - a.x) * j / k, a.y + (b.y - a.y) * j / k};
+        }
+        for (int it = 0; it < CHAIKIN; it++) {
+            for (int i = 0; i < m; i++) {
+                Vector2 a = cur[i], b = cur[(i + 1) % m];
+                other[2 * i] = (Vector2){a.x * 0.75f + b.x * 0.25f, a.y * 0.75f + b.y * 0.25f};
+                other[2 * i + 1] = (Vector2){a.x * 0.25f + b.x * 0.75f, a.y * 0.25f + b.y * 0.75f};
+            }
+            m *= 2;
+            Vector2 *t = cur; cur = other; other = t;
+        }
+        // CHAIKIN is odd: the last pass wrote to work; back to out.
+        if (cur != out + n) memcpy(out + n, cur, (size_t)m * sizeof(Vector2));
+        starts[l] = n;
+        n += m;
+    }
+    starts[s_outline.loops] = n;
+    free(work);
+    free(s_outline.pts);
+    free(s_outline.starts);
+    s_outline.pts = out;
+    s_outline.starts = starts;
 }
 
 static void outline_make(const Visual *v) {
@@ -212,6 +271,7 @@ static void outline_make(const Visual *v) {
     s_outline.pts = pts;
     s_outline.starts = starts;
     s_outline.loops = loops;
+    smooth_loops();
     free(keep);
     free(edge);
     free(queue);
@@ -242,22 +302,51 @@ int highlight_wanted(const Game *g, const PetkaObject *obj) {
     return g->vm->state[obj_index(g, obj)].active;
 }
 
-// One loop as a closed curve: Catmull-Rom wants the points before the
-// first and after the last too, so the loop is passed round once more.
+// One loop as a closed band THICK wide on the screen, centred on it: at
+// each point the band's edges are pushed out along the mean of the two
+// pieces' normals (a mitre), so the pieces meet without gaps or overlaps.
 static void draw_loop(const Vector2 *p, int count, Rectangle frame, float sx, float sy, float thick, Color ink) {
-    static Vector2 *ring;
-    static int ring_cap;
-    if (count + 3 > ring_cap) {
-        ring_cap = count + 3 > 2 * ring_cap ? count + 3 : 2 * ring_cap;
-        ring = (Vector2 *)realloc(ring, (size_t)ring_cap * sizeof(Vector2));
+    static Vector2 *in, *out;
+    static int cap;
+    if (count > cap) {
+        cap = count > 2 * cap ? count : 2 * cap;
+        in = (Vector2 *)realloc(in, (size_t)cap * sizeof(Vector2));
+        out = (Vector2 *)realloc(out, (size_t)cap * sizeof(Vector2));
     }
-    for (int i = 0; i < count + 3; i++) {
-        Vector2 q = p[(i + count - 1) % count];
-        ring[i] = (Vector2){frame.x + q.x * sx, frame.y + q.y * sy};
+    float half = thick / 2;
+    for (int i = 0; i < count; i++) {
+        Vector2 a = p[(i + count - 1) % count], b = p[i], c = p[(i + 1) % count];
+        a = (Vector2){frame.x + a.x * sx, frame.y + a.y * sy};
+        b = (Vector2){frame.x + b.x * sx, frame.y + b.y * sy};
+        c = (Vector2){frame.x + c.x * sx, frame.y + c.y * sy};
+        float d1x = b.x - a.x, d1y = b.y - a.y, d2x = c.x - b.x, d2y = c.y - b.y;
+        float l1 = sqrtf(d1x * d1x + d1y * d1y), l2 = sqrtf(d2x * d2x + d2y * d2y);
+        Vector2 n1 = l1 > 0 ? (Vector2){-d1y / l1, d1x / l1} : (Vector2){0, 0};
+        Vector2 n2 = l2 > 0 ? (Vector2){-d2y / l2, d2x / l2} : n1;
+        if (l1 <= 0) n1 = n2;
+        Vector2 m = {n1.x + n2.x, n1.y + n2.y};
+        float ml = sqrtf(m.x * m.x + m.y * m.y);
+        m = ml > 0 ? (Vector2){m.x / ml, m.y / ml} : n1;
+        float cosine = m.x * n1.x + m.y * n1.y, len = cosine > 0.5f ? half / cosine : 2 * half;
+        out[i] = (Vector2){b.x + m.x * len, b.y + m.y * len};
+        in[i] = (Vector2){b.x - m.x * len, b.y - m.y * len};
     }
-    DrawSplineCatmullRom(ring, count + 3, thick, ink);
-    // Round joins: no notches where the pieces of the curve meet.
-    for (int i = 1; i < count + 1; i++) DrawCircleV(ring[i], thick / 2, ink);
+    rlDisableBackfaceCulling();
+    for (int i = 0; i < count; i++) {
+        int j = (i + 1) % count;
+        rlCheckRenderBatchLimit(6);
+        rlBegin(RL_TRIANGLES);
+        rlColor4ub(ink.r, ink.g, ink.b, ink.a);
+        rlVertex2f(out[i].x, out[i].y);
+        rlVertex2f(in[i].x, in[i].y);
+        rlVertex2f(in[j].x, in[j].y);
+        rlVertex2f(out[i].x, out[i].y);
+        rlVertex2f(in[j].x, in[j].y);
+        rlVertex2f(out[j].x, out[j].y);
+        rlEnd();
+    }
+    rlDrawRenderBatchActive();
+    rlEnableBackfaceCulling();
 }
 
 void highlight_draw(const Visual *v, Rectangle frame) {

@@ -3,13 +3,13 @@
 // EN: The yellow outline round the thing under the pointer, if it can be
 // clicked: the edge of the clip's frame -- grown a little, its notches and
 // holes filled -- is followed into loops, their steps are taken out, and
-// they are drawn as smooth closed curves (Catmull-Rom), a soft glow under a
-// thin line. Made again only when the frame changes.
+// their corners are rounded (Chaikin), and they are drawn as closed bands, a
+// soft glow under a thin line. Made again only when the frame changes.
 // RU: Жёлтая обводка вокруг предмета под указателем, если с ним можно
 // взаимодействовать: край кадра клипа (немного расширенный, с заполненными
 // впадинами и дырками) обходится в замкнутые контуры, ступеньки убираются, и
-// контуры рисуются плавными кривыми (Catmull-Rom): мягкое свечение под
-// тонкой линией. Пересчитывается только при смене кадра.
+// углы скругляются (Чайкин), и контуры рисуются замкнутыми лентами: мягкое
+// свечение под тонкой линией. Пересчитывается только при смене кадра.
 #ifndef PETKA_LAUNCHER_HIGHLIGHT_H
 #define PETKA_LAUNCHER_HIGHLIGHT_H
 
