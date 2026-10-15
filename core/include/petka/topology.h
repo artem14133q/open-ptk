@@ -20,6 +20,8 @@
 // "БОЛОТО"), NOT the .BG resource folder names (e.g. "BOLOTO.BG") -- no
 // direct mapping between the two has been found; matching them (e.g. by
 // transliteration) is left to the caller.
+//
+// RU: Топология комнат: стартовая комната и переходы между комнатами.
 #ifndef PETKA_TOPOLOGY_H
 #define PETKA_TOPOLOGY_H
 
@@ -51,11 +53,15 @@ typedef struct {
 // allocation failure -- unlike the binary formats, there's no checksum/EOF
 // alignment to validate against, so malformed input is best-effort parsed
 // rather than rejected.
+// RU: Разбирает топологию комнат части.
 PetkaTopology *petka_topology_parse(const uint8_t *data, size_t len);
+// EN: Frees the topology.
+// RU: Освобождает топологию.
 void petka_topology_close(PetkaTopology *topo);
 
 // Convenience lookup by room name (case-sensitive, CP1251 byte compare).
 // Returns NULL if not found.
+// RU: Комната топологии по имени.
 const PetkaRoom *petka_topology_find_room(const PetkaTopology *topo, const char *name);
 
 #ifdef __cplusplus

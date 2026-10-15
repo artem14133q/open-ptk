@@ -3,6 +3,9 @@
 // per-location clips in FLC1/2/3.STR -- same real format, confirmed byte
 // for byte against Petka.exe's header-parsing routine; see
 // docs/str-format.md).
+//
+// RU: Декодер анимаций FLIC (.FLC) игры: кадры как индексы палитры, цвет по
+// запросу, прозрачный цвет-ключ как в exe.
 #ifndef PETKA_FLIC_H
 #define PETKA_FLIC_H
 
@@ -41,17 +44,22 @@ typedef struct {
 // Parses the header and decodes frame 1. `data` is NOT copied -- it must
 // stay valid for the lifetime of the returned PetkaFlic (e.g. it can point
 // straight into a PetkaStore's buffer). Returns NULL on failure.
+// RU: Разбирает заголовок и декодирует 1-й кадр; данные не копируются.
 PetkaFlic *petka_flic_open(const uint8_t *data, size_t len);
 
+// EN: Frees the clip.
+// RU: Освобождает клип.
 void petka_flic_close(PetkaFlic *flic);
 
 // Decodes the next frame into ->indices. After the last frame the
 // first one comes round again (frame_index 0), exactly as it first was.
 // Returns 0 on success, -1 on error.
+// RU: Декодирует следующий кадр (после последнего - снова первый).
 int petka_flic_advance(PetkaFlic *flic);
 
 // The current frame in colour (->rgb), brought up to date; NULL if out of
 // memory.
+// RU: Текущий кадр в цвете (строится по запросу).
 const uint8_t *petka_flic_rgb(PetkaFlic *flic);
 
 // Whether a palette entry is the clip's transparent colour. The exe keeps
@@ -61,6 +69,7 @@ const uint8_t *petka_flic_rgb(PetkaFlic *flic);
 // bits of it. Clips do rely on that: PROVODA.FLC is filled with entry 31
 // (252,252,252) beside a key of 255,255,255, and STOL.FLC has no pixel of
 // entry 0 at all.
+// RU: Прозрачен ли цвет палитры (цвет-ключ как в exe).
 int petka_flic_keyed(const PetkaFlic *flic, uint8_t index);
 
 #ifdef __cplusplus

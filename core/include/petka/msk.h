@@ -14,6 +14,9 @@
 // The rects are not a pixel mask: transparency comes from the FLIC's palette
 // index 0. They are what the engine sorts by -- an object's draw order is
 // the lowest edge of its current frame's rects (see petka/script.h, auto_z).
+//
+// RU: Файлы .MSK рядом с клипами: прямоугольники объекта в каждом кадре и
+// общий прямоугольник; по ним считается порядок отрисовки.
 #ifndef PETKA_MSK_H
 #define PETKA_MSK_H
 
@@ -29,11 +32,13 @@ typedef struct {
 } PetkaMskRect;
 
 // Returns 0 on success, -1 if `len` is too small to hold a trailing rect.
+// RU: Общий прямоугольник клипа из .MSK.
 int petka_msk_rect(const uint8_t *data, size_t len, PetkaMskRect *out);
 
 // The lowest bottom edge among the rects of one frame (0-based) of a clip of
 // `frame_count` frames, or -1 if the frame has no rects or the file does not
 // have the layout above.
+// RU: Нижний край прямоугольников кадра (для порядка отрисовки).
 int petka_msk_frame_bottom(const uint8_t *data, size_t len, int frame_count, int frame);
 
 #ifdef __cplusplus

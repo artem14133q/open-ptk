@@ -4,6 +4,8 @@
 // case, whitespace around keys and values is ignored, lines starting with
 // ';' are comments, the first matching key wins, and a value wrapped in a
 // pair of quotes loses them.
+//
+// RU: Чтение значений из .INI файлов игры (разделы и ключи).
 #ifndef PETKA_INI_H
 #define PETKA_INI_H
 
@@ -17,6 +19,7 @@ extern "C" {
 // Copies the value of `key` in `[section]` to `out` (NUL-terminated,
 // truncated to fit). Returns 1 if the key exists, 0 otherwise (and `out`
 // becomes an empty string).
+// RU: Значение ключа из раздела .INI; 1 если найдено.
 int petka_ini_get(const uint8_t *data, size_t len, const char *section, const char *key,
                   char *out, size_t out_sz);
 

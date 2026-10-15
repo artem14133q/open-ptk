@@ -22,6 +22,9 @@
 //
 // On reading, the exe looks objects up by name, throws away the shown name
 // and the saved z, and leaves everything not listed here as it finds it.
+//
+// RU: Формат сохранений игры: запись и чтение состояния, заголовок с
+// картинкой.
 #ifndef PETKA_SAVE_H
 #define PETKA_SAVE_H
 
@@ -66,16 +69,21 @@ typedef struct {
 
 // Lays a saved game out as the bytes of a save file. Returns a malloc'd
 // buffer and its length, or NULL.
+// RU: Записывает состояние игры в байты сохранения.
 uint8_t *petka_save_encode(const PetkaSave *save, size_t *out_len);
 
 // Reads a save file. Returns NULL if the bytes are not one. Free the result
 // with petka_save_free.
+// RU: Читает сохранение целиком.
 PetkaSave *petka_save_decode(const uint8_t *data, size_t len);
 
 // Only the head of a save file -- part, chapter, label and picture -- for
 // showing a slot. Returns 0 on success, -1 if the file is too short.
+// RU: Читает только заголовок сохранения (метка, картинка).
 int petka_save_peek(const uint8_t *data, size_t len, PetkaSave *out_head);
 
+// EN: Frees a decoded save.
+// RU: Освобождает прочитанное сохранение.
 void petka_save_free(PetkaSave *save);
 
 #ifdef __cplusplus

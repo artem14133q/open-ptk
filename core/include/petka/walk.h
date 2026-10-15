@@ -4,6 +4,9 @@
 // polygons. See docs/str-format.md for the byte layout.
 //
 // Pure C, no platform dependencies: builds for desktop and Switch alike.
+//
+// RU: Ходьба: сетка ходьбы комнаты (.CVX), поиск пути, таблицы шагов клипов
+// ходьбы и шагатель, который ведёт героя по пути.
 #ifndef PETKA_WALK_H
 #define PETKA_WALK_H
 
@@ -41,14 +44,19 @@ typedef struct {
 
 // Parses a whole .CVX buffer. Returns NULL on failure, including "doesn't
 // consume the file exactly" -- the format has no other integrity check.
+// RU: Читает сетку ходьбы комнаты (.CVX).
 PetkaWalkMesh *petka_walkmesh_open(const uint8_t *data, size_t len);
+// EN: Frees the walk mesh.
+// RU: Освобождает сетку ходьбы.
 void petka_walkmesh_close(PetkaWalkMesh *mesh);
 
 // Index of the polygon containing the point, or -1 if it is off the floor.
+// RU: Треугольник сетки, в котором лежит точка, -1 если вне.
 int petka_walkmesh_locate(const PetkaWalkMesh *mesh, float x, float y);
 
 // Moves a point onto the floor if it is not there already: to the nearest
 // point of the outline, in whole pixels. Returns the polygon it belongs to.
+// RU: Ближайшая к точке точка сетки ходьбы.
 int petka_walkmesh_snap(const PetkaWalkMesh *mesh, float x, float y, float *out_x, float *out_y);
 
 // A way across the floor from one point to another, built as the exe builds
@@ -58,6 +66,7 @@ int petka_walkmesh_snap(const PetkaWalkMesh *mesh, float x, float y, float *out_
 // ending with the (snapped) destination, and returns how many were written.
 // Returns 0 if the two points are in parts of the floor that do not
 // connect, or if the route needs more than `max` points.
+// RU: Путь по сетке ходьбы от точки к точке.
 int petka_walkmesh_path(const PetkaWalkMesh *mesh, float from_x, float from_y,
                         float to_x, float to_y, PetkaPoint *out, int max);
 
@@ -83,8 +92,11 @@ typedef struct {
 
 // off[d] / leg[d] are the two files of direction d ("xyof", then frames + 1
 // pairs of i32). Returns NULL if any of the sixteen is missing or malformed.
+// RU: Читает таблицы шагов набора клипов ходьбы.
 PetkaGait *petka_gait_open(const uint8_t *const off[PETKA_WALK_DIRS], const size_t off_len[PETKA_WALK_DIRS],
                            const uint8_t *const leg[PETKA_WALK_DIRS], const size_t leg_len[PETKA_WALK_DIRS]);
+// EN: Frees the step tables.
+// RU: Освобождает таблицы шагов.
 void petka_gait_close(PetkaGait *gait);
 
 // Hero scale at a screen row; steps are multiplied by it.
@@ -111,6 +123,7 @@ typedef struct {
 
 // Sets a walk up from `from` through `points`. Returns 0 if there is nowhere
 // to go (no points, or all of them where the hero already stands).
+// RU: Начинает ходьбу героя по пути.
 int petka_walker_start(PetkaWalker *w, const PetkaGait *gait, PetkaPoint from,
                        const PetkaPoint *points, int count, PetkaScaleFn scale, void *user);
 
@@ -118,6 +131,7 @@ int petka_walker_start(PetkaWalker *w, const PetkaGait *gait, PetkaPoint from,
 // 0 when the hero has arrived (x, y are then exactly the last point),
 // 1 after an ordinary step, 2 when the direction -- and so the clip --
 // changed; the new clip starts at its first frame.
+// RU: Делает шаг ходьбы; 0 когда пришёл.
 int petka_walker_step(PetkaWalker *w);
 
 #ifdef __cplusplus

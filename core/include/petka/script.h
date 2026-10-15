@@ -8,6 +8,9 @@
 // PART_N/BACKGRND.BG  -- for each room, the objects that live in it.
 //
 // Pure C, no platform dependencies: builds for desktop and Switch alike.
+//
+// RU: Сценарий игры и его машина сообщений: объекты, комнаты и реакции из
+// SCRIPT.DAT и BACKGRND.BG, очередь сообщений, состояние каждого объекта.
 #ifndef PETKA_SCRIPT_H
 #define PETKA_SCRIPT_H
 
@@ -80,6 +83,7 @@ typedef enum {
 } PetkaOpcode;
 
 // Never NULL; unknown opcodes come back as "OP_<n>" in a static buffer.
+// RU: Название кода сообщения (для журнала).
 const char *petka_opcode_name(uint16_t opcode);
 
 #define PETKA_NONE 0xFFFFu // "-1" in every u16 field of the script
@@ -132,13 +136,18 @@ typedef struct {
 // Parses SCRIPT.DAT and, if bg_data is non-NULL, BACKGRND.BG. Returns NULL
 // on failure, including "doesn't consume the file exactly" -- neither format
 // has another integrity check, so exact EOF alignment is the validity check.
+// RU: Читает SCRIPT.DAT и BACKGRND.BG части.
 PetkaScript *petka_script_open(const uint8_t *script_data, size_t script_len,
                                const uint8_t *bg_data, size_t bg_len);
+// EN: Frees the script.
+// RU: Освобождает сценарий.
 void petka_script_close(PetkaScript *script);
 
 // Returns NULL if not found.
+// RU: Объект сценария по номеру.
 PetkaObject *petka_script_find(const PetkaScript *script, uint16_t id);
 // Case-sensitive CP1251 byte compare (BGS.INI refers to objects by name).
+// RU: Объект сценария по имени (CP1251).
 PetkaObject *petka_script_find_name(const PetkaScript *script, const char *name);
 
 // ---- message VM ----
@@ -254,43 +263,58 @@ struct PetkaScriptVM {
 };
 
 // Returns NULL only on allocation failure. `host` may be NULL.
+// RU: Создаёт машину сообщений для сценария.
 PetkaScriptVM *petka_scriptvm_open(PetkaScript *script, const PetkaScriptHost *host);
+// EN: Frees the VM.
+// RU: Освобождает машину.
 void petka_scriptvm_close(PetkaScriptVM *vm);
 
+// EN: An object's state in the VM by id.
+// RU: Состояние объекта в машине по номеру.
 PetkaObjectState *petka_scriptvm_state(PetkaScriptVM *vm, uint16_t id);
 
 // Queue a message for one object / for every object.
+// RU: Ставит сообщение объекту в очередь.
 void petka_scriptvm_post(PetkaScriptVM *vm, uint16_t obj_id, uint16_t opcode,
                          uint16_t arg1, uint16_t arg2, uint16_t arg3, int sender);
+// EN: Sends a message to every object.
+// RU: Рассылает сообщение всем объектам.
 void petka_scriptvm_broadcast(PetkaScriptVM *vm, uint16_t opcode, uint16_t arg1,
                               uint16_t arg2, uint16_t arg3, int sender);
 // Deliver a message right now, bypassing the queue.
+// RU: Доставляет сообщение объекту сразу.
 void petka_scriptvm_send(PetkaScriptVM *vm, uint16_t obj_id, uint16_t opcode,
                          uint16_t arg1, uint16_t arg2, uint16_t arg3, int sender);
 
 // Deliver queued messages until the queue is empty or everything left is
 // waiting on a busy object. Returns the number delivered, or -1 if the
 // script looped without ever waiting (the queue is left as it was).
+// RU: Обрабатывает очередь сообщений за этот кадр.
 int petka_scriptvm_run(PetkaScriptVM *vm);
 
 // Broadcast TOTALINIT and run it. Call once after opening a part.
+// RU: Приводит машину в начальное состояние и рассылает TOTALINIT.
 int petka_scriptvm_init(PetkaScriptVM *vm);
 
 // Make `room` current: broadcasts LEAVEBG from the old room and INITBG from
 // the new one (unless `silent`, used when restoring a save). The messages
 // are only queued; call petka_scriptvm_run() afterwards.
+// RU: Входит в комнату: смена комнаты и её INITBG.
 void petka_scriptvm_enter_room(PetkaScriptVM *vm, uint16_t room, int silent);
 // Replaces the things carried, in the order given (a saved game's list).
+// RU: Задаёт содержимое чемодана (при загрузке).
 void petka_scriptvm_set_inventory(PetkaScriptVM *vm, const uint16_t *ids, uint32_t count);
 
 // Host notifications.
 // A clip reached its last frame: posts END (resource, 0, 0) from nobody, as
 // the exe's object update does on every loop of the clip.
+// RU: Сообщает машине, что клип объекта доиграл (END).
 void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t resource);
 // A hero's walk is over (he arrived, or was stopped). He goes back to his
 // idle pose and stops being busy, which lets the WALKED queued behind the
 // walk through. If the reaction parked on that walk goes on to leave the
 // room, he instead freezes in mid-stride and takes the idle pose after it.
+// RU: Сообщает машине, что герой дошёл.
 void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id);
 // Stops a hero in his tracks (the exe's sub_408D80): he is no longer busy,
 // the WALKED queued behind his walk is cancelled and the reaction parked on
@@ -299,18 +323,24 @@ void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id);
 // clicked and before a room is entered, and to the hero about to walk for a
 // reaction. This is what makes "click the exit, then click something else"
 // call the exit off rather than trigger it.
+// RU: Останавливает героя и то, что ждало конца его ходьбы.
 void petka_scriptvm_stop_hero(PetkaScriptVM *vm, uint16_t hero_id);
 // Only the forgetting: for when the player sends the hero somewhere else
 // by clicking the floor.
+// RU: Забывает, ради чего шёл герой.
 void petka_scriptvm_forget_walk(PetkaScriptVM *vm, uint16_t hero_id);
 
 // Drops everything the script still has in hand: the queued messages and
 // the rests of reactions parked on a clip, a walk or a dialogue. A saved
 // game holds none of that, so a loaded one starts with none.
+// RU: Сбрасывает очередь и отложенные реакции (при загрузке).
 void petka_scriptvm_drop_pending(PetkaScriptVM *vm);
 // talker is the object that spoke last, or PETKA_NONE.
+// RU: Сообщает машине, что диалог закончился.
 void petka_scriptvm_dialogue_ended(PetkaScriptVM *vm, uint16_t talker);
 
+// EN: Whether a thing is in the case.
+// RU: Есть ли предмет в чемодане.
 int petka_scriptvm_has_item(const PetkaScriptVM *vm, uint16_t obj_id);
 
 #ifdef __cplusplus

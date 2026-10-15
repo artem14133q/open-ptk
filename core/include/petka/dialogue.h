@@ -6,6 +6,9 @@
 // PART_N/DIALOGUE.FIX  -- topic -> verb -> bytecode-entry-point tree, plus
 //                         one shared bytecode array every entry point
 //                         indexes into.
+//
+// RU: Диалоги: таблица фраз (DIALOGUE.FIX/.LOD) и машина диалога, которая
+// проходит их код: фразы, меню выбора, паузы и конец.
 #ifndef PETKA_DIALOGUE_H
 #define PETKA_DIALOGUE_H
 
@@ -30,7 +33,10 @@ typedef struct {
 } PetkaPhraseTable;
 
 // Parses a whole DIALOGUE.LOD buffer. Returns NULL on failure.
+// RU: Открывает таблицу фраз диалогов части.
 PetkaPhraseTable *petka_phrasetable_open(const uint8_t *data, size_t len);
+// EN: Frees the phrase table.
+// RU: Закрывает таблицу фраз.
 void petka_phrasetable_close(PetkaPhraseTable *table);
 
 // ---- DIALOGUE.FIX: topic/verb tree + shared bytecode ----
@@ -69,7 +75,10 @@ typedef struct {
 // Parses a whole DIALOGUE.FIX buffer. Returns NULL on failure (including
 // "doesn't consume the file exactly" -- the format has no other integrity
 // check, so exact EOF alignment is treated as the validity check).
+// RU: Открывает дерево диалогов (их код) части.
 PetkaDialogueTree *petka_dialoguetree_open(const uint8_t *data, size_t len);
+// EN: Frees the dialogue tree.
+// RU: Закрывает дерево диалогов.
 void petka_dialoguetree_close(PetkaDialogueTree *tree);
 
 // ---- bytecode VM ----
@@ -93,6 +102,8 @@ typedef struct {
     int skip_shown;    // standing on a SKIPN whose phrase is being shown
 } PetkaDialogueVM;
 
+// EN: Starts a dialogue from its beginning.
+// RU: Начинает диалог с его начала.
 void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32_t start_offset);
 
 // Runs the VM forward until it hits a PHRASE (returns its phrase index via
@@ -110,15 +121,18 @@ void petka_dialoguevm_start(PetkaDialogueVM *vm, PetkaDialogueTree *tree, uint32
 // Returns 3 on CHOICE: the player has to pick a line. The VM stays on the
 // menu; list it with petka_dialoguevm_choices(), then call
 // petka_dialoguevm_choose() and carry on with petka_dialoguevm_next().
+// RU: Следующий шаг диалога: фраза, меню, пауза или конец.
 int petka_dialoguevm_next(PetkaDialogueVM *vm, uint32_t *out_phrase_index);
 
 // The lines currently on offer at the menu the VM is stopped on, as phrase
 // indices, in menu order. Returns how many there are (the first `max` are
 // written), 0 if the VM is not on a menu.
+// RU: Строки текущего меню выбора (номера фраз).
 int petka_dialoguevm_choices(const PetkaDialogueVM *vm, uint32_t *out_phrases, int max);
 
 // Picks the n-th line of that list (0-based). Returns 0 on success, -1 if
 // n is out of range or the VM is not on a menu.
+// RU: Выбор строки меню; диалог идёт дальше по ней.
 int petka_dialoguevm_choose(PetkaDialogueVM *vm, int n);
 
 #ifdef __cplusplus

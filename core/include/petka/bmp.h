@@ -22,6 +22,8 @@
 // standard BGR888 too.
 //
 // See docs/str-format.md for how this was found.
+//
+// RU: Чтение фонов .BMP игры (16 и 24 бита, строки с выравниванием) в RGB.
 #ifndef PETKA_BMP_H
 #define PETKA_BMP_H
 
@@ -36,6 +38,7 @@ extern "C" {
 // into a freshly malloc'd top-down RGB888 buffer (3 bytes/pixel, no
 // padding). Caller frees the returned pointer. Returns NULL on failure
 // (not a BMP, unsupported bit depth, truncated data).
+// RU: Декодирует .BMP в RGB (w*h*3), NULL при ошибке; освободить free().
 uint8_t *petka_bmp_decode(const uint8_t *data, size_t len, int *out_width, int *out_height);
 
 #ifdef __cplusplus
