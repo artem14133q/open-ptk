@@ -59,25 +59,31 @@ static int count_ok(Reader *r, uint32_t count, size_t min_record) {
 static void parse_object(Reader *r, PetkaObject *obj) {
     obj->id = (uint16_t)rd(r, 2);
     uint32_t name_len = rd(r, 4);
+
     if (!count_ok(r, name_len, 1)) return;
+
     obj->name = (char *)malloc((size_t)name_len + 1);
     memcpy(obj->name, r->data + r->pos, name_len);
     obj->name[name_len] = 0;
     r->pos += name_len;
 
-    uint32_t reaction_count = rd(r, 4);
+    const uint32_t reaction_count = rd(r, 4);
     if (!count_ok(r, reaction_count, 9)) return;
     obj->reactions = (PetkaReaction *)calloc(reaction_count ? reaction_count : 1, sizeof(PetkaReaction));
     obj->reaction_count = reaction_count;
+
     for (uint32_t i = 0; i < reaction_count; i++) {
         PetkaReaction *re = &obj->reactions[i];
         re->opcode = (uint16_t)rd(r, 2);
         re->status = (uint8_t)rd(r, 1);
         re->sender = (uint16_t)rd(r, 2);
-        uint32_t n = rd(r, 4);
+        const uint32_t n = rd(r, 4);
+
         if (!count_ok(r, n, 10)) return;
+
         re->messages = (PetkaMessage *)calloc(n ? n : 1, sizeof(PetkaMessage));
         re->message_count = n;
+
         for (uint32_t k = 0; k < n; k++) {
             PetkaMessage *m = &re->messages[k];
             m->obj_id = (uint16_t)rd(r, 2);
@@ -144,6 +150,7 @@ PetkaScript *petka_script_open(const uint8_t *script_data, size_t script_len,
 
 void petka_script_close(PetkaScript *script) {
     if (!script) return;
+
     for (uint32_t i = 0; i < script->object_count; i++) {
         PetkaObject *obj = &script->objects[i];
         for (uint32_t k = 0; k < obj->reaction_count; k++) free(obj->reactions[k].messages);
@@ -151,6 +158,7 @@ void petka_script_close(PetkaScript *script) {
         free(obj->attached);
         free(obj->name);
     }
+
     free(script->objects);
     free(script);
 }
@@ -574,7 +582,7 @@ static void apply_builtin(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued
 // messages and applies the message's built-in effect (sub_403270).
 // Returns whether a reaction (or a dialogue) handled the message.
 static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *q) {
-    PetkaObjectState *st = state_of(vm, obj);
+    const PetkaObjectState *st = state_of(vm, obj);
     const PetkaMessage *in = &q->msg;
     int reacted = 0;
 
@@ -583,7 +591,7 @@ static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
         key = ((uint32_t)q->sender << 16) | PETKA_OP_OBJECTUSE;
 
     for (uint32_t r = 0; r < obj->reaction_count; r++) {
-        PetkaReaction *re = &obj->reactions[r];
+        const PetkaReaction *re = &obj->reactions[r];
         if (re->opcode != in->opcode) continue;
         if (re->status != 0xFF && re->status != st->status) continue;
         if (re->sender != PETKA_NONE && (int)re->sender != q->sender) continue;
@@ -623,41 +631,38 @@ static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
     return reacted;
 }
 
-void petka_scriptvm_enter_room(PetkaScriptVM *vm, uint16_t room, int silent) {
+void petka_scriptvm_enter_room(PetkaScriptVM *vm, const uint16_t room, const int silent) {
     if (vm->room == room) return;
-    uint16_t prev = vm->room;
-    if (prev != PETKA_NONE && !silent)
-        petka_scriptvm_broadcast(vm, PETKA_OP_LEAVEBG, 0, 0, 0, prev);
+
+    const uint16_t prev = vm->room;
+
+    if (prev != PETKA_NONE && !silent) petka_scriptvm_broadcast(vm, PETKA_OP_LEAVEBG, 0, 0, 0, prev);
+
     vm->room = room;
+
     if (vm->host.room_changed) vm->host.room_changed(vm->host.user, prev, room);
+
     if (!silent) petka_scriptvm_broadcast(vm, PETKA_OP_INITBG, 0, 0, 0, room);
 }
 
 // Rooms (sub_401F80).
 static int process_room(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *q) {
-    int reacted = process_base(vm, obj, q);
+    const int reacted = process_base(vm, obj, q);
     PetkaObjectState *st = state_of(vm, obj);
+
     switch (q->msg.opcode) {
-    case PETKA_OP_GOTO:
-        petka_scriptvm_stop_hero(vm, PETKA_ID_PETKA);
-        petka_scriptvm_stop_hero(vm, PETKA_ID_CHAPAYEV);
-        petka_scriptvm_enter_room(vm, obj->id, 0);
-        break;
-    case PETKA_OP_MAP:
-        st->on_map = q->msg.arg1 != 0;
-        break;
-    case PETKA_OP_NOMAP:
-        st->on_map = 0;
-        break;
-    case PETKA_OP_BGSFX:
-        st->bgsfx = q->msg.arg1;
-        break;
-    case PETKA_OP_MUSIC:
-        st->music = q->msg.arg1;
-        break;
-    default:
-        break;
+        case PETKA_OP_GOTO:
+            petka_scriptvm_stop_hero(vm, PETKA_ID_PETKA);
+            petka_scriptvm_stop_hero(vm, PETKA_ID_CHAPAYEV);
+            petka_scriptvm_enter_room(vm, obj->id, 0);
+            break;
+        case PETKA_OP_MAP  : st->on_map = q->msg.arg1 != 0; break;
+        case PETKA_OP_NOMAP: st->on_map = 0;                break;
+        case PETKA_OP_BGSFX: st->bgsfx  = q->msg.arg1;      break;
+        case PETKA_OP_MUSIC: st->music  = q->msg.arg1;      break;
+        default: break;
     }
+
     return reacted;
 }
 
@@ -681,13 +686,17 @@ static int process_hero(PetkaScriptVM *vm, PetkaObject *obj, PetkaQueued *q) {
         m->arg1 = (uint16_t)(st->costume + 1);
         m->arg2 = 1;
     }
+
     // A hero's idle pose and his PLAY clips run once and then rest; his
     // talking clip keeps going.
     if (m->opcode == PETKA_OP_SET || m->opcode == PETKA_OP_PLAY)
         st->rest_after_loop = m->arg1 == st->costume || m->opcode == PETKA_OP_PLAY;
+
     if (m->opcode == PETKA_OP_WALK) return 0; // heroes ignore WALK
+
     if (m->opcode == PETKA_OP_WALKED && st->walk_tail.present)
         run_tail(vm, &st->walk_tail, st->walk_sender);
+
     return process_base(vm, obj, q);
 }
 
@@ -699,11 +708,29 @@ static void deliver(PetkaScriptVM *vm, PetkaObject *obj, PetkaQueued q) {
     if (vm->host.message) vm->host.message(vm->host.user, vm, obj, &q, reacted);
 }
 
-void petka_scriptvm_send(PetkaScriptVM *vm, uint16_t obj_id, uint16_t opcode,
-                         uint16_t arg1, uint16_t arg2, uint16_t arg3, int sender) {
+void petka_scriptvm_send(
+    PetkaScriptVM *vm,
+    const uint16_t obj_id,
+    const uint16_t opcode,
+    const uint16_t arg1,
+    const uint16_t arg2,
+    const uint16_t arg3,
+    const int sender
+) {
     PetkaObject *obj = petka_script_find(vm->script, obj_id);
+
     if (!obj) return;
-    PetkaQueued q = { { obj_id, opcode, arg1, arg2, arg3 }, sender };
+
+    const PetkaQueued q = {
+        .msg = {
+            .obj_id = obj_id,
+            .opcode = opcode,
+            .arg1 = arg1,
+            .arg2 = arg2,
+            .arg3 = arg3
+        }, .sender = sender
+    };
+
     deliver(vm, obj, q);
 }
 
@@ -713,19 +740,30 @@ void petka_scriptvm_send(PetkaScriptVM *vm, uint16_t obj_id, uint16_t opcode,
 int petka_scriptvm_run(PetkaScriptVM *vm) {
     int delivered = 0;
     uint32_t i = 0;
+
     while (i < vm->queue_count) {
-        PetkaQueued q = vm->queue[i];
+        const PetkaQueued q = vm->queue[i];
         PetkaObject *obj = petka_script_find(vm->script, q.msg.obj_id);
-        if (obj && state_of(vm, obj)->busy) { i++; continue; }
+
+        if (obj && state_of(vm, obj)->busy) {
+            i++;
+            continue;
+        }
+
         memmove(&vm->queue[i], &vm->queue[i + 1], (vm->queue_count - i - 1) * sizeof(PetkaQueued));
-        vm->queue_count--;
+
+        --vm->queue_count;
+
         // The exe keeps a message for an unknown object queued forever;
         // dropping it is equivalent, objects are never created at runtime.
         if (!obj) continue;
         if (delivered >= RUN_LIMIT) return -1;
+
         deliver(vm, obj, q);
+
         delivered++;
     }
+
     return delivered;
 }
 
@@ -734,39 +772,50 @@ int petka_scriptvm_init(PetkaScriptVM *vm) {
     // reaction and none filters on the sender, so a broadcast from nobody
     // is the reading that fits the data.
     petka_scriptvm_broadcast(vm, PETKA_OP_TOTALINIT, 0, 0, 0, -1);
+
     return petka_scriptvm_run(vm);
 }
 
-void petka_scriptvm_animation_ended(PetkaScriptVM *vm, uint16_t obj_id, uint16_t resource) {
+void petka_scriptvm_animation_ended(PetkaScriptVM *vm, const uint16_t obj_id, const uint16_t resource) {
     petka_scriptvm_post(vm, obj_id, PETKA_OP_END, resource, 0, 0, -1);
 }
 
 void petka_scriptvm_drop_pending(PetkaScriptVM *vm) {
     vm->queue_count = 0;
+
     for (uint32_t i = 0; i < vm->script->object_count; i++) {
         tail_clear(&vm->state[i].play_tail);
         tail_clear(&vm->state[i].walk_tail);
     }
+
     tail_clear(&vm->dialog_tail);
     vm->dialog_sender = -1;
 }
 
 void petka_scriptvm_forget_walk(PetkaScriptVM *vm, uint16_t hero_id) {
     PetkaObjectState *hero = petka_scriptvm_state(vm, hero_id);
+
     if (!hero) return;
+
     // The exe readdresses the queued WALKED to nobody; run() drops those.
     for (uint32_t i = 0; i < vm->queue_count; i++)
         if (vm->queue[i].msg.opcode == PETKA_OP_WALKED && vm->queue[i].msg.obj_id == hero_id)
             vm->queue[i].msg.obj_id = PETKA_NONE;
+
     tail_clear(&hero->walk_tail);
 }
 
 void petka_scriptvm_stop_hero(PetkaScriptVM *vm, uint16_t hero_id) {
     PetkaObjectState *hero = petka_scriptvm_state(vm, hero_id);
+
     if (!hero) return;
+
     hero->busy = 0;
+
     if (vm->host.stop) vm->host.stop(vm->host.user, hero_id);
+
     petka_scriptvm_forget_walk(vm, hero_id);
+
     if (!hero->rest_after_loop && hero->costume != PETKA_NONE)
         petka_scriptvm_send(vm, hero_id, PETKA_OP_SET, hero->costume, 1, 0, -1);
 }
@@ -788,14 +837,16 @@ void petka_scriptvm_walk_ended(PetkaScriptVM *vm, uint16_t hero_id) {
         // About to walk out of the room: hold the walking pose rather than
         // flash the idle one, and stand up once the reaction has moved on.
         petka_scriptvm_send(vm, hero_id, PETKA_OP_ANIMATE, 0, 0, 0, -1);
-        PetkaMessage after[2] = {
-            { hero_id, PETKA_OP_SET, hero->costume, 1, 0 },
-            { hero_id, PETKA_OP_ANIMATE, 1, 0, 0 },
+        const PetkaMessage after[2] = {
+            { .obj_id = hero_id, .opcode = PETKA_OP_SET    , .arg1 = hero->costume, .arg2 = 1, .arg3 = 0 },
+            { .obj_id = hero_id, .opcode = PETKA_OP_ANIMATE, .arg1 = 1            , .arg2 = 0, .arg3 = 0 },
         };
+
         tail->messages = (PetkaMessage *)realloc(tail->messages, (tail->count + 2) * sizeof(PetkaMessage));
         memcpy(tail->messages + tail->count, after, sizeof(after));
         tail->count += 2;
     }
+
     hero->busy = 0;
 }
 

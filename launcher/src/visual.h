@@ -60,6 +60,6 @@ int clip_hit(const Visual *v, int x, int y);
 Vector2 clip_point(const Visual *v, Vector2 p);
 // EN: Puts an object's clip on a given frame (clips whose frames are states).
 // RU: Ставит клип объекта на заданный кадр (клипы, где кадры - состояния).
-void show_frame(Game *g, const PetkaObject *obj, int frame);
+void show_frame(const Game *g, const PetkaObject *obj, int frame);
 
 #endif

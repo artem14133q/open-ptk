@@ -1,5 +1,9 @@
+.claude/
 build/
+build-release/
 tools/strtool/strtool
 *.o
 *.a
 .DS_Store
+.idea/
+tools/unpack/dist/
