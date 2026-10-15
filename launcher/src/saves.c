@@ -282,8 +282,13 @@ void draw_saves(Game *g, Font font, float scale) {
         // are drawn: white, rimmed in black, on the dark band.
         enum { LABEL_LINES = 4 };
         char lines[LABEL_LINES][512];
-        const float size = 20 * scale, x = r.x * scale, y = (r.y + r.height + 1) * scale;
-        int count = wrap_text(font, g->save_slot[i].label, size, 240 * scale, lines, LABEL_LINES);
+        const float limit = 240 * scale, x = r.x * scale, y = (r.y + r.height + 1) * scale;
+        // On one line if it can be: a font wider than the exe's (the
+        // Switch's own) would break the date and time in two, so the size
+        // comes down to fit -- to 14 at the least; past that it breaks.
+        float size = 20 * scale, whole = MeasureTextEx(font, g->save_slot[i].label, size, 1).x;
+        if (whole > limit) size = fmaxf(14 * scale, size * limit / whole);
+        int count = wrap_text(font, g->save_slot[i].label, size, limit, lines, LABEL_LINES);
         float widest = 0;
         for (int k = 0; k < count; k++) {
             size_t n = strlen(lines[k]);
