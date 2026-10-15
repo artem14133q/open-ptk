@@ -747,7 +747,8 @@ void petka_scriptvm_send(
             .arg1 = arg1,
             .arg2 = arg2,
             .arg3 = arg3
-        }, .sender = sender
+        },
+        .sender = sender
     };
 
     deliver(vm, obj, q);
