@@ -7,9 +7,14 @@
 // The reactions whose object's own dialogue the exe leaves unsaid, among
 // them those the Reloaded edition's script does say: the part, the object,
 // the message key (opcode, or (sender << 16) | OBJECTUSE) and the
-// reaction's status (0xFF any). Found by comparing the scripts; reactions
-// that start with an IF or a CHECK are left out, as they may not run. The
-// comment is the dialogue's first line.
+// reaction's status (0xFF any). Found by comparing the scripts: Reloaded
+// says the line for the same object (its clip's name) and the same action.
+// Left out: reactions that start with an IF or a CHECK, as they may not
+// run; lines Reloaded gives another object or action (DIALOGUE.FIX ties
+// the safe's "I won't open the safe even with the code" to the toilet
+// handle); and reactions that pass the action on to an object with no
+// reaction to it, whose stock reply would follow the line. The comment is
+// the dialogue's first line.
 static const struct {
     uint8_t part;
     uint16_t obj;
@@ -31,14 +36,10 @@ static const struct {
     {1, 270, 0x6, 1}, // Хороший топорик.
     {1, 288, 0x6, 0}, // Возьмем! Халява - наш стиль жизни!
     {1, 289, 0x6, 255}, // Это весла Фурманова.
-    {1, 304, 0x27001A, 0}, // Отлично!
     {1, 308, 0x1, 1}, // Ну и что нам с ним теперь делать?
-    {1, 318, 0x1, 0}, // Я сейф не открою даже с шифром...
     {1, 319, 0x6, 1}, // Насыпь слишком крутая и высокая, так просто его не достать.
     {1, 319, 0x4, 1}, // Гляди-ка, Василь Иваныч - патрон!
     {1, 323, 0x1001A, 2}, // Значит шифр, говоришь!
-    {1, 323, 0x1, 0}, // Смотри, Василь Иваныч, на бумажке написано:
-    {1, 323, 0x1, 2}, // Смотри, Василь Иваныч, на бумажке написано:
     {1, 325, 0x6, 255}, // Он нам пригодится. Что-нибудь да откроем.
     {1, 326, 0x1001A, 2}, // Я тебе, Петька, не медвежатник.
     {1, 326, 0x1, 2}, // Как бы нам его вскрыть, а Василь Иваныч?
@@ -50,9 +51,7 @@ static const struct {
     {2, 319, 0x6, 1}, // Пусть висит.
     {2, 400, 0x11001A, 1}, // Будьте добры, заверните мне этот прекрасный сачок.
     {2, 401, 0x6, 1}, // За это надо платить.
-    {2, 484, 0x1, 255}, // Хм-мм...
     {2, 485, 0x1, 255}, // По идее, туда надо чего-то залить.
-    {2, 511, 0x1, 255}, // Открывайте, именем РЕВОЛЮЦИИ!
     {2, 549, 0x15001A, 0}, // Ой, Василь Иваныч, слышь, скрежет-то какой - будто под полом тащут чего...
     {2, 550, 0x1, 0}, // Лучше его не трогать - мало ли что...
     {2, 653, 0x19001A, 0}, // Вот так-то лучше будет...  Оп-ля!
@@ -64,7 +63,6 @@ static const struct {
     {3, 222, 0x6, 1}, // Нет. Нельзя.
     {3, 252, 0xA, 2}, // Кхе-кхе... Тьфу..  На помощь!
     {3, 260, 0x1, 1}, // Пульт сейчас занят.
-    {3, 266, 0x1, 1}, // Интересно, что будет, если дернуть за этот рычаг?
     {3, 267, 0x1, 1}, // Нажми на кнопку, получишь результат...
     {3, 292, 0x11001A, 0}, // Такая подойдет?
     {3, 292, 0x11001A, 1}, // Такая подойдет?
