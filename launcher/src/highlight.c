@@ -1,7 +1,7 @@
 // highlight.c
 //
-// EN: The yellow outline round the things on screen that can be clicked.
-// RU: Жёлтая обводка вокруг предметов на экране, с которыми можно взаимодействовать.
+// EN: The yellow outline round the thing under the pointer, if it can be clicked.
+// RU: Жёлтая обводка вокруг предмета под указателем, если с ним можно взаимодействовать.
 #include "game.h"
 
 #include "rlgl.h"

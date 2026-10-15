@@ -1,9 +1,9 @@
 // highlight.h -- part of the launcher (launcher/src).
 //
-// EN: The yellow outline round the things on screen that can be clicked:
-// a shader draws a clip's frame again, colouring only the clear pixels next
-// to its opaque ones, so the outline follows the thing's own shape.
-// RU: Жёлтая обводка вокруг предметов на экране, с которыми можно
+// EN: The yellow outline round the thing under the pointer, if it can be
+// clicked: a shader draws a clip's frame again, colouring only the clear
+// pixels next to its opaque ones, so the outline follows the thing's shape.
+// RU: Жёлтая обводка вокруг предмета под указателем, если с ним можно
 // взаимодействовать: шейдер ещё раз рисует кадр клипа и закрашивает только
 // прозрачные пиксели рядом с непрозрачными, так что обводка повторяет форму.
 #ifndef PETKA_LAUNCHER_HIGHLIGHT_H

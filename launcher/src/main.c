@@ -657,8 +657,8 @@ int main(int argc, char **argv) {
         if (g->bg_tex.id)
             DrawTexturePro(g->bg_tex, (Rectangle){0, 0, (float)g->bg_tex.width, (float)g->bg_tex.height},
                            (Rectangle){0, 0, g->bg_tex.width * scale, g->bg_tex.height * scale}, (Vector2){0, 0}, 0, WHITE);
-        // The things that can be clicked get a yellow outline (the extras),
-        // while the player can act in the room itself.
+        // The thing under the pointer gets a yellow outline (the extras), if
+        // it can be seen and clicked, while the player can act in the room.
         int outline = g->opt_highlight && can_act && !g->map_open && g->seq_room == PETKA_NONE;
         for (int i = 0; i < scene_count; i++) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
@@ -670,7 +670,7 @@ int main(int argc, char **argv) {
             // under the pointer, on its first frame, and hides the rest.
             if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover)) visual_draw(v, at);
             // Drawn with the thing, in z order: what stands nearer covers it.
-            if (outline && highlight_wanted(g, scene[i].obj)) highlight_draw(v, at);
+            if (outline && scene[i].obj == hover && highlight_wanted(g, scene[i].obj)) highlight_draw(v, at);
             if (debug && !is_hero(scene[i].obj->id)) {
                 Rectangle r = {v->rect.left * scale, v->rect.top * scale,
                                (v->rect.right - v->rect.left) * scale, (v->rect.bottom - v->rect.top) * scale};
