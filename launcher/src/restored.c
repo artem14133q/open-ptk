@@ -83,6 +83,30 @@ static const struct {
     {2, 653, 0x19001A, 1},
 };
 
+// Phrases said where the script says nothing (restored.h): the part, the
+// object the DIALOG goes to, the phrase table's indices (0 for none).
+static const struct {
+    uint8_t part;
+    uint16_t obj;
+    uint16_t phrases[3];
+} kPhrases[] = {
+    // Part 3, the White HQ's fireplace lamp, Chapayev sent to it: Petka asks
+    // him first, "Василь Иванович, а вы не могли бы попробовать оторвать
+    // отсюда эту лампу?" (the lamp's USE dialogue) -- as Reloaded has it --
+    // and then he goes, turns it and says his own.
+    {3, 63, {154}},
+};
+
+int restored_phrases(const Game *g, uint16_t obj_id, uint16_t *out, int max) {
+    for (size_t i = 0; i < sizeof(kPhrases) / sizeof(kPhrases[0]); i++) {
+        if (kPhrases[i].part != g->part_number || kPhrases[i].obj != obj_id) continue;
+        int n = 0;
+        for (int k = 0; k < 3 && kPhrases[i].phrases[k] && n < max; k++) out[n++] = kPhrases[i].phrases[k];
+        return n;
+    }
+    return 0;
+}
+
 const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *first) {
     for (size_t i = 0; i < sizeof(kSplit) / sizeof(kSplit[0]); i++)
         if (kSplit[i].part == g->part_number && kSplit[i].obj == obj_id) {

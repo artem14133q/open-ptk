@@ -64,8 +64,8 @@ float speaker_pan(const Game *g, uint16_t id) {
 void next_phrase(Game *g) {
     if (g->voice.frameCount > 0) { StopSound(g->voice); UnloadSound(g->voice); g->voice = (Sound){0}; }
     g->voice_paused = 0;
-    uint32_t idx;
-    int step = petka_dialoguevm_next(&g->dvm, &idx);
+    uint32_t idx = 0;
+    int step = g->phrases_only ? 0 : petka_dialoguevm_next(&g->dvm, &idx);
     // A split restored dialogue (restored.h): its second part passes over
     // the phrases the first has said; the first ends where the second begins.
     while (step == 1 && g->say_skip > 0) {
@@ -108,6 +108,7 @@ void next_phrase(Game *g) {
     }
     if (step != 1 || idx >= g->phrases->count) {
         g->then_count = g->then_pos = 0;
+        g->phrases_only = 0;
         g->talking = 0;
         g->dialogue_done = 1;
         g->line[0] = 0;
@@ -148,6 +149,21 @@ void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
     Game *g = (Game *)user;
     // A restored line put after the action (scriptfix.c): not said with the switch off.
     if (arg == RESTORED_LATE && !g->opt_restored) g->dialogue = NULL;
+    // Phrases where the script says nothing (restored.h): no dialogue, the
+    // phrases alone, one after another.
+    if (arg == RESTORED_PHRASES) {
+        g->then_count = g->opt_restored ? restored_phrases(g, obj_id, g->then_phrase, 4) : 0;
+        g->then_pos = 0;
+        g->say_limit = -1;
+        g->say_skip = 0;
+        if (!g->then_count || !g->phrases) { g->dialogue_done = 1; return; }
+        g->phrases_only = 1;
+        g->talking = 1;
+        g->paused = 0;
+        g->menu_count = 0;
+        next_phrase(g);
+        return;
+    }
     // A restored line in two parts round the action: its own dialogue, the
     // first phrases or the rest.
     const PetkaDialogueVerb *dialogue = g->dialogue;

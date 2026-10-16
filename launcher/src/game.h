@@ -220,6 +220,7 @@ typedef struct {
     // A split restored dialogue (restored.h): phrases still to say in its
     // first part (-1: no limit), and phrases to pass over in its second.
     int say_limit, say_skip;
+    int phrases_only; // a RESTORED_PHRASES: then_phrase alone, no dialogue
     // The lid's pictures in grey (case_lid_grey()): [0] all three, for the
     // case that picks a thing for an object; [1] Chapayev's alone -- a
     // controller sends him with R, and his button is dead in any case.
