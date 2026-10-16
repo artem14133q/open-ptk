@@ -674,6 +674,8 @@ int main(int argc, char **argv) {
         int outline = g->opt_highlight && can_act && !g->extras_open && !g->quit &&
                       g->shown_room == screen_room(g) &&
                       (g->map_open ? !g->panel_open : g->seq_room == PETKA_NONE);
+        const Visual *outlined = NULL;
+        Rectangle outlined_at = {0};
         for (int i = 0; i < scene_count; i++) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
             Rectangle d = visual_dest(g, scene[i].obj);
@@ -683,8 +685,10 @@ int main(int argc, char **argv) {
             // hidden, and the map's mouse function (sub_41D4D0) shows the one
             // under the pointer, on its first frame, and hides the rest.
             if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover)) visual_draw(v, at);
-            // Drawn with the thing, in z order: what stands nearer covers it.
-            if (outline && scene[i].obj == hover && highlight_wanted(g, scene[i].obj)) highlight_draw(v, at);
+            if (outline && scene[i].obj == hover && highlight_wanted(g, scene[i].obj)) {
+                outlined = v;
+                outlined_at = at;
+            }
             if (debug && !is_hero(scene[i].obj->id)) {
                 Rectangle r = {v->rect.left * scale, v->rect.top * scale,
                                (v->rect.right - v->rect.left) * scale, (v->rect.bottom - v->rect.top) * scale};
@@ -693,6 +697,11 @@ int main(int argc, char **argv) {
                            (Vector2){r.x + 2, r.y + 2}, 14, 1, YELLOW);
             }
         }
+        // The outline over everything in the room, not in the thing's z
+        // order: a thing painted on the background is hidden, its z below all
+        // that is drawn -- the river's water over the jetty by the boat cut
+        // its outline into bits.
+        if (outlined) highlight_draw(outlined, outlined_at);
 
         EndMode2D();
 
