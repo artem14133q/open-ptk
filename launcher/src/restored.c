@@ -23,7 +23,9 @@
 // and lines Reloaded says under a state of its story that the object's
 // status does not tell (the keyhole, the bush, the safe's USE, the
 // cartridge's TAKE; in part 2 the net in the shop, the church's brick and
-// its hole, the rope at the jetty). The comment is
+// its hole, the rope at the jetty; in part 3 the fireplace's handle, whose
+// "Неплохо." Reloaded says after the pull, and only while the lamp is not
+// turned). The comment is
 // the dialogue's first line. `instead`: Reloaded only says the line there,
 // and the reaction's work is done another way -- the line is said in its
 // place (the wardrobe opens by its door, which passes USE on to it). `then`:
@@ -57,7 +59,6 @@ static const struct {
     {2, 319, 0x6, 1}, // Пусть висит.
     {2, 485, 0x1, 255}, // По идее, туда надо чего-то залить.
     {3, 55, 0x1, 1}, // Можно было бы попробовать туда залезть, если бы не решетка.
-    {3, 60, 0x1, 255}, // Неплохо.
     {3, 181, 0x1, 2}, // Если кто-то где-то сделал кнопки, значит это для чего-то нужно...
     {3, 222, 0x6, 1}, // Нет. Нельзя.
     {3, 260, 0x1, 1}, // Пульт сейчас занят.
