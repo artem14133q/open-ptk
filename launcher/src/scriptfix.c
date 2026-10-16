@@ -25,9 +25,11 @@ static const struct {
     // The keyhole of the bath, the syringe with the bees used on it: the
     // keyhole's own dialogue for it ("Ай да Петька!... Молдец, Петька.
     // Хвалю!"), which the reaction never says, as Reloaded has it -- once
-    // the bathers have run out and the heroes stand where they end up, with
-    // the extras switch on (conversation.c).
-    {1, 128, PETKA_OP_OBJECTUSE, 0, 40, 128, PETKA_OP_SET, 128, PETKA_OP_DIALOG, RESTORED_LATE, 0},
+    // the anarchists' sequence (542) is over: the clip that ends it (436's
+    // END) ends it, and then the talk. The whole dialogue, as the second
+    // part of restored.c's kSplit with nothing before it; with the extras
+    // switch on (conversation.c).
+    {1, 436, PETKA_OP_END, 255, PETKA_NONE, 542, PETKA_OP_ENDSEQ, 128, PETKA_OP_DIALOG, RESTORED_REST, 0},
     // The fireplace's lamp in the White HQ, turned by Chapayev: his "Оторвать
     // не получилось, но свернул я ее..." (the lamp's own dialogue, which the
     // reaction never says) tells of what he has done, so it comes after the

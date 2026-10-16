@@ -84,6 +84,9 @@ static const struct {
     // лучше будет... Оп-ля!" as he gets to it, Chapayev's "Острый, зараза!"
     // once it is cut -- as Reloaded has it, not both before the cut.
     {2, 653, 0x19001A, 1},
+    // Part 1, the bath's keyhole, the syringe with the bees: the talk after
+    // the anarchists' sequence, all of it (scriptfix.c).
+    {1, 128, 0x28001A, 0},
 };
 
 // Phrases said where the script says nothing (restored.h): the part, the
