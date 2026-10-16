@@ -28,6 +28,8 @@ static const struct {
     // clip and the left lamp's lighting, not before them (restored.c) --
     // with the extras switch on (conversation.c).
     {3, 63, PETKA_OP_OBJECTUSE, 0, 1, 64, PETKA_OP_STATUS, 63, PETKA_OP_DIALOG, RESTORED_LATE, 0},
+    // ...and before he goes to it, Petka's question (restored.c's kPhrases).
+    {3, 63, PETKA_OP_OBJECTUSE, 0, 1, 63, PETKA_OP_STOP, 63, PETKA_OP_DIALOG, RESTORED_PHRASES, 0},
     // The rope at the jetty, cut with the sword (its reactions send USERMSG
     // to "Петька на берегу реки", 652, who does it): the rope's own
     // dialogue, which none of them says, in two parts -- Petka's line once
