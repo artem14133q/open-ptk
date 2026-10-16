@@ -45,7 +45,8 @@ make nsp           # petka.nsp
 ```
 
 It needs the console's own keys, `prod.keys`, dumped from it with
-Lockpick_RCM, at `~/.switch/prod.keys` (or where `PETKA_KEYS` says): the
+Lockpick_RCM, at `~/.switch/prod.keys` or `.switch/prod.keys` at the top of
+the repository (kept out of it by `.gitignore`), or where `PETKA_KEYS` says: the
 title's contents are encrypted with them. No key of Nintendo's signs it, so
 the console runs it only with signature patches (sigpatches) for its
 firmware. Install it as any NSP (DBI, Tinfoil, Goldleaf). Its title id is

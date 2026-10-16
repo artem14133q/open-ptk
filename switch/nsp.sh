@@ -5,21 +5,26 @@
 #   make nsp                     (or ./nsp.sh after make)
 #
 # Needs hacBrewPack, built into deps/ (see README), and the console's own
-# keys: prod.keys, dumped from it with Lockpick_RCM, at ~/.switch/prod.keys
-# or where PETKA_KEYS says. Its NCAs are signed with no key Nintendo has,
-# so the console runs them only with signature patches.
+# keys: prod.keys, dumped from it with Lockpick_RCM, at ~/.switch/prod.keys,
+# at .switch/prod.keys in the repository, or where PETKA_KEYS says. Its NCAs
+# are signed with no key Nintendo has, so the console runs them only with
+# signature patches.
 #
 # RU: petka.nsp -- игра как установленное приложение с иконкой на главном
 # экране, из petka.elf, который собирает make. Нужны hacBrewPack (в deps/) и
-# ключи консоли prod.keys (снимаются Lockpick_RCM) в ~/.switch/prod.keys или
-# по пути из PETKA_KEYS; на консоли -- патчи подписей.
+# ключи консоли prod.keys (снимаются Lockpick_RCM) в ~/.switch/prod.keys, в
+# .switch/prod.keys в корне репозитория или по пути из PETKA_KEYS; на
+# консоли -- патчи подписей.
 set -e
 cd "$(dirname "$0")"
 
 # The title's id: an application's, unique to this game (the low 16 bits
 # are an application's 0000); the same in petka.json.
 TITLE_ID=0x0100F35700A50000
+# The keys: PETKA_KEYS, else ~/.switch/prod.keys, else .switch/prod.keys at
+# the top of the repository (which .gitignore keeps out of it).
 KEYS=${PETKA_KEYS:-$HOME/.switch/prod.keys}
+[ -n "$PETKA_KEYS" ] || [ -f "$KEYS" ] || KEYS=../.switch/prod.keys
 HBP=deps/hacbrewpack/hacbrewpack
 TOOLS=${DEVKITPRO:-/opt/devkitpro}/tools/bin
 # The NACP's name, author and version: the Makefile's (make nsp passes them).
