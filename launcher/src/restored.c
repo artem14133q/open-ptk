@@ -26,7 +26,9 @@
 // its hole, the rope at the jetty; in part 3 the fireplace's handle, whose
 // "Неплохо." Reloaded says after the pull, and only while the lamp is not
 // turned; the bar's remote, whose "Нет. Нельзя." is the barman's while he
-// is there, and status 1 is the remote taken once he has gone). The comment is
+// is there, and status 1 is the remote taken once he has gone; the lift in
+// control room 1, whose "Здесь нет пульта управления подъемником." Reloaded
+// says while it will not go, and status 1 is the lift going). The comment is
 // the dialogue's first line. `instead`: Reloaded only says the line there,
 // and the reaction's work is done another way -- the line is said in its
 // place (the wardrobe opens by its door, which passes USE on to it). `then`:
@@ -63,7 +65,6 @@ static const struct {
     {3, 181, 0x1, 2}, // Если кто-то где-то сделал кнопки, значит это для чего-то нужно...
     {3, 260, 0x1, 1}, // Пульт сейчас занят.
     {3, 297, 0x6, 255}, // Берем.
-    {3, 315, 0x1, 1}, // Здесь нет пульта управления подъемником.
     {3, 343, 0xF001A, 255}, // Хорошая мысль, Петька!
     {3, 344, 0xE001A, 255}, // Василь Иваныч, можно вас попросить?
     {3, 348, 0x1001A, 255}, // Берем!
