@@ -22,6 +22,12 @@ static const struct {
     // but active, it was clicked -- and named, and outlined -- by Petka's
     // shape where he had stood. Its clip back after the HIDE.
     {1, 304, PETKA_OP_OBJECTUSE, 1, 39, 304, PETKA_OP_HIDE, 304, PETKA_OP_SET, 1108, 1128},
+    // The keyhole of the bath, the syringe with the bees used on it: the
+    // keyhole's own dialogue for it ("Ай да Петька!... Молдец, Петька.
+    // Хвалю!"), which the reaction never says, as Reloaded has it -- once
+    // the bathers have run out and the heroes stand where they end up, with
+    // the extras switch on (conversation.c).
+    {1, 128, PETKA_OP_OBJECTUSE, 0, 40, 128, PETKA_OP_SET, 128, PETKA_OP_DIALOG, RESTORED_LATE, 0},
     // The fireplace's lamp in the White HQ, turned by Chapayev: his "Оторвать
     // не получилось, но свернул я ее..." (the lamp's own dialogue, which the
     // reaction never says) tells of what he has done, so it comes after the
