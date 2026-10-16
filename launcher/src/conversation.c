@@ -92,7 +92,14 @@ void next_phrase(Game *g) {
         }
         return;
     }
+    // Over -- but a restored line may have phrases to say after it
+    // (restored.c's `then`), before the script goes on.
+    if ((step != 1 || idx >= g->phrases->count) && g->then_pos < g->then_count) {
+        idx = g->then_phrase[g->then_pos++];
+        step = 1;
+    }
     if (step != 1 || idx >= g->phrases->count) {
+        g->then_count = g->then_pos = 0;
         g->talking = 0;
         g->dialogue_done = 1;
         g->line[0] = 0;

@@ -213,6 +213,10 @@ typedef struct {
     // The player's last action, until a reaction to it asks for a restored
     // line (restored_player_action): PETKA_NONE = none waiting.
     uint16_t acted_obj, acted_op;
+    // Phrases a restored line has said after its dialogue, before the
+    // reaction (restored.c's `then`), and how many are said yet.
+    uint16_t then_phrase[4];
+    int then_count, then_pos;
     // The lid's pictures in grey (case_lid_grey()): [0] all three, for the
     // case that picks a thing for an object; [1] Chapayev's alone -- a
     // controller sends him with R, and his button is dead in any case.

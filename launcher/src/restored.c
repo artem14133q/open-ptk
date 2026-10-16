@@ -25,20 +25,27 @@
 // cartridge's TAKE). The comment is
 // the dialogue's first line. `instead`: Reloaded only says the line there,
 // and the reaction's work is done another way -- the line is said in its
-// place (the wardrobe opens by its door, which passes USE on to it).
+// place (the wardrobe opens by its door, which passes USE on to it). `then`:
+// phrases of other dialogues Reloaded has said after it, before the
+// reaction, where without them the line and the reaction disagree (the
+// phrase table's indices, 0 for none).
 static const struct {
     uint8_t part;
     uint16_t obj;
     uint32_t key;
     uint8_t status;
     uint8_t instead;
+    uint16_t then[3];
 } kRestored[] = {
     {1, 89, 0x6, 1}, // Ой, что это там на дне блестит?
     {1, 93, 0x1, 0, 1}, // Спрятаться в шкаф?
     {1, 93, 0x1, 2, 1}, // Спрятаться в шкаф?
     {1, 168, 0x6, 0}, // А вот эти детали нам точно пригодятся.
     {1, 176, 0x6, 0}, // Пригодятся.
-    {1, 232, 0x6, 255}, // Не, Василь Иваныч, я теперь и пальцем ее не коснусь...
+    // ...and then takes the skin: Reloaded has Petka go on "Вам надо, вы и
+    // берите." (the dialogue says only its first line), Chapayev "Бери сам,
+    // Петька" (dialogue 29) and Petka "Да, ладно вам..., я ж шучу..." (60).
+    {1, 232, 0x6, 255, 0, {1064, 1682, 2659}}, // Не, Василь Иваныч, я теперь и пальцем ее не коснусь...
     {1, 288, 0x6, 0}, // Возьмем! Халява - наш стиль жизни!
     {1, 289, 0x6, 255}, // Это весла Фурманова.
     {1, 325, 0x6, 255}, // Он нам пригодится. Что-нибудь да откроем.
@@ -79,6 +86,8 @@ int host_restore_dialogue(void *user, uint16_t obj_id, uint32_t key, uint8_t sta
         if (kRestored[i].part == g->part_number && kRestored[i].obj == obj_id && kRestored[i].key == key &&
             kRestored[i].status == status) {
             g->acted_obj = PETKA_NONE;
+            g->then_count = g->then_pos = 0;
+            for (int k = 0; k < 3 && kRestored[i].then[k]; k++) g->then_phrase[g->then_count++] = kRestored[i].then[k];
             return kRestored[i].instead ? 2 : 1;
         }
     return 0;
