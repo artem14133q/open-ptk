@@ -19,9 +19,10 @@
 int main(int argc, char **argv) {
     // With no arguments the game is where the program is: a copy dropped
     // into the game's folder runs it from there, however it was started, and
-    // keeps its saved games and settings in that folder too.
+    // keeps its saved games and settings in that folder too. (On the Switch
+    // the game may be inside the title, read-only: those go to the SD card.)
     const char *game_dir = argc > 1 ? argv[1] : plat_default_game_dir();
-    if (argc <= 1) ChangeDirectory(game_dir);
+    if (argc <= 1) ChangeDirectory(plat_data_dir());
     const char *part = argc > 2 ? argv[2] : "PART_1";
     const char *digit = part;
     while (*digit && (*digit < '0' || *digit > '9')) digit++;

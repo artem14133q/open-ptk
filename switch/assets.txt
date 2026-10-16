@@ -1,0 +1,47 @@
+# assets.txt -- the game's files `make nsp-full` puts inside the title: the
+# ones the launcher reads, and no more. Each line is the name it goes under,
+# at the top of the title's romfs, as the launcher asks for it: the stores in
+# capitals (open_store), the films in small letters (find_film tries a
+# name as given and in small letters; the romfs, unlike the SD card, minds
+# the case). nsp.sh finds each in PETKA_ASSETS whatever its case, in the
+# places the launcher looks (the top, data1_out/Main|Flics|Sfxs, Main, Flics,
+# Sfxs).
+#
+# Left out: Petka.exe, HELP.txt, disk1..3.id (nothing reads them), the saved
+# games, Petka.ini and extras.ini (written, so on the SD card).
+#
+# RU: файлы игры, которые make nsp-full кладёт внутрь приложения, -- только
+# те, что читает лаунчер. Каждая строка -- имя в корне romfs, как его
+# запрашивает лаунчер.
+
+# Every part: the main store (the scripts, the dialogues, the interface).
+MAIN.STR
+# Each part's backgrounds, clips, clip sounds, sounds, music and speech.
+BGS1.STR
+BGS2.STR
+BGS3.STR
+FLC1.STR
+FLC2.STR
+FLC3.STR
+WAV1.STR
+WAV2.STR
+WAV3.STR
+SFX1.STR
+SFX2.STR
+SFX3.STR
+MUSIC1.STR
+MUSIC2.STR
+MUSIC3.STR
+SPEECH1.STR
+SPEECH2.STR
+SPEECH3.STR
+# Part 2's two chapters: their speech, names and colours.
+CHAP21.STR
+CHAP22.STR
+# The films: at start-up (buka, skif, adv), the intro the script plays,
+# the start-up menu's credits.
+buka.avi
+skif.avi
+adv.avi
+intro.avi
+credits.avi

@@ -52,6 +52,20 @@ the console runs it only with signature patches (sigpatches) for its
 firmware. Install it as any NSP (DBI, Tinfoil, Goldleaf). Its title id is
 `0100F35700A50000` (`nsp.sh`, `petka.json`).
 
+`make nsp-full` makes `petka-full.nsp`, the same with the game inside it: one
+file to install, about 2 GB, nothing to copy to the SD card. Its files are
+those `assets.txt` lists -- the ones the launcher reads, and no others --
+taken from the game's folder that `PETKA_ASSETS` names (as the desktop
+launcher wants it, `ptk-unpack game` makes it):
+
+```
+PETKA_ASSETS=~/ptk1-files make nsp-full
+```
+
+Started, it reads the game from inside itself; the saved games, `Petka.ini`
+and `extras.ini` still go to `sdmc:/switch/petka/`. It holds the original
+game's files: it is for your own console, not to be given to anyone.
+
 ## Controls
 
 | | |

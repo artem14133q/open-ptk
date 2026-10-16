@@ -3,6 +3,12 @@
 # icon on the home menu, from the petka.elf that `make` builds.
 #
 #   make nsp                     (or ./nsp.sh after make)
+#   PETKA_ASSETS=<game folder> make nsp-full     (or ./nsp.sh full)
+#
+# nsp-full makes petka-full.nsp, with the game's files inside it (its
+# romfs): those assets.txt lists, the ones the launcher reads, taken from
+# PETKA_ASSETS -- the game's folder, as the desktop launcher wants it. The
+# saved games and the settings still go to sdmc:/switch/petka/.
 #
 # Needs hacBrewPack, built into deps/ (see README), and the console's own
 # keys: prod.keys, dumped from it with Lockpick_RCM, at ~/.switch/prod.keys,
@@ -14,8 +20,10 @@
 # экране, из petka.elf, который собирает make. Нужны hacBrewPack (в deps/) и
 # ключи консоли prod.keys (снимаются Lockpick_RCM) в ~/.switch/prod.keys, в
 # .switch/prod.keys в корне репозитория или по пути из PETKA_KEYS; на
-# консоли -- патчи подписей.
+# консоли -- патчи подписей. nsp-full кладёт внутрь файлы игры из списка
+# assets.txt, взятые из папки PETKA_ASSETS.
 set -e
+FULL=${1:-}
 cd "$(dirname "$0")"
 
 # The title's id: an application's, unique to this game (the low 16 bits
@@ -35,6 +43,10 @@ VERSION=${APP_VERSION:-0.1.0}
 [ -x "$HBP" ] || { echo "no $HBP: build hacBrewPack into deps/ first (see README)"; exit 1; }
 [ -f "$KEYS" ] || { echo "no keys at $KEYS: dump the console's prod.keys with Lockpick_RCM (or set PETKA_KEYS)"; exit 1; }
 [ -f petka.elf ] || { echo "no petka.elf: run make first"; exit 1; }
+if [ "$FULL" = full ]; then
+    [ -n "$PETKA_ASSETS" ] && [ -d "$PETKA_ASSETS" ] ||
+        { echo "nsp-full: set PETKA_ASSETS to the game's folder (the one the desktop launcher runs from)"; exit 1; }
+fi
 
 W=build/nsp
 rm -rf "$W"
@@ -48,8 +60,32 @@ for lang in AmericanEnglish BritishEnglish Japanese French German LatinAmericanS
             CanadianFrench Portuguese Russian Korean TraditionalChinese SimplifiedChinese BrazilianPortuguese; do
     cp icon.jpg "$W/control/icon_$lang.dat"
 done
-# The game's files stay on the SD card (sdmc:/switch/petka/): no romfs.
-"$HBP" -k "$KEYS" --titleid "${TITLE_ID#0x}" --exefsdir "$W/exefs" --controldir "$W/control" --noromfs --nologo \
+ROMFS=--noromfs
+OUT=petka.nsp
+if [ "$FULL" = full ]; then
+    # The game inside: each file of assets.txt, found whatever its case in
+    # the places the launcher looks, under the name the launcher asks for.
+    # Hard links where they can be (no copy of 2 GB), copies where not.
+    mkdir -p "$W/romfs"
+    missing=0
+    grep -v '^#' assets.txt | grep -v '^ *$' | while read -r name; do
+        src=""
+        for dir in . data1_out/Main data1_out/Flics data1_out/Sfxs Main Flics Sfxs; do
+            [ -d "$PETKA_ASSETS/$dir" ] || continue
+            src=$(find "$PETKA_ASSETS/$dir" -maxdepth 1 -type f -iname "$name" | head -1)
+            [ -n "$src" ] && break
+        done
+        if [ -z "$src" ]; then echo "nsp-full: $name is not in $PETKA_ASSETS"; echo x >> "$W/missing"; continue; fi
+        ln "$src" "$W/romfs/$name" 2> /dev/null || cp "$src" "$W/romfs/$name"
+    done
+    [ ! -f "$W/missing" ] || { echo "nsp-full: files missing, nothing built"; exit 1; }
+    echo "romfs: $(ls "$W/romfs" | wc -l | tr -d ' ') files, $(du -sh "$W/romfs" | cut -f1)"
+    ROMFS="--romfsdir $W/romfs"
+    OUT=petka-full.nsp
+fi
+"$HBP" -k "$KEYS" --titleid "${TITLE_ID#0x}" --exefsdir "$W/exefs" --controldir "$W/control" $ROMFS --nologo \
     --nspdir "$W/out" --ncadir "$W/nca" --tempdir "$W/temp" --backupdir "$W/backup"
-mv "$W"/out/*.nsp petka.nsp
-echo "built ... petka.nsp"
+mv "$W"/out/*.nsp "$OUT"
+# The built title takes as much room again: the romfs goes.
+rm -rf "$W"
+echo "built ... $OUT"

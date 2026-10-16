@@ -108,7 +108,7 @@ ifneq ($(ROMFS),)
 	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: $(BUILD) clean all nsp
+.PHONY: $(BUILD) clean all nsp nsp-full
 
 all: $(BUILD)
 
@@ -117,6 +117,11 @@ all: $(BUILD)
 nsp: all
 	@APP_TITLE="$(APP_TITLE)" APP_AUTHOR="$(APP_AUTHOR)" APP_VERSION="$(APP_VERSION)" ./nsp.sh
 
+# petka-full.nsp, the same with the game's files inside (assets.txt, taken
+# from the folder PETKA_ASSETS names).
+nsp-full: all
+	@APP_TITLE="$(APP_TITLE)" APP_AUTHOR="$(APP_AUTHOR)" APP_VERSION="$(APP_VERSION)" ./nsp.sh full
+
 $(BUILD):
 	@[ -f deps/raylib-nx/src/libraylib.a ] || { echo "raylib-nx is not built: run ./raylib.sh first"; exit 1; }
 	@[ -d $@ ] || mkdir -p $@
@@ -124,7 +129,7 @@ $(BUILD):
 
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).nsp
+	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).nsp $(TARGET)-full.nsp
 
 #---------------------------------------------------------------------------------
 else

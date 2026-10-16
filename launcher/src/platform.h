@@ -108,9 +108,17 @@ Vector2 plat_aim(void);
 void plat_pointer_speed(float k);
 
 // The folder the game's files are in when none is given: next to the
-// program on a desktop, sdmc:/switch/petka/ on the Switch.
-// RU: Папка игры по умолчанию.
+// program on a desktop; on the Switch the title's own romfs when the game is
+// inside it (make nsp-full), else sdmc:/switch/petka/.
+// RU: Папка игры по умолчанию: рядом с программой; на Switch -- romfs
+// приложения, если игра внутри него (make nsp-full), иначе sdmc:/switch/petka/.
 const char *plat_default_game_dir(void);
+// Where the saved games, the settings and the like are written when no
+// folder is given: the game's folder on a desktop, sdmc:/switch/petka/ on
+// the Switch (made if it is not there) -- a romfs is read-only.
+// RU: Куда пишутся сохранения и настройки: на Switch всегда
+// sdmc:/switch/petka/ (romfs только для чтения).
+const char *plat_data_dir(void);
 
 // A font with Cyrillic in it from the system, or a zero Font. On the Switch
 // this is the console's shared font.

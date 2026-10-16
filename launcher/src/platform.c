@@ -63,6 +63,7 @@ int plat_page_step(void) { return 0; }
 Vector2 plat_aim(void) { return (Vector2){0, 0}; }
 void plat_pointer_speed(float k) { (void)k; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
+const char *plat_data_dir(void) { return GetApplicationDirectory(); }
 Font plat_system_font(int size, int *codepoints, int count) {
     (void)size; (void)codepoints; (void)count;
     return (Font){0};
@@ -75,6 +76,7 @@ Font plat_system_font(int size, int *codepoints, int count) {
 #include <switch.h>
 
 #include <netinet/in.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -95,6 +97,7 @@ static int s_stick_dir; // where the stick was pushed last frame: -1, 0, +1
 static int s_list_step_x, s_stick_dir_x; // the same across
 static bool s_muted; // plat_mute(), until the next plat_poll()
 static bool s_sockets; // started by nxlink: sockets up, the output going there
+static bool s_romfs;   // the title's romfs mounted, the game in it
 
 void plat_mute(void) { s_muted = true; }
 
@@ -132,6 +135,7 @@ void plat_close(void) {
     UnloadRenderTexture(s_surface);
     crt_close();
     if (s_sockets) socketExit();
+    if (s_romfs) romfsExit();
 }
 
 void plat_begin(void) { BeginTextureMode(s_surface); }
@@ -262,7 +266,26 @@ Vector2 plat_aim(void) {
     return (Vector2){GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_X), -GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_Y)};
 }
 
-const char *plat_default_game_dir(void) { return "sdmc:/switch/petka/"; }
+// The game inside the title (make nsp-full): its romfs, with MAIN.STR at the
+// top. "romfs:" with no slash: the launcher puts one between it and a name.
+const char *plat_default_game_dir(void) {
+    static bool tried;
+    if (!tried) {
+        tried = true;
+        s_romfs = R_SUCCEEDED(romfsInit());
+        if (s_romfs && !FileExists("romfs:/MAIN.STR")) {
+            romfsExit();
+            s_romfs = false;
+        }
+    }
+    return s_romfs ? "romfs:" : "sdmc:/switch/petka/";
+}
+
+const char *plat_data_dir(void) {
+    mkdir("sdmc:/switch", 0777);
+    mkdir("sdmc:/switch/petka", 0777);
+    return "sdmc:/switch/petka/";
+}
 
 Font plat_system_font(int size, int *codepoints, int count) {
     // The console's own font, which covers Cyrillic; it lives in shared
