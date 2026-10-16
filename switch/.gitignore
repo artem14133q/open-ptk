@@ -1,6 +1,7 @@
 deps/
 build/
 *.nro
+*.nsp
 *.nacp
 *.elf
 *.map

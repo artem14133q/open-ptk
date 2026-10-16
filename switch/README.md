@@ -32,6 +32,25 @@ album applet's.
 `nxlink -s switch/petka.nro` sends it from a computer and shows its output
 there.
 
+## An installed title (NSP)
+
+`make nsp` makes `petka.nsp`: the same program as an installed title, with
+its icon on the home menu among the games, started without the homebrew
+menu -- and so always with the console's full memory. The game's files stay
+where they are, in `sdmc:/switch/petka/`.
+
+```
+./hacbrewpack.sh   # once: gets hacBrewPack and builds it into deps/
+make nsp           # petka.nsp
+```
+
+It needs the console's own keys, `prod.keys`, dumped from it with
+Lockpick_RCM, at `~/.switch/prod.keys` (or where `PETKA_KEYS` says): the
+title's contents are encrypted with them. No key of Nintendo's signs it, so
+the console runs it only with signature patches (sigpatches) for its
+firmware. Install it as any NSP (DBI, Tinfoil, Goldleaf). Its title id is
+`0100F35700A50000` (`nsp.sh`, `petka.json`).
+
 ## Controls
 
 | | |
