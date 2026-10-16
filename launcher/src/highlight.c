@@ -307,7 +307,20 @@ int highlight_wanted(const Game *g, const PetkaObject *obj) {
     if (is_hero(obj->id) || is_exit(obj)) return 0;
     // Seen or not: a hidden one that can be clicked is a thing painted on
     // the background, and its clip is that thing cut out of it.
-    return g->vm->state[obj_index(g, obj)].active;
+    const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+    if (!st->active) return 0;
+    // And only if it answers something in its present state: a reaction to
+    // an action (or an item) that fits its status, or a line of its own in
+    // the dialogues. The lamp that comes on by the fireplace has none.
+    for (int k = 0; k < VERB_COUNT; k++) {
+        const uint16_t op = kVerbs[k].op;
+        for (uint32_t r = 0; r < obj->reaction_count; r++) {
+            const PetkaReaction *re = &obj->reactions[r];
+            if (re->opcode == op && (re->status == 0xFF || re->status == st->status)) return 1;
+        }
+        if (op != PETKA_OP_OBJECTUSE && host_has_dialogue((void *)g, obj->id, op) == 1) return 1;
+    }
+    return 0;
 }
 
 // One loop as a closed band THICK wide on the screen, centred on it: at
