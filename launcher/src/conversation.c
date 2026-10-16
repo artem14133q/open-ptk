@@ -66,6 +66,14 @@ void next_phrase(Game *g) {
     g->voice_paused = 0;
     uint32_t idx;
     int step = petka_dialoguevm_next(&g->dvm, &idx);
+    // A split restored dialogue (restored.h): its second part passes over
+    // the phrases the first has said; the first ends where the second begins.
+    while (step == 1 && g->say_skip > 0) {
+        g->say_skip--;
+        step = petka_dialoguevm_next(&g->dvm, &idx);
+    }
+    if (step == 1 && g->say_limit == 0) step = 0;
+    if (step == 1 && g->say_limit > 0) g->say_limit--;
     if (step == 2) {
         // The dialogue hands control to the script and waits for CONTINUE
         // (sub_409610): the speaker gets his SAID, then USERMSG is queued
@@ -138,12 +146,23 @@ void next_phrase(Game *g) {
 
 void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
     Game *g = (Game *)user;
-    (void)obj_id;
     // A restored line put after the action (scriptfix.c): not said with the switch off.
     if (arg == RESTORED_LATE && !g->opt_restored) g->dialogue = NULL;
-    if (!g->dialogue || !g->phrases) { g->dialogue_done = 1; return; }
-    petka_dialoguevm_start(&g->dvm, g->dtree, g->dialogue->entries[0].bytecode_offset);
-    g->dialogue = NULL;
+    // A restored line in two parts round the action: its own dialogue, the
+    // first phrases or the rest.
+    const PetkaDialogueVerb *dialogue = g->dialogue;
+    g->say_limit = -1;
+    g->say_skip = 0;
+    if (arg == RESTORED_FIRST || arg == RESTORED_REST) {
+        int first = 0;
+        dialogue = g->opt_restored ? restored_split(g, obj_id, &first) : NULL;
+        if (arg == RESTORED_FIRST) g->say_limit = first;
+        else g->say_skip = first;
+    } else {
+        g->dialogue = NULL;
+    }
+    if (!dialogue || !g->phrases) { g->dialogue_done = 1; return; }
+    petka_dialoguevm_start(&g->dvm, g->dtree, dialogue->entries[0].bytecode_offset);
     g->talking = 1;
     g->paused = 0;
     g->menu_count = 0;

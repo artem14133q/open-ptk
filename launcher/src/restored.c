@@ -69,6 +69,29 @@ static const struct {
     {3, 349, 0x1001A, 255}, // Почему бы и нет?
 };
 
+// The dialogues said in two parts round the action (restored.h): the part,
+// the object, the message key of its own dialogue, how many phrases first.
+static const struct {
+    uint8_t part;
+    uint16_t obj;
+    uint32_t key;
+    int first;
+} kSplit[] = {
+    // Part 2, the rope at the jetty, cut with the sword: Petka's "Вот так-то
+    // лучше будет... Оп-ля!" as he gets to it, Chapayev's "Острый, зараза!"
+    // once it is cut -- as Reloaded has it, not both before the cut.
+    {2, 653, 0x19001A, 1},
+};
+
+const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *first) {
+    for (size_t i = 0; i < sizeof(kSplit) / sizeof(kSplit[0]); i++)
+        if (kSplit[i].part == g->part_number && kSplit[i].obj == obj_id) {
+            *first = kSplit[i].first;
+            return find_dialogue(g, obj_id, kSplit[i].key);
+        }
+    return NULL;
+}
+
 void restored_player_action(Game *g, uint16_t obj, uint16_t op) {
     g->acted_obj = obj;
     g->acted_op = op;

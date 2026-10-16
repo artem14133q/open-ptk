@@ -17,6 +17,18 @@
 // EN: The argument of a DIALOG that scriptfix.c adds to a reaction for a restored line said after the action, not before it: said only with the extras switch on.
 // RU: Аргумент DIALOG, который scriptfix.c добавляет в реакцию для восстановленной реплики, звучащей после действия, а не перед ним: звучит только при включённом переключателе.
 #define RESTORED_LATE 0xFFFE
+// A restored line said in two parts round the action (scriptfix.c puts a
+// DIALOG for each): the object's dialogue up to restored_split()'s phrase,
+// before it; the rest, after it. With the switch off neither is said.
+// RU: Восстановленная реплика в двух частях вокруг действия: до него -- первые
+// фразы диалога объекта, после -- остальные.
+#define RESTORED_FIRST 0xFFFD
+#define RESTORED_REST 0xFFFC
+
+// The dialogue split round its action for an object, and how many of its
+// phrases come first; NULL if it has none.
+// RU: Диалог объекта, разделённый вокруг действия, и сколько фраз в первой части.
+const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *first);
 
 // EN: Whether to say the object's own dialogue before this reaction (1), instead of it (2), or not (0) -- the VM's restore_dialogue callback.
 // RU: Проиграть ли собственный диалог объекта перед этой реакцией (1), вместо неё (2) или нет (0) - обратный вызов машины restore_dialogue.
