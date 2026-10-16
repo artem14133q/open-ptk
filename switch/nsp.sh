@@ -8,7 +8,9 @@
 # nsp-full makes petka-full.nsp, with the game's files inside it (its
 # romfs): those assets.txt lists, the ones the launcher reads, taken from
 # PETKA_ASSETS -- the game's folder, as the desktop launcher wants it. The
-# saved games and the settings still go to sdmc:/switch/petka/.
+# saved games and the settings go, as in either NSP, to the console's save
+# data for the user who plays (taken in from sdmc:/switch/petka/ the first
+# time).
 #
 # Needs hacBrewPack, built into deps/ (see README), and the console's own
 # keys: prod.keys, dumped from it with Lockpick_RCM, at ~/.switch/prod.keys,
@@ -56,6 +58,13 @@ mkdir -p "$W/exefs" "$W/control"
 "$TOOLS/npdmtool" petka.json "$W/exefs/main.npdm" 2> /dev/null
 # Its name and icon on the home menu, the same in every language.
 "$TOOLS/nacptool" --create "$TITLE" "$AUTHOR" "$VERSION" "$W/control/control.nacp" --titleid=$TITLE_ID
+# The console's way with saved games: a user is asked for as the title
+# starts (StartupUserAccount, 0x3025: 1), and the user's save data is 8 MB
+# with a journal of 8 MB (0x3080, 0x3088) -- nacptool sets neither.
+patch() { printf "$2" | dd of="$W/control/control.nacp" bs=1 seek=$(($1)) conv=notrunc 2> /dev/null; }
+patch 0x3025 '\001'
+patch 0x3080 '\000\000\200\000\000\000\000\000'
+patch 0x3088 '\000\000\200\000\000\000\000\000'
 for lang in AmericanEnglish BritishEnglish Japanese French German LatinAmericanSpanish Spanish Italian Dutch \
             CanadianFrench Portuguese Russian Korean TraditionalChinese SimplifiedChinese BrazilianPortuguese; do
     cp icon.jpg "$W/control/icon_$lang.dat"

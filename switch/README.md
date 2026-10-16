@@ -34,6 +34,13 @@ there.
 
 ## An installed title (NSP)
 
+Installed, the game keeps its saved games as the console's games do: the
+console asks who plays as it starts, and the saved games, `Petka.ini` and
+`extras.ini` are that user's save data of the title -- in Data Management,
+kept when the title is reinstalled. The first time, those an NRO left in
+`sdmc:/switch/petka/` are taken in. (The NRO itself keeps them on the SD
+card: it may run under another game's title.)
+
 `make nsp` makes `petka.nsp`: the same program as an installed title, with
 its icon on the home menu among the games, started without the homebrew
 menu -- and so always with the console's full memory. The game's files stay
@@ -62,8 +69,7 @@ launcher wants it, `ptk-unpack game` makes it):
 PETKA_ASSETS=~/ptk1-files make nsp-full
 ```
 
-Started, it reads the game from inside itself; the saved games, `Petka.ini`
-and `extras.ini` still go to `sdmc:/switch/petka/`. It holds the original
+Started, it reads the game from inside itself. It holds the original
 game's files: it is for your own console, not to be given to anyone.
 
 ## Controls

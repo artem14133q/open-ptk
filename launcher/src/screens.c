@@ -128,6 +128,7 @@ void options_save(const Game *g) {
     for (int i = 0; i < 4; i++) fprintf(f, "%s=%d\n", kDialKey[i], g->dial[i]);
     fprintf(f, "Subtitles=%d\n", g->subtitles ? 1 : 0);
     fclose(f);
+    plat_commit();
 }
 
 void new_game(Game *g) {

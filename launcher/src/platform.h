@@ -114,11 +114,19 @@ void plat_pointer_speed(float k);
 // приложения, если игра внутри него (make nsp-full), иначе sdmc:/switch/petka/.
 const char *plat_default_game_dir(void);
 // Where the saved games, the settings and the like are written when no
-// folder is given: the game's folder on a desktop, sdmc:/switch/petka/ on
-// the Switch (made if it is not there) -- a romfs is read-only.
-// RU: Куда пишутся сохранения и настройки: на Switch всегда
-// sdmc:/switch/petka/ (romfs только для чтения).
+// folder is given: the game's folder on a desktop. On the Switch, an
+// installed title (an NSP) keeps them as the console's games do, in its save
+// data for the user who plays (mounted as save:); the homebrew menu's NRO,
+// which may run under another game's title, in sdmc:/switch/petka/.
+// RU: Куда пишутся сохранения и настройки: на компьютере -- в папку игры; на
+// Switch установленное приложение (NSP) хранит их как игры консоли, в своих
+// сохранениях пользователя (save:), а NRO -- в sdmc:/switch/petka/.
 const char *plat_data_dir(void);
+// After a file is written there: made to stay (the save data keeps nothing
+// that is not committed). Nothing to do elsewhere.
+// RU: После записи файла: зафиксировать его (сохранения консоли без этого
+// ничего не хранят).
+void plat_commit(void);
 
 // A font with Cyrillic in it from the system, or a zero Font. On the Switch
 // this is the console's shared font.

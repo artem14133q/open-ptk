@@ -40,6 +40,7 @@ void extras_save(const Game *g) {
     fprintf(f, "crt=%d\nband=%d\naim=%d\nhighlight=%d\nrestored=%d\n", crt_on() ? 1 : 0, s_band, g->opt_aim,
             g->opt_highlight, g->opt_restored);
     fclose(f);
+    plat_commit();
 }
 
 void extras_load(Game *g) {

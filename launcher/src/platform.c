@@ -64,6 +64,7 @@ Vector2 plat_aim(void) { return (Vector2){0, 0}; }
 void plat_pointer_speed(float k) { (void)k; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
 const char *plat_data_dir(void) { return GetApplicationDirectory(); }
+void plat_commit(void) {}
 Font plat_system_font(int size, int *codepoints, int count) {
     (void)size; (void)codepoints; (void)count;
     return (Font){0};
@@ -98,6 +99,7 @@ static int s_list_step_x, s_stick_dir_x; // the same across
 static bool s_muted; // plat_mute(), until the next plat_poll()
 static bool s_sockets; // started by nxlink: sockets up, the output going there
 static bool s_romfs;   // the title's romfs mounted, the game in it
+static bool s_save;    // the title's save data for the user mounted as save:
 
 void plat_mute(void) { s_muted = true; }
 
@@ -136,6 +138,10 @@ void plat_close(void) {
     crt_close();
     if (s_sockets) socketExit();
     if (s_romfs) romfsExit();
+    if (s_save) {
+        fsdevCommitDevice("save");
+        fsdevUnmountDevice("save");
+    }
 }
 
 void plat_begin(void) { BeginTextureMode(s_surface); }
@@ -281,10 +287,77 @@ const char *plat_default_game_dir(void) {
     return s_romfs ? "romfs:" : "sdmc:/switch/petka/";
 }
 
+// The save data: as big as the saved games want with room to spare (some
+// 90 KB each, 18 slots, two .ini), the journal the same.
+#define SAVE_DATA_SIZE 0x800000
+#define SAVE_DATA_SD "sdmc:/switch/petka/"
+
+// The user who plays: the one the console asked for as the title started
+// (its NACP wants one, see nsp.sh).
+static bool save_user(AccountUid *uid) {
+    if (R_FAILED(accountInitialize(AccountServiceType_Application))) return false;
+    bool ok = R_SUCCEEDED(accountGetPreselectedUser(uid)) && accountUidIsValid(uid);
+    accountExit();
+    return ok;
+}
+
+// The user's save data of this title, made the first time.
+static bool save_mount(void) {
+    AccountUid uid;
+    u64 id = 0;
+    if (!save_user(&uid) || R_FAILED(svcGetInfo(&id, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0))) return false;
+    if (R_SUCCEEDED(fsdevMountSaveData("save", id, uid))) return true;
+    FsSaveDataAttribute attr = {.application_id = id, .uid = uid, .save_data_type = FsSaveDataType_Account};
+    FsSaveDataCreationInfo info = {.save_data_size = SAVE_DATA_SIZE, .journal_size = SAVE_DATA_SIZE,
+                                   .available_size = 0x4000, .owner_id = id,
+                                   .save_data_space_id = FsSaveDataSpaceId_User};
+    FsSaveDataMetaInfo meta = {0};
+    if (R_FAILED(fsCreateSaveDataFileSystem(&attr, &info, &meta))) return false;
+    return R_SUCCEEDED(fsdevMountSaveData("save", id, uid));
+}
+
+// The first time: the saved games and settings an earlier start left on the
+// SD card are taken in (copied; those there stay).
+static void save_take_in(void) {
+    static const char *const kFiles[] = {"Petka.ini", "extras.ini"};
+    char from[64], to[64];
+    bool taken = false;
+    // The two .ini, then the 18 slots of the save screen (6 a page, 3 pages).
+    for (int i = -2; i < 18; i++) {
+        const char *name = i < 0 ? kFiles[i + 2] : NULL;
+        char slot[16];
+        if (!name) { snprintf(slot, sizeof(slot), "save%d.dat", i + 1); name = slot; }
+        snprintf(from, sizeof(from), SAVE_DATA_SD "%s", name);
+        snprintf(to, sizeof(to), "save:/%s", name);
+        if (FileExists(to) || !FileExists(from)) continue;
+        int len = 0;
+        unsigned char *data = LoadFileData(from, &len);
+        if (!data) continue;
+        FILE *f = fopen(to, "wb");
+        if (f) {
+            fwrite(data, 1, (size_t)len, f);
+            fclose(f);
+            taken = true;
+        }
+        UnloadFileData(data);
+    }
+    if (taken) fsdevCommitDevice("save");
+}
+
 const char *plat_data_dir(void) {
+    // An installed title runs as an NSO; the homebrew menu's NRO does not.
+    if (envIsNso() && !s_save && save_mount()) {
+        s_save = true;
+        save_take_in();
+    }
+    if (s_save) return "save:/";
     mkdir("sdmc:/switch", 0777);
     mkdir("sdmc:/switch/petka", 0777);
-    return "sdmc:/switch/petka/";
+    return SAVE_DATA_SD;
+}
+
+void plat_commit(void) {
+    if (s_save) fsdevCommitDevice("save");
 }
 
 Font plat_system_font(int size, int *codepoints, int count) {

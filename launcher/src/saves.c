@@ -114,6 +114,7 @@ int game_save(Game *g, const char *path) {
     int ok = f && fwrite(bytes, 1, len, f) == len;
     if (f) fclose(f);
     free(bytes);
+    plat_commit();
     return ok;
 }
 
