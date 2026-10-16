@@ -666,8 +666,12 @@ int main(int argc, char **argv) {
         // drawn or painted on the background, or a character other than the
         // heroes -- while the player can act in the room itself, or on the
         // map round the place under the pointer (not on the panel, which is
-        // a map too).
-        int outline = g->opt_highlight && can_act &&
+        // a map too). Nor under a menu: the extras', or the panel left this
+        // very frame -- its door quits, and the last frame drawn still had
+        // the panel's things on it, the door outlined: the scene must be the
+        // room's on screen.
+        int outline = g->opt_highlight && can_act && !g->extras_open && !g->quit &&
+                      g->shown_room == screen_room(g) &&
                       (g->map_open ? !g->panel_open : g->seq_room == PETKA_NONE);
         for (int i = 0; i < scene_count; i++) {
             const Visual *v = &g->visuals[obj_index(g, scene[i].obj)];
