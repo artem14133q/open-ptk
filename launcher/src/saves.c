@@ -169,6 +169,7 @@ int game_load(Game *g, const char *path) {
         st->active = in->active != 0;
         st->animate = in->animate != 0;
     }
+    scriptfix_state(g);
     petka_scriptvm_set_inventory(vm, save->items, save->item_count);
     g->case_first = 0;
 

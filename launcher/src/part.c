@@ -117,6 +117,7 @@ int part_open(Game *g, int number, int chapter) {
     const uint8_t *bg_data = part_file(g, g->part, "BACKGRND.BG", &bg_len);
     g->script = script_data && bg_data ? petka_script_open(script_data, script_len, bg_data, bg_len) : NULL;
     if (!g->script) { fprintf(stderr, "no script for %s under %s\n", g->part, g->game_dir); return 0; }
+    scriptfix_script(g);
 
     const uint8_t *bytes = part_file(g, g->part, "RESOURCE.QRC", &len);
     if (bytes) load_qrc(g, bytes, len);

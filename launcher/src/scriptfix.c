@@ -1,0 +1,58 @@
+// scriptfix.c
+//
+// EN: Fixes to the game's own script: its mistakes put right as it is loaded.
+// RU: Исправления сценария игры: его ошибки исправляются при загрузке.
+#include "game.h"
+
+// A fix: in that part, in the reaction of `obj` to `op` (in `status`, from
+// `sender`; PETKA_NONE for any), after its first message `after_op` to
+// `after_to`, a message `add_op` with `add_arg1` to `add_to` is added. A
+// saved game whose `add_to` has the resource `stale` (and is hidden) gets
+// `add_arg1` instead.
+static const struct {
+    uint8_t part;
+    uint16_t obj, op, status, sender;
+    uint16_t after_to, after_op;
+    uint16_t add_to, add_op, add_arg1;
+    uint16_t stale;
+} kFixes[] = {
+    // The hive with the bees at the apiary, the syringe used on it: PLAY
+    // puts the clip of Petka filling the syringe on it, HIDE hides it, and
+    // its own clip (ULEI1.FLC, from its TOTALINIT) is never set again. Hidden
+    // but active, it was clicked -- and named, and outlined -- by Petka's
+    // shape where he had stood. Its clip back after the HIDE.
+    {1, 304, PETKA_OP_OBJECTUSE, 1, 39, 304, PETKA_OP_HIDE, 304, PETKA_OP_SET, 1108, 1128},
+};
+
+void scriptfix_script(Game *g) {
+    for (size_t f = 0; f < sizeof(kFixes) / sizeof(kFixes[0]); f++) {
+        if (kFixes[f].part != g->part_number) continue;
+        PetkaObject *obj = petka_script_find(g->script, kFixes[f].obj);
+        for (uint32_t r = 0; obj && r < obj->reaction_count; r++) {
+            PetkaReaction *re = &obj->reactions[r];
+            if (re->opcode != kFixes[f].op) continue;
+            if (kFixes[f].status != PETKA_NONE && re->status != kFixes[f].status) continue;
+            if (kFixes[f].sender != PETKA_NONE && re->sender != kFixes[f].sender) continue;
+            for (uint32_t m = 0; m < re->message_count; m++) {
+                if (re->messages[m].obj_id != kFixes[f].after_to || re->messages[m].opcode != kFixes[f].after_op) continue;
+                PetkaMessage *msgs =
+                    (PetkaMessage *)realloc(re->messages, (re->message_count + 1) * sizeof(PetkaMessage));
+                if (!msgs) return;
+                memmove(msgs + m + 2, msgs + m + 1, (re->message_count - m - 1) * sizeof(PetkaMessage));
+                msgs[m + 1] = (PetkaMessage){.obj_id = kFixes[f].add_to, .opcode = kFixes[f].add_op,
+                                             .arg1 = kFixes[f].add_arg1, .arg2 = PETKA_NONE, .arg3 = PETKA_NONE};
+                re->messages = msgs;
+                re->message_count++;
+                break;
+            }
+        }
+    }
+}
+
+void scriptfix_state(Game *g) {
+    for (size_t f = 0; f < sizeof(kFixes) / sizeof(kFixes[0]); f++) {
+        if (kFixes[f].part != g->part_number || kFixes[f].add_op != PETKA_OP_SET) continue;
+        PetkaObjectState *st = petka_scriptvm_state(g->vm, kFixes[f].add_to);
+        if (st && !st->visible && st->resource == kFixes[f].stale) st->resource = kFixes[f].add_arg1;
+    }
+}
