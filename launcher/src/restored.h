@@ -24,15 +24,6 @@
 // фразы диалога объекта, после -- остальные.
 #define RESTORED_FIRST 0xFFFD
 #define RESTORED_REST 0xFFFC
-// Phrases of other dialogues a restored scene says where the script has
-// none (restored_phrases(): restored.c's kPhrases), put in by scriptfix.c.
-// RU: Фразы других диалогов, которые восстановленная сцена говорит там, где
-// в сценарии ничего нет.
-#define RESTORED_PHRASES 0xFFFB
-
-// The phrases RESTORED_PHRASES says for an object (up to max); how many.
-// RU: Фразы, которые RESTORED_PHRASES говорит для объекта; сколько их.
-int restored_phrases(const Game *g, uint16_t obj_id, uint16_t *out, int max);
 
 // The dialogue split round its action for an object, and how many of its
 // phrases come first; NULL if it has none.
