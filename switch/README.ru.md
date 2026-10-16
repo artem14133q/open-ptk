@@ -47,7 +47,7 @@ homebrew-меню и поэтому всегда со всей памятью к
 на своём месте, в `sdmc:/switch/petka/`.
 
 ```
-./hacbrewpack.sh   # один раз: берёт hacBrewPack и собирает его в deps/
+./hacbrewpack.sh   # один раз: hacBrewPack в deps/ и логотип запуска
 make nsp           # petka.nsp
 ```
 

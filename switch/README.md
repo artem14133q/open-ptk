@@ -47,7 +47,7 @@ menu -- and so always with the console's full memory. The game's files stay
 where they are, in `sdmc:/switch/petka/`.
 
 ```
-./hacbrewpack.sh   # once: gets hacBrewPack and builds it into deps/
+./hacbrewpack.sh   # once: hacBrewPack built into deps/, and the boot logo
 make nsp           # petka.nsp
 ```
 

@@ -42,7 +42,9 @@ TITLE=${APP_TITLE:-Петька и Василий Иванович спасаю�
 AUTHOR=${APP_AUTHOR:-Бука}
 VERSION=${APP_VERSION:-0.1.0}
 
-[ -x "$HBP" ] || { echo "no $HBP: build hacBrewPack into deps/ first (see README)"; exit 1; }
+[ -x "$HBP" ] || { echo "no $HBP: build hacBrewPack into deps/ first (./hacbrewpack.sh)"; exit 1; }
+[ -s deps/logo/NintendoLogo.png ] && [ -s deps/logo/StartupMovie.gif ] ||
+    { echo "no boot logo in deps/logo: run ./hacbrewpack.sh"; exit 1; }
 [ -f "$KEYS" ] || { echo "no keys at $KEYS: dump the console's prod.keys with Lockpick_RCM (or set PETKA_KEYS)"; exit 1; }
 [ -f petka.elf ] || { echo "no petka.elf: run make first"; exit 1; }
 if [ "$FULL" = full ]; then
@@ -69,13 +71,19 @@ for lang in AmericanEnglish BritishEnglish Japanese French German LatinAmericanS
             CanadianFrench Portuguese Russian Korean TraditionalChinese SimplifiedChinese BrazilianPortuguese; do
     cp icon.jpg "$W/control/icon_$lang.dat"
 done
-ROMFS=--noromfs
+# A title's Program NCA has all three of its sections, ExeFS, RomFS and Logo
+# -- the console did not start one with the ExeFS alone. With no game inside,
+# the romfs holds a note and no MAIN.STR: the game is read from the SD card.
+mkdir -p "$W/romfs"
+ROMFS="--romfsdir $W/romfs"
 OUT=petka.nsp
+if [ "$FULL" != full ]; then
+    echo "open-ptk: the game's files are read from sdmc:/switch/petka/" > "$W/romfs/README.txt"
+fi
 if [ "$FULL" = full ]; then
     # The game inside: each file of assets.txt, found whatever its case in
     # the places the launcher looks, under the name the launcher asks for.
     # Hard links where they can be (no copy of 2 GB), copies where not.
-    mkdir -p "$W/romfs"
     missing=0
     grep -v '^#' assets.txt | grep -v '^ *$' | while read -r name; do
         src=""
@@ -89,10 +97,9 @@ if [ "$FULL" = full ]; then
     done
     [ ! -f "$W/missing" ] || { echo "nsp-full: files missing, nothing built"; exit 1; }
     echo "romfs: $(ls "$W/romfs" | wc -l | tr -d ' ') files, $(du -sh "$W/romfs" | cut -f1)"
-    ROMFS="--romfsdir $W/romfs"
     OUT=petka-full.nsp
 fi
-"$HBP" -k "$KEYS" --titleid "${TITLE_ID#0x}" --exefsdir "$W/exefs" --controldir "$W/control" $ROMFS --nologo \
+"$HBP" -k "$KEYS" --titleid "${TITLE_ID#0x}" --exefsdir "$W/exefs" --controldir "$W/control" $ROMFS --logodir deps/logo \
     --nspdir "$W/out" --ncadir "$W/nca" --tempdir "$W/temp" --backupdir "$W/backup"
 mv "$W"/out/*.nsp "$OUT"
 # The built title takes as much room again: the romfs goes.
