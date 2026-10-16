@@ -29,7 +29,9 @@
 // place (the wardrobe opens by its door, which passes USE on to it). `then`:
 // phrases of other dialogues Reloaded has said after it, before the
 // reaction, where without them the line and the reaction disagree (the
-// phrase table's indices, 0 for none).
+// phrase table's indices, 0 for none). A line that tells of what the action
+// has done (the fireplace's lamp, "I turned it, though I did not tear it off")
+// is not here but a DIALOG that scriptfix.c puts at the reaction's end.
 static const struct {
     uint8_t part;
     uint16_t obj;
@@ -58,7 +60,6 @@ static const struct {
     {2, 653, 0x19001A, 1}, // Вот так-то лучше будет...  Оп-ля!
     {3, 55, 0x1, 1}, // Можно было бы попробовать туда залезть, если бы не решетка.
     {3, 60, 0x1, 255}, // Неплохо.
-    {3, 63, 0x1001A, 0}, // Оторвать не получилось, но свернул я ее по-моему неплохо, а Петька?
     {3, 181, 0x1, 2}, // Если кто-то где-то сделал кнопки, значит это для чего-то нужно...
     {3, 222, 0x6, 1}, // Нет. Нельзя.
     {3, 260, 0x1, 1}, // Пульт сейчас занят.

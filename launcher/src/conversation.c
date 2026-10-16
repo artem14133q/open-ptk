@@ -138,7 +138,9 @@ void next_phrase(Game *g) {
 
 void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
     Game *g = (Game *)user;
-    (void)obj_id; (void)arg;
+    (void)obj_id;
+    // A restored line put after the action (scriptfix.c): not said with the switch off.
+    if (arg == RESTORED_LATE && !g->opt_restored) g->dialogue = NULL;
     if (!g->dialogue || !g->phrases) { g->dialogue_done = 1; return; }
     petka_dialoguevm_start(&g->dvm, g->dtree, g->dialogue->entries[0].bytecode_offset);
     g->dialogue = NULL;

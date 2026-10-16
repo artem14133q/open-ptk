@@ -22,6 +22,12 @@ static const struct {
     // but active, it was clicked -- and named, and outlined -- by Petka's
     // shape where he had stood. Its clip back after the HIDE.
     {1, 304, PETKA_OP_OBJECTUSE, 1, 39, 304, PETKA_OP_HIDE, 304, PETKA_OP_SET, 1108, 1128},
+    // The fireplace's lamp in the White HQ, turned by Chapayev: his "Оторвать
+    // не получилось, но свернул я ее..." (the lamp's own dialogue, which the
+    // reaction never says) tells of what he has done, so it comes after the
+    // clip and the left lamp's lighting, not before them (restored.c) --
+    // with the extras switch on (conversation.c).
+    {3, 63, PETKA_OP_OBJECTUSE, 0, 1, 64, PETKA_OP_STATUS, 63, PETKA_OP_DIALOG, RESTORED_LATE, 0},
 };
 
 void scriptfix_script(Game *g) {

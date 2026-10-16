@@ -14,6 +14,10 @@
 
 #include "game.h"
 
+// EN: The argument of a DIALOG that scriptfix.c adds to a reaction for a restored line said after the action, not before it: said only with the extras switch on.
+// RU: Аргумент DIALOG, который scriptfix.c добавляет в реакцию для восстановленной реплики, звучащей после действия, а не перед ним: звучит только при включённом переключателе.
+#define RESTORED_LATE 0xFFFE
+
 // EN: Whether to say the object's own dialogue before this reaction (1), instead of it (2), or not (0) -- the VM's restore_dialogue callback.
 // RU: Проиграть ли собственный диалог объекта перед этой реакцией (1), вместо неё (2) или нет (0) - обратный вызов машины restore_dialogue.
 int host_restore_dialogue(void *user, uint16_t obj_id, uint32_t key, uint8_t status);
