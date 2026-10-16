@@ -119,6 +119,30 @@ static void smooth_loops(void) {
     s_outline.starts = starts;
 }
 
+// One pass of `morph`: along rows (step 1, lines w apart) or columns (step
+// w, lines 1 apart), each pixel set if any (grow) or all (shrink) of the r
+// either side of it are; past the edge counts as clear.
+static void morph_pass(const uint8_t *src, uint8_t *dst, int len, int lines, int step, int line_step, int r,
+                       int shrink) {
+    for (int l = 0; l < lines; l++) {
+        const uint8_t *in = src + (size_t)l * line_step;
+        uint8_t *out = dst + (size_t)l * line_step;
+        int count = 0;
+        for (int i = 0; i < r && i < len; i++) count += in[(size_t)i * step];
+        for (int i = 0; i < len; i++) {
+            if (i + r < len) count += in[(size_t)(i + r) * step];
+            if (i - r - 1 >= 0) count -= in[(size_t)(i - r - 1) * step];
+            out[(size_t)i * step] = shrink ? count == 2 * r + 1 : count > 0;
+        }
+    }
+}
+
+// Grows (shrink 0) or shrinks (1) the shape src by a square of r into dst.
+static void morph(const uint8_t *src, uint8_t *dst, uint8_t *tmp, int w, int h, int r, int shrink) {
+    morph_pass(src, tmp, w, h, 1, w, r, shrink);
+    morph_pass(tmp, dst, h, w, w, 1, r, shrink);
+}
+
 static void outline_make(const Visual *v) {
     outline_free();
     s_outline.v = v;
@@ -140,27 +164,14 @@ static void outline_make(const Visual *v) {
     for (int y = r.top; y < r.bottom; y++)
         for (int x = r.left; x < r.right; x++)
             opaque[(y - oy) * w + (x - ox)] = !petka_flic_keyed(f, f->indices[y * f->width + x]);
-    // Grown by a disc of CLOSE, then shrunk by one of CLOSE - GROW.
-    for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++) {
-            if (!opaque[y * w + x]) continue;
-            for (int dy = -CLOSE; dy <= CLOSE; dy++)
-                for (int dx = -CLOSE; dx <= CLOSE; dx++)
-                    if (dx * dx + dy * dy <= CLOSE * CLOSE + 1) solid[(y + dy) * w + (x + dx)] = 1;
-        }
-    const int shrink = CLOSE - GROW;
-    memset(opaque, 0, (size_t)w * h);
-    for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++) {
-            int all = solid[y * w + x];
-            for (int dy = -shrink; dy <= shrink && all; dy++)
-                for (int dx = -shrink; dx <= shrink && all; dx++) {
-                    if (dx * dx + dy * dy > shrink * shrink + 1) continue;
-                    int nx = x + dx, ny = y + dy;
-                    all = nx >= 0 && ny >= 0 && nx < w && ny < h && solid[ny * w + nx];
-                }
-            opaque[y * w + x] = (uint8_t)all;
-        }
+    // Grown by CLOSE, then shrunk by CLOSE - GROW: a square each time, in
+    // two passes (rows, then columns) of a running count, so that a big
+    // clip -- a character, whose frame changes as he talks -- costs no more
+    // per pixel than a small one.
+    uint8_t *tmp = (uint8_t *)malloc((size_t)w * h);
+    morph(opaque, solid, tmp, w, h, CLOSE, 0);
+    morph(solid, opaque, tmp, w, h, CLOSE - GROW, 1);
+    free(tmp);
     memcpy(solid, opaque, (size_t)w * h);
     // The holes filled: whatever the outside cannot reach is inside. The
     // margin's ring of clear pixels joins all of the outside up.
@@ -292,11 +303,8 @@ static int is_exit(const PetkaObject *obj) {
 }
 
 int highlight_wanted(const Game *g, const PetkaObject *obj) {
+    // Not the heroes, whom the player leads; the other characters are.
     if (is_hero(obj->id) || is_exit(obj)) return 0;
-    // Nor the other characters: CAST.INI gives the lines of everyone who
-    // speaks a colour of their own.
-    Color ink = g->colors[obj_index(g, obj)], none = NO_CAST_INK;
-    if (ink.r != none.r || ink.g != none.g || ink.b != none.b) return 0;
     // Seen or not: a hidden one that can be clicked is a thing painted on
     // the background, and its clip is that thing cut out of it.
     return g->vm->state[obj_index(g, obj)].active;
