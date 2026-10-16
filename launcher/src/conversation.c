@@ -35,6 +35,41 @@ void set_talker(Game *g, uint16_t id) {
     if (id != PETKA_NONE) petka_scriptvm_send(g->vm, id, PETKA_OP_SAY, 0, 0, 0, -1);
 }
 
+// The names subtitles go under. The script's objects that speak are the
+// characters in a room, a sequence or a pose ("Петька - КОМНАТА ПЕТЬКИ",
+// "ВИЧ на стуле", "Grass1- Seq - ПОДВОДНЫЙ МИР" is Petka): the character's
+// own name for each, by the part. The heroes are the same in every part;
+// any other speaker goes by his object's name.
+static const struct {
+    uint8_t part; // 0: every part
+    uint16_t id;
+    const char *name;
+} kSpeakers[] = {
+    {0, 0, "Петька"}, {0, 1, "Василий Иванович"},
+    {1, 85, "Петька"}, {1, 86, "Василий Иванович"}, {1, 197, "Алкаш"}, {1, 198, "Красноармеец"},
+    {1, 199, "Красноармеец"}, {1, 200, "Красноармеец"}, {1, 201, "Красноармеец"}, {1, 202, "Красноармеец"},
+    {1, 305, "Пасечник"}, {1, 307, "Пасечник"}, {1, 364, "Солдаты"}, {1, 365, "Солдаты"},
+    {1, 369, "Петька"}, {1, 422, "Белогвардеец"}, {1, 423, "Белогвардеец"}, {1, 428, "Петька"},
+    {1, 434, "Анка"},
+    {2, 111, "Петька"}, {2, 113, "Василий Иванович"}, {2, 131, "Петька"}, {2, 148, "Анка"},
+    {2, 151, "Петька"}, {2, 152, "Василий Иванович"}, {2, 200, "Фотограф"}, {2, 201, "Фотомодель"},
+    {2, 202, "Фотомодель"}, {2, 261, "Качковский"}, {2, 307, "Качковский"}, {2, 308, "Поп"},
+    {2, 310, "Бармен"}, {2, 316, "Анка"}, {2, 367, "Белый генерал"}, {2, 426, "Клерк"},
+    {2, 599, "Поп"}, {2, 678, "Анка"},
+    {3, 58, "Фурманов"}, {3, 59, "Инопланетянин"}, {3, 103, "Петька"}, {3, 104, "Василий Иванович"},
+    {3, 140, "Фурманов"}, {3, 212, "Бармен"}, {3, 275, "Лаборанты"}, {3, 309, "Петька"},
+    {3, 310, "Василий Иванович"}, {3, 311, "Лже-Фурманов"}, {3, 325, "Лже-Фурманов"}, {3, 356, "Петька"},
+    {3, 357, "Василий Иванович"},
+};
+
+const char *speaker_name(const Game *g, uint16_t id) {
+    for (size_t i = 0; i < sizeof(kSpeakers) / sizeof(kSpeakers[0]); i++)
+        if ((kSpeakers[i].part == 0 || kSpeakers[i].part == g->part_number) && kSpeakers[i].id == id)
+            return kSpeakers[i].name;
+    const PetkaObject *obj = id == PETKA_NONE ? NULL : petka_script_find(g->script, id);
+    return obj ? utf8_name(obj->name) : "";
+}
+
 // Where a speaker's voice sits between the speakers, -1 (left) to 1 (right).
 // The exe (sub_40E0D0) gives DirectSound a pan of 2500 * (2x - w) / (2w)
 // hundredths of a decibel, x being the middle of the speaker's clip and w
@@ -205,8 +240,10 @@ void menu_lines(const Game *g, Font font, float scale, Rectangle *rects, int hov
     float size = 20 * scale;
     int count = g->menu_count < MENU_MAX ? g->menu_count : MENU_MAX;
     for (int i = 0; i < count; i++) {
-        char text[512];
-        cp1251_to_utf8(g->menu[i] < g->phrases->count ? g->phrases->phrases[g->menu[i]].text : "?", text, sizeof(text));
+        // Each line after a dash, as a line of talk is written.
+        char text[512] = "- ";
+        cp1251_to_utf8(g->menu[i] < g->phrases->count ? g->phrases->phrases[g->menu[i]].text : "?", text + 2,
+                       sizeof(text) - 2);
         rows[i] = wrap_text(font, text, size, 625 * scale, lines[i], MAX_ROWS);
         if (rows[i] < 1) rows[i] = 1;
         total += rows[i];

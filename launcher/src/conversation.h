@@ -37,6 +37,9 @@ void set_talker(Game *g, uint16_t id);
 // EN: Where a speaker's voice sits between left and right.
 // RU: Положение голоса говорящего между левым и правым каналом.
 float speaker_pan(const Game *g, uint16_t id);
+// EN: The name a speaker's subtitles go under ("" for none).
+// RU: Имя говорящего для субтитров ("" если нет).
+const char *speaker_name(const Game *g, uint16_t id);
 // EN: Goes on to the dialogue's next phrase, menu or end.
 // RU: Переходит к следующей фразе диалога, меню или концу.
 void next_phrase(Game *g);

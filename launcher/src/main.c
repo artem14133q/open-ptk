@@ -43,6 +43,7 @@ int main(int argc, char **argv) {
     SetTargetFPS(s_turbo ? 0 : 60);
     InitAudioDevice();
     Font font = load_cyrillic_font();
+    g->font = font;
     // Dev hooks for unattended runs:
     //   PETKA_SHOT=<file.png>  skip the menu, save a screenshot and quit
     //   PETKA_SHOT_FRAME=<n>   ...after this many frames (default 120)
@@ -86,7 +87,7 @@ int main(int argc, char **argv) {
         game_start(g);
     }
 
-    int debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
+    g->debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
     // The extras as last set -- not in an unattended dev run, which keeps
     // to its defaults.
     g->opt_aim = 1;
@@ -118,7 +119,7 @@ int main(int argc, char **argv) {
         // The extras menu has the input first; while it is up the game has
         // none of it.
         if (g->extras_open) {
-            extras_update(g, mouse, scale, &debug);
+            extras_update(g, mouse, scale);
             plat_mute();
         } else if (plat_key(KEY_TAB) || (getenv("PETKA_EXTRAS") && atol(getenv("PETKA_EXTRAS")) == frame)) {
             // dev: PETKA_EXTRAS=<frame> opens it on that frame of an unattended run.
@@ -221,7 +222,7 @@ int main(int argc, char **argv) {
         }
         PetkaScriptVM *vm = g->vm;
 
-        if (plat_key(KEY_F1)) debug = !debug;
+        if (plat_key(KEY_F1)) g->debug = !g->debug;
         // The cursor's action keys, from the exe's accelerator table: a digit
         // and a letter each (note 3 is "take" and 4 is "use"). The exe's
         // handlers do nothing unless the panel is switched on, and they put
@@ -689,7 +690,7 @@ int main(int argc, char **argv) {
                 outlined = v;
                 outlined_at = at;
             }
-            if (debug && !is_hero(scene[i].obj->id)) {
+            if (g->debug && !is_hero(scene[i].obj->id)) {
                 Rectangle r = {v->rect.left * scale, v->rect.top * scale,
                                (v->rect.right - v->rect.left) * scale, (v->rect.bottom - v->rect.top) * scale};
                 DrawRectangleLinesEx(r, 1, scene[i].obj == hover ? ORANGE : Fade(shown ? LIME : MAGENTA, 0.6f));
@@ -736,13 +737,13 @@ int main(int argc, char **argv) {
         }
         // The bar along the top (the cursor's action, the room's name) is
         // the launcher's own, not the original's: shown with F1 only.
-        if (debug) {
+        if (g->debug) {
             DrawRectangle(0, 0, plat_width(), 30, Fade(BLACK, 0.6f));
             DrawTextEx(font, action, (Vector2){10, 5}, 20, 1, WHITE);
         }
         // (The panel's mouse function names nothing: no captions there.)
         if (caption[0] && !g->panel_open) draw_bottom_text(font, caption, caption_color, (Color){10, 10, 10, 255}, 0, 1, scale);
-        if (room && debug) {
+        if (room && g->debug) {
             const char *name = display_name(g, room);
             Vector2 size = MeasureTextEx(font, name, 18, 1);
             DrawTextEx(font, name, (Vector2){plat_width() - size.x - 10, 6}, 18, 1, SKYBLUE);
@@ -755,7 +756,11 @@ int main(int argc, char **argv) {
             // 0x00007F, dark red; one without in 0x0A0A0A on white.
             Color ink = talker ? g->colors[obj_index(g, talker)] : NO_CAST_INK;
             int cast = ink.r != NO_CAST_INK.r || ink.g != NO_CAST_INK.g || ink.b != NO_CAST_INK.b;
-            draw_bottom_text(font, g->line, ink, cast ? (Color){127, 0, 0, 255} : WHITE, 1, 1, scale);
+            // "Name: line" -- who says it (speaker_name()).
+            char said[sizeof(g->line) + 64];
+            const char *who = speaker_name(g, g->talker);
+            snprintf(said, sizeof(said), who[0] ? "%s: %s" : "%s%s", who, g->line);
+            draw_bottom_text(font, said, ink, cast ? (Color){127, 0, 0, 255} : WHITE, 1, 1, scale);
         }
         if (g->desc[0]) draw_description(g, font, scale);
 
@@ -764,12 +769,12 @@ int main(int argc, char **argv) {
         if (g->status[0] && game_now() < g->status_until) {
             // The launcher's own messages, top left (higher with the bar
             // of the F1 overlay off): white, on a band like the rest.
-            Vector2 at = {10 + 6 * scale, debug ? 36 : 6 * scale};
+            Vector2 at = {10 + 6 * scale, g->debug ? 36 : 6 * scale};
             Vector2 extent = MeasureTextEx(font, g->status, 18, 1);
             draw_band((Rectangle){at.x, at.y, extent.x, extent.y}, scale);
             DrawTextEx(font, g->status, at, 18, 1, WHITE);
         }
-        if (debug) {
+        if (g->debug) {
             // The floor's polygons, and the route each hero is following.
             BeginMode2D(view);
             for (uint32_t i = 0; g->mesh && i < g->mesh->poly_count; i++) {
@@ -846,7 +851,7 @@ int main(int argc, char **argv) {
             g->pad_hidden = !pointer_shown;
         }
         if (g->extras_open) {
-            extras_draw(g, font, scale, mouse, debug);
+            extras_draw(g, font, scale, mouse);
         } else if (pointer_shown) {
             uint16_t clip = g->map_open || g->save_mode ? CURSOR_INTERFACE
                           : send_chapayev || send_walk ? (uint16_t)(CURSOR_ACTION0 + verb)

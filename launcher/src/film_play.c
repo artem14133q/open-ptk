@@ -70,16 +70,30 @@ void play_film(Game *g, const char *name) {
     double start = GetTime();
     long shown = 0;
     int ended = 0, polled = 0;
+    double held_at = 0; // when the extras menu was put up over it
     while (!ended) {
         if (WindowShouldClose()) { g->quit = 1; break; }
         plat_poll();
+        // The extras menu over the film: the film and its sound wait under
+        // it, and go on from where they were.
+        float scale = (float)plat_width() / GAME_W;
+        if (extras_poll(g, plat_pointer(), scale)) {
+            if (!held_at) {
+                held_at = GetTime();
+                if (sound.frameCount > 0) PauseMusicStream(sound);
+            }
+        } else if (held_at) {
+            start += GetTime() - held_at;
+            held_at = 0;
+            if (sound.frameCount > 0) ResumeMusicStream(sound);
+        }
         // Any key or either mouse button ends it, as in the original --
         // once a frame of it has been shown: before that the input is still
         // the frame's that started it, and the click on "credits" in the
         // menu, or on the thing whose film it is, ended it at once.
         if (polled && plat_any_key()) break;
         if (sound.frameCount > 0) UpdateMusicStream(sound);
-        long due = (long)((GetTime() - start) * FILM_FPS);
+        long due = held_at ? shown : (long)((GetTime() - start) * FILM_FPS);
         while (shown < due && !ended) {
             if (!film_next(film, pixels)) ended = 1;
             shown++;
@@ -89,6 +103,7 @@ void play_film(Game *g, const char *name) {
         ClearBackground(BLACK);
         DrawTexturePro(screen, (Rectangle){0, 0, GAME_W, GAME_H},
                        (Rectangle){0, 0, (float)plat_width(), (float)plat_height()}, (Vector2){0, 0}, 0, WHITE);
+        if (g->extras_open) extras_draw(g, g->font, scale, plat_pointer());
         plat_end();
         polled = 1; // the input is read afresh at the end of a frame
         if (dev && GetTime() - start >= shot_at) {

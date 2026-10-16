@@ -11,7 +11,6 @@
 // pointer is on them, as on the map. A click goes by the button (0x41EAB0).
 // Returns 0 to leave the program, 1 for a new game, 2 for "load".
 int run_menu(Game *g, Font font) {
-    (void)font;
     enum { MENU_NONE, MENU_NEW, MENU_LOAD, MENU_CREDITS, MENU_EXIT };
     // In the order the room lists them; the pointer is tried on the last first.
     static const struct { const char *clip; int action; } kButtons[5] = {
@@ -50,6 +49,8 @@ int run_menu(Game *g, Font font) {
         plat_poll();
         Vector2 mouse = plat_pointer();
         if (pin_x >= 0) mouse = (Vector2){pin_x * scale, pin_y * scale};
+        // The extras menu over it has the input first.
+        int extras = extras_poll(g, mouse, scale);
         int px = (int)(mouse.x / scale), py = (int)(mouse.y / scale), over = -1;
         for (int i = 4; i >= 0 && over < 0; i--)
             if (buttons[i].flic && clip_hit(&buttons[i], px, py)) over = i;
@@ -57,7 +58,7 @@ int run_menu(Game *g, Font font) {
             SetMusicVolume(tune, dial_gain(g, DIAL_MUSIC));
             UpdateMusicStream(tune);
         }
-        if (plat_click() && over >= 0) {
+        if (!extras && plat_click() && over >= 0) {
             switch (kButtons[over].action) {
             case MENU_NEW: result = 1; break;
             case MENU_LOAD: result = 2; break;
@@ -78,8 +79,12 @@ int run_menu(Game *g, Font font) {
         if (bg.id) DrawTexturePro(bg, (Rectangle){0, 0, (float)bg.width, (float)bg.height}, whole, (Vector2){0, 0}, 0, WHITE);
         if (over >= 0)
             visual_draw(&buttons[over], whole);
-        HideCursor();
-        draw_cursor(g, CURSOR_INTERFACE, over >= 0, 0, mouse, scale);
+        if (g->extras_open) {
+            extras_draw(g, font, scale, mouse);
+        } else {
+            HideCursor();
+            draw_cursor(g, CURSOR_INTERFACE, over >= 0, 0, mouse, scale);
+        }
         plat_end();
         if (dev && ++frames == 30) {
             Image img = LoadImageFromScreen();

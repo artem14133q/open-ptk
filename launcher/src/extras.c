@@ -17,14 +17,14 @@ int extras_rows(int *rows) {
     return n;
 }
 
-int extra_value(const Game *g, int i, int debug) {
+int extra_value(const Game *g, int i) {
     switch (i) {
     case EXTRA_CRT: return crt_on();
     case EXTRA_BAND: return s_band;
     case EXTRA_AIM: return g->opt_aim;
     case EXTRA_HIGHLIGHT: return g->opt_highlight;
     case EXTRA_RESTORED: return g->opt_restored;
-    default: return debug;
+    default: return g->debug;
     }
 }
 
@@ -61,7 +61,7 @@ void extras_load(Game *g) {
 // The menu's input, before the game's: up and down (keys or the
 // controller) or the mouse pick a row, a click, A, Enter or Space switch
 // it; Tab (-), Esc, the right button (B) shut the menu.
-void extras_update(Game *g, Vector2 mouse, float scale, int *debug) {
+void extras_update(Game *g, Vector2 mouse, float scale) {
     int rows[EXTRA_COUNT], n = extras_rows(rows);
     if (plat_key(KEY_TAB) || plat_key(KEY_ESCAPE) || plat_rclick()) { g->extras_open = 0; return; }
     int step = plat_list_step() + plat_key(KEY_DOWN) - plat_key(KEY_UP);
@@ -78,12 +78,12 @@ void extras_update(Game *g, Vector2 mouse, float scale, int *debug) {
     case EXTRA_AIM: g->opt_aim = !g->opt_aim; break;
     case EXTRA_HIGHLIGHT: g->opt_highlight = !g->opt_highlight; break;
     case EXTRA_RESTORED: g->opt_restored = !g->opt_restored; break;
-    case EXTRA_DEBUG: *debug = !*debug; return;
+    case EXTRA_DEBUG: g->debug = !g->debug; return;
     }
     extras_save(g);
 }
 
-void extras_draw(Game *g, Font font, float scale, Vector2 mouse, int debug) {
+void extras_draw(Game *g, Font font, float scale, Vector2 mouse) {
     int rows[EXTRA_COUNT], n = extras_rows(rows);
     DrawRectangle(0, 0, plat_width(), plat_height(), Fade(BLACK, 0.45f));
     float h = 44 + n * EXTRAS_ROW + 40;
@@ -99,7 +99,7 @@ void extras_draw(Game *g, Font font, float scale, Vector2 mouse, int debug) {
         Color ink = focus ? BLUE_LINE : WHITE;
         float y = r.y + (r.height - size) / 2;
         DrawTextEx(font, kExtraName[rows[k]], (Vector2){r.x + 8 * scale, y}, size, 1, ink);
-        const char *value = extra_value(g, rows[k], debug) ? "вкл" : "выкл";
+        const char *value = extra_value(g, rows[k]) ? "вкл" : "выкл";
         float w = MeasureTextEx(font, value, size, 1).x;
         DrawTextEx(font, value, (Vector2){r.x + r.width - w - 8 * scale, y}, size, 1, ink);
     }
@@ -110,4 +110,20 @@ void extras_draw(Game *g, Font font, float scale, Vector2 mouse, int debug) {
         HideCursor();
         draw_cursor(g, CURSOR_INTERFACE, 0, 0, mouse, scale);
     }
+}
+
+// Over a screen of its own the menu is put up here: the game's loop does it
+// itself (main.c), for its dev hook. While it is up -- and on the frame it
+// is shut -- the screen under it hears no input.
+int extras_poll(Game *g, Vector2 mouse, float scale) {
+    if (g->extras_open) {
+        extras_update(g, mouse, scale);
+    } else if (plat_key(KEY_TAB)) {
+        g->extras_open = 1;
+        g->extras_focus = 0;
+    } else {
+        return 0;
+    }
+    plat_mute();
+    return 1;
 }

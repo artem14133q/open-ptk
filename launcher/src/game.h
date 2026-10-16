@@ -207,6 +207,8 @@ typedef struct {
     // The extras menu (Tab, or - on the Switch) and what it switches.
     int extras_open;
     int extras_focus;
+    int debug;          // the F1 overlay (and the extras' row for it)
+    Font font;          // the launcher's text font, for screens of their own
     int opt_aim;        // the pointer is drawn to things nearby (a controller)
     int opt_highlight;  // a yellow outline round the things that can be clicked
     int opt_restored;   // the restored dialogues (restored.c) are said

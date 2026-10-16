@@ -10,8 +10,9 @@
 // ---- the extras ----
 //
 // What this launcher adds to the game, switched on and off in a menu of its
-// own over the game -- Tab on a desktop, - on the Switch -- and kept in
-// extras.ini beside the saves. The game goes on under it but hears no input.
+// own over the game, the start-up menu or a film -- Tab on a desktop, - on
+// the Switch -- and kept in extras.ini beside the saves. The game goes on
+// under it but hears no input; a film waits.
 enum { EXTRA_CRT, EXTRA_BAND, EXTRA_HIGHLIGHT, EXTRA_RESTORED, EXTRA_AIM, EXTRA_DEBUG, EXTRA_COUNT };
 
 #define EXTRAS_FILE "extras.ini"
@@ -31,7 +32,7 @@ extern const char *const kExtraName[EXTRA_COUNT];
 int extras_rows(int *rows);
 // EN: Whether an extra is on.
 // RU: Включена ли функция.
-int extra_value(const Game *g, int i, int debug);
+int extra_value(const Game *g, int i);
 // EN: Where a row of the extras menu is on screen.
 // RU: Где на экране строка меню «Дополнительно».
 Rectangle extras_row_rect(int k, float scale);
@@ -43,9 +44,14 @@ void extras_save(const Game *g);
 void extras_load(Game *g);
 // EN: The extras menu's input, before the game's.
 // RU: Ввод меню «Дополнительно», раньше игры.
-void extras_update(Game *g, Vector2 mouse, float scale, int *debug);
+void extras_update(Game *g, Vector2 mouse, float scale);
 // EN: Draws the extras menu over the game.
 // RU: Рисует меню «Дополнительно» поверх игры.
-void extras_draw(Game *g, Font font, float scale, Vector2 mouse, int debug);
+void extras_draw(Game *g, Font font, float scale, Vector2 mouse);
+// EN: The extras menu over a screen of its own (the start-up menu, a film):
+// puts it up on Tab (-), runs it; whether it had this frame's input.
+// RU: Меню «Дополнительно» поверх отдельного экрана (стартовое меню,
+// видео): открывает по Tab (-), обрабатывает; забрало ли оно ввод кадра.
+int extras_poll(Game *g, Vector2 mouse, float scale);
 
 #endif
