@@ -43,7 +43,12 @@ static void outline_free(void) {
 
 void highlight_init(void) {}
 
-void highlight_close(void) { outline_free(); }
+static void cutout_free(void);
+
+void highlight_close(void) {
+    outline_free();
+    cutout_free();
+}
 
 // Ramer-Douglas-Peucker over pts[a..b]: keep[] marks the points kept.
 static void simplify(const Vector2 *pts, int a, int b, char *keep) {
@@ -291,15 +296,102 @@ static int is_exit(const PetkaObject *obj) {
     return 0;
 }
 
+// ---- is a hidden thing's clip cut out of the background? ----
+//
+// A hidden thing that can be clicked is mostly one painted on the
+// background, its clip that thing cut out of it -- but not always: the
+// hive at the apiary keeps the clip of Petka with the syringe after it,
+// hidden and still active, and its outline was his shape in the empty air.
+// So the clip's opaque pixels are held against the background under them;
+// it is a cut-out when most of them are the same, give or take what the
+// clip's palette makes of the colours. The background is decoded once a
+// room, the answer kept for the clip's frame.
+#define CUTOUT_INK 40       // per channel
+#define CUTOUT_SHARE 0.6f   // of the clip's pixels
+
+static struct {
+    uint16_t resource;
+    uint8_t *rgb;
+    int w, h;
+} s_bg = {PETKA_NONE, NULL, 0, 0};
+
+static struct {
+    const Visual *v;
+    uint16_t resource;
+    int frame;
+    int32_t x, y;
+    uint16_t bg;
+    int cutout;
+} s_cut;
+
+static void cutout_free(void) {
+    free(s_bg.rgb);
+    s_bg.rgb = NULL;
+    s_bg.resource = PETKA_NONE;
+}
+
+static const uint8_t *background_rgb(const Game *g, int *w, int *h) {
+    if (s_bg.resource != g->bg_resource) {
+        free(s_bg.rgb);
+        s_bg.rgb = NULL;
+        s_bg.resource = g->bg_resource;
+        const char *path = g->bg_resource != PETKA_NONE ? g->qrc[g->bg_resource] : NULL;
+        size_t len = 0;
+        const uint8_t *bytes = path && has_ext(path, ".BMP") ? res_find(g, path, &len) : NULL;
+        if (bytes) {
+            s_bg.rgb = petka_bmp_decode(bytes, len, &s_bg.w, &s_bg.h);
+            res_release(g, path);
+        }
+    }
+    *w = s_bg.w;
+    *h = s_bg.h;
+    return s_bg.rgb;
+}
+
+static int cut_out(const Game *g, const Visual *v, const PetkaObjectState *st) {
+    if (!v->flic || !v->flic->indices) return 0;
+    if (s_cut.v == v && s_cut.resource == v->resource && s_cut.frame == v->flic->frame_index && s_cut.x == st->x &&
+        s_cut.y == st->y && s_cut.bg == g->bg_resource)
+        return s_cut.cutout;
+    s_cut.v = v;
+    s_cut.resource = v->resource;
+    s_cut.frame = v->flic->frame_index;
+    s_cut.x = st->x;
+    s_cut.y = st->y;
+    s_cut.bg = g->bg_resource;
+    s_cut.cutout = 0;
+    int bw = 0, bh = 0;
+    const uint8_t *bg = background_rgb(g, &bw, &bh);
+    if (!bg) return 0;
+    PetkaFlic *f = v->flic;
+    const uint8_t *rgb = petka_flic_rgb(f);
+    long seen = 0, same = 0;
+    for (int y = v->rect.top < 0 ? 0 : v->rect.top; y < v->rect.bottom && y < f->height; y++)
+        for (int x = v->rect.left < 0 ? 0 : v->rect.left; x < v->rect.right && x < f->width; x++) {
+            if (petka_flic_keyed(f, f->indices[y * f->width + x])) continue;
+            int bx = st->x + x, by = st->y + y;
+            if (bx < 0 || by < 0 || bx >= bw || by >= bh) continue;
+            const uint8_t *a = rgb + ((size_t)y * f->width + x) * 3, *b = bg + ((size_t)by * bw + bx) * 3;
+            seen++;
+            same += abs(a[0] - b[0]) <= CUTOUT_INK && abs(a[1] - b[1]) <= CUTOUT_INK && abs(a[2] - b[2]) <= CUTOUT_INK;
+        }
+    s_cut.cutout = seen > 0 && same >= CUTOUT_SHARE * seen;
+    if (g->trace)
+        fprintf(stderr, "outline: %u hidden, its clip %s the background (%ld of %ld)\n", s_cut.resource,
+                s_cut.cutout ? "cut out of" : "not of", same, seen);
+    return s_cut.cutout;
+}
+
 int highlight_wanted(const Game *g, const PetkaObject *obj) {
     if (is_hero(obj->id) || is_exit(obj)) return 0;
     // Nor the other characters: CAST.INI gives the lines of everyone who
     // speaks a colour of their own.
     Color ink = g->colors[obj_index(g, obj)], none = NO_CAST_INK;
     if (ink.r != none.r || ink.g != none.g || ink.b != none.b) return 0;
-    // Seen or not: a hidden one that can be clicked is a thing painted on
-    // the background, and its clip is that thing cut out of it.
-    return g->vm->state[obj_index(g, obj)].active;
+    const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+    if (!st->active) return 0;
+    // Seen, or hidden and its clip a thing cut out of the background.
+    return st->visible || cut_out(g, &g->visuals[obj_index(g, obj)], st);
 }
 
 // One loop as a closed band THICK wide on the screen, centred on it: at
