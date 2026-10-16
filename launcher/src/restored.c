@@ -17,7 +17,12 @@
 // exe does say, in another of the object's statuses or through another of
 // its reactions -- Anka's door: in status 1, after the bath is lit, USE
 // sends USERMSG 2, whose reaction has the DIALOG; put back in status 0 the
-// talk of persuading Anka came before the bath. The comment is
+// talk of persuading Anka came before the bath; reactions that start a talk
+// of their own (TALK to a dialogue's holder: the bath's stove, the cow, the
+// cartridge, the safe, the twig -- the line came and then the exe's own);
+// and lines Reloaded says under a state of its story that the object's
+// status does not tell (the keyhole, the bush, the safe's USE, the
+// cartridge's TAKE). The comment is
 // the dialogue's first line. `instead`: Reloaded only says the line there,
 // and the reaction's work is done another way -- the line is said in its
 // place (the wardrobe opens by its door, which passes USE on to it).
@@ -31,22 +36,12 @@ static const struct {
     {1, 89, 0x6, 1}, // Ой, что это там на дне блестит?
     {1, 93, 0x1, 0, 1}, // Спрятаться в шкаф?
     {1, 93, 0x1, 2, 1}, // Спрятаться в шкаф?
-    {1, 128, 0x28001A, 0}, // Ай да Петька!
-    {1, 136, 0x1001A, 0}, // Василий Иванович, огоньку не найдется?
     {1, 168, 0x6, 0}, // А вот эти детали нам точно пригодятся.
     {1, 176, 0x6, 0}, // Пригодятся.
-    {1, 231, 0x1001A, 1}, // А во что я ее по-твоему доить буду?
     {1, 232, 0x6, 255}, // Не, Василь Иваныч, я теперь и пальцем ее не коснусь...
     {1, 288, 0x6, 0}, // Возьмем! Халява - наш стиль жизни!
     {1, 289, 0x6, 255}, // Это весла Фурманова.
-    {1, 319, 0x6, 1}, // Насыпь слишком крутая и высокая, так просто его не достать.
-    {1, 319, 0x4, 1}, // Гляди-ка, Василь Иваныч - патрон!
-    {1, 323, 0x1001A, 2}, // Значит шифр, говоришь!
     {1, 325, 0x6, 255}, // Он нам пригодится. Что-нибудь да откроем.
-    {1, 326, 0x1001A, 2}, // Я тебе, Петька, не медвежатник.
-    {1, 326, 0x1, 2}, // Как бы нам его вскрыть, а Василь Иваныч?
-    {1, 403, 0x24001A, 0}, // Прихватим прутик - отхлещем кого-нибудь при случае...
-    {1, 425, 0x1, 0}, // Кустик, конечно, ничего...
     {2, 89, 0x1, 255}, // В этой бочке сжигают мусор...
     {2, 262, 0x6, 255}, // Вот это, то что надо!
     {2, 319, 0x6, 1}, // Пусть висит.
