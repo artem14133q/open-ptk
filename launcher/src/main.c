@@ -385,6 +385,14 @@ int main(int argc, char **argv) {
                 petka_scriptvm_animation_ended(vm, g->script->objects[i].id, st->play_wait);
         }
         if (petka_scriptvm_run(vm) < 0) set_status(g, "(сценарий зациклился)");
+        // A room this run has gone to (a walk's GOTO, as the walk ends) has
+        // its background and clips put up at the top of the frame, above;
+        // drawn now, the frame was the old room's background with the
+        // heroes already where the new one puts them -- up for as long as
+        // the new background took to load, long on the Switch. Not drawn,
+        // it leaves the last frame on the screen, and the next is the new
+        // room whole.
+        if (g->shown_room != screen_room(g)) continue;
 
         if (g->panel_open) panel_show_state(g);
         // ---- EN: the scene and the screens' keys / RU: сцена и клавиши экранов ----
