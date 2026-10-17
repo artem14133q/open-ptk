@@ -30,6 +30,14 @@ static const struct {
     // part of restored.c's kSplit with nothing before it; with the extras
     // switch on (conversation.c).
     {1, 436, PETKA_OP_END, 255, PETKA_NONE, 542, PETKA_OP_ENDSEQ, 128, PETKA_OP_DIALOG, RESTORED_REST, 0},
+    // The church's hole, the brick put in it, and the brick pulled: the
+    // crypt's door opens in the sequence of the graveyard (748), which the
+    // door's clip ends (573's END). Then the hole's own dialogue for the
+    // brick ("Ой, Василь Иваныч, слышь, скрежет-то какой..."), which no
+    // reaction says, as Reloaded has it once the heroes are back in the
+    // church -- all of it, as the second part of restored.c's kSplit; with
+    // the extras switch on (conversation.c).
+    {2, 573, PETKA_OP_END, 255, PETKA_NONE, 748, PETKA_OP_ENDSEQ, 549, PETKA_OP_DIALOG, RESTORED_REST, 0},
     // The fireplace's lamp in the White HQ, turned by Chapayev: his "Оторвать
     // не получилось, но свернул я ее..." (the lamp's own dialogue, which the
     // reaction never says) tells of what he has done, so it comes after the

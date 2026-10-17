@@ -87,6 +87,9 @@ static const struct {
     // Part 1, the bath's keyhole, the syringe with the bees: the talk after
     // the anarchists' sequence, all of it (scriptfix.c).
     {1, 128, 0x28001A, 0},
+    // Part 2, the church's hole and its brick: the talk once the crypt has
+    // opened (scriptfix.c).
+    {2, 549, 0x15001A, 0},
 };
 
 // Phrases said where the script says nothing (restored.h): the part, the
