@@ -49,6 +49,9 @@ void clip_show(Game *g, Visual *v, uint16_t resource, int run);
 // EN: Draws the pointer's clip at the pointer.
 // RU: Рисует клип курсора у указателя.
 void draw_cursor(Game *g, uint16_t resource, int over_object, int centre, Vector2 mouse, float scale);
+// EN: Draws a carried thing's clip beside the pointer (down and right of it).
+// RU: Рисует клип предмета в руке рядом с указателем (справа снизу).
+void draw_carried(Game *g, uint16_t resource, int over_object, Vector2 mouse, float scale);
 // EN: Runs an object's clip on its clock: frames, sounds, END and HALF for the script.
 // RU: Ведёт клип объекта по его часам: кадры, звуки, END и HALF для сценария.
 void visual_update(Game *g, const PetkaObject *obj);

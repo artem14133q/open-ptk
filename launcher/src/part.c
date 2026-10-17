@@ -41,6 +41,7 @@ void part_close(Game *g) {
     g->z_order_n = 0;
     g->z_order_room = PETKA_NONE;
     visual_free(&g->cursor);
+    visual_free(&g->carried);
     visual_free(&g->star);
     g->star_open = 0;
     visual_free(&g->desc_clip);
@@ -223,6 +224,7 @@ void game_setup(Game *g, const char *game_dir) {
     g->talker = PETKA_NONE;
     g->seq_room = PETKA_NONE;
     g->cursor.resource = PETKA_NONE;
+    g->carried.resource = PETKA_NONE;
     g->desc_clip.resource = PETKA_NONE;
     g->star.resource = PETKA_NONE;
     g->star_lit = 6;

@@ -885,6 +885,12 @@ int main(int argc, char **argv) {
                 lively = CheckCollisionPointRec(p, kSavePrev) || CheckCollisionPointRec(p, kSaveNext);
                 for (int i = 0; i < SAVE_SLOTS; i++) lively = lively || CheckCollisionPointRec(p, kSaveSlot[i]);
             }
+            // A thing taken from the case is not the pointer: the
+            // interface's arrow is, the thing beside it (draw_carried()).
+            if (clip == vm->cursor_resource && vm->cursor_object != PETKA_NONE) {
+                draw_carried(g, clip, lively, mouse, scale);
+                clip = CURSOR_INTERFACE;
+            }
             // The interface's pointer has its tip at the point, the others
             // their middle.
             draw_cursor(g, clip, lively, clip != CURSOR_INTERFACE, mouse, scale);

@@ -214,6 +214,27 @@ void draw_cursor(
     });
 }
 
+// A carried thing is not the pointer here, as it is in the exe: the arrow
+// is, and the thing goes beside it -- its drawn part (the MSK rect) down
+// and to the right of the arrow's tip, on the other side where the screen
+// ends.
+void draw_carried(Game *g, uint16_t resource, int over_object, Vector2 mouse, float scale) {
+    enum { DX = 24, DY = 36 };
+    Visual *v = &g->carried;
+    clip_show(g, v, resource, over_object);
+    if (!v->flic) return;
+    int px = (int)(mouse.x / scale), py = (int)(mouse.y / scale);
+    int w = v->rect.right - v->rect.left, h = v->rect.bottom - v->rect.top;
+    int left = px + DX + w <= GAME_W ? px + DX : px - DX / 2 - w;
+    int top = py + DY + h <= GAME_H ? py + DY : py - DY / 2 - h;
+    visual_draw(v, (Rectangle){
+        .x = (float)(left - v->rect.left) * scale,
+        .y = (float)(top - v->rect.top) * scale,
+        .width = (float)v->flic->width * scale,
+        .height = (float)v->flic->height * scale
+    });
+}
+
 // Brings one object's visual in line with its VM state and advances its
 // animation, following the exe's object update (sub_4015E0):
 //   - a clip of a single frame is never updated: no END, no sound;

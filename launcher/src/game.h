@@ -147,6 +147,7 @@ typedef struct {
     uint16_t z_order_room; // the screen they were listed for
     int z_order_heroes;    // ... with the heroes or not
     Visual cursor;   // the pointer's own clip
+    Visual carried;  // a thing carried from the case, beside the pointer
     // The case: the game's panel, with the things carried.
     int map_open;    // a room of the script is up as a screen of its own:
                      // the map, or the panel
