@@ -74,7 +74,7 @@ game's files: it is for your own console, not to be given to anyone.
 
 ## Controls
 
-| | |
+| event | description |
 |---|---|
 | touch screen | the pointer goes there; a tap is a click |
 | left stick, D-pad | move the pointer (the D-pad a pixel at a time); near something small the pointer is drawn to it |

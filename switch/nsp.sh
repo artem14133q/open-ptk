@@ -39,7 +39,7 @@ HBP=deps/hacbrewpack/hacbrewpack
 TOOLS=${DEVKITPRO:-/opt/devkitpro}/tools/bin
 # The NACP's name, author and version: the Makefile's (make nsp passes them).
 TITLE=${APP_TITLE:-Петька и Василий Иванович спасают галактику}
-AUTHOR=${APP_AUTHOR:-Бука}
+AUTHOR=${APP_AUTHOR:-Бука & S.K.I.F. & artem14133q}
 VERSION=${APP_VERSION:-0.1.0}
 
 [ -x "$HBP" ] || { echo "no $HBP: build hacBrewPack into deps/ first (./hacbrewpack.sh)"; exit 1; }

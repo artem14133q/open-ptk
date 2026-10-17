@@ -2,6 +2,7 @@
 build/
 build-release/
 tools/strtool/strtool
+.switch/
 *.o
 *.a
 .DS_Store

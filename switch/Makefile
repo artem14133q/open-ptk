@@ -21,7 +21,7 @@ DATA		:=
 INCLUDES	:=	../core/include deps/raylib-nx/src deps/ffmpeg/include
 
 APP_TITLE	:=	Петька и Василий Иванович спасают галактику
-APP_AUTHOR	:=	Бука|S.K.I.F.|artem14133q
+APP_AUTHOR	:=	Бука & S.K.I.F. & artem14133q
 APP_VERSION	:=	0.1.0
 
 #---------------------------------------------------------------------------------
