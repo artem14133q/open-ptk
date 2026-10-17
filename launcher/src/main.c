@@ -657,6 +657,14 @@ int main(int argc, char **argv) {
             plat_hold_pointer(g->pad_hold || g->pad_hidden || g->star_open || g->extras_open ||
                               (g->case_open && can_act));
 
+        // A new part asked for this frame (PART) is put up at the top of the
+        // next, and building it takes a while -- long on the Switch. Not
+        // drawn, the frame leaves the last one on the screen: part 1's end
+        // ends its sequence (ENDSEQ) and asks for part 2 in one reaction,
+        // and drawn, the frame was the bath under the sequence, up all the
+        // while part 2 was built, not "Конец первой части".
+        if (g->switch_part) continue;
+
         // ---- EN: drawing / RU: отрисовка ----
         plat_begin();
         ClearBackground(BLACK);
