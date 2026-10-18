@@ -887,7 +887,10 @@ int main(int argc, char **argv) {
             }
             // A thing taken from the case is not the pointer: the
             // interface's arrow is, the thing beside it (draw_carried()).
-            if (clip == vm->cursor_resource && vm->cursor_object != PETKA_NONE) {
+            // So too the walk and "send Chapayev" held on a controller (L,
+            // R): the arrow, their action's clip beside it.
+            if ((clip == vm->cursor_resource && vm->cursor_object != PETKA_NONE) ||
+                ((send_chapayev || send_walk) && clip == (uint16_t)(CURSOR_ACTION0 + verb))) {
                 draw_carried(g, clip, lively, mouse, scale);
                 clip = CURSOR_INTERFACE;
             }
