@@ -9,11 +9,12 @@ const char *const kExtraName[EXTRA_COUNT] = {
     "Отладочный экран",
 };
 
-// The rows shown: the pull is a controller's only.
+// The rows shown: the pull is a controller's only, the debug overlay a
+// developer's (PETKA_DEBUG_SCREEN).
 int extras_rows(int *rows) {
     int n = 0;
     for (int i = 0; i < EXTRA_COUNT; i++)
-        if (i != EXTRA_AIM || plat_pad()) rows[n++] = i;
+        if ((i != EXTRA_AIM || plat_pad()) && (i != EXTRA_DEBUG || PETKA_DEBUG_SCREEN)) rows[n++] = i;
     return n;
 }
 

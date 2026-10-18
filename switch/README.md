@@ -88,13 +88,11 @@ game's files: it is for your own console, not to be given to anyone.
 | + | the panel (menu, options, saving) |
 | - | the extras menu: the CRT look, the band under texts, the outline of things, the pull to things |
 | ZL / ZR | load / save screen |
-| left stick press | the CRT look on and off |
-| right stick press | the debug overlay |
 
 The picture is the game's 640x480 at one and a half, 960x720 in the middle
 of the screen, through a shader that makes it look like a CRT monitor
-(`launcher/src/crt.c`: scanlines, a bulging glass, the phosphor's stripes);
-on a desktop F4 turns it on and off.
+(`launcher/src/crt.c`: scanlines, a bulging glass, the phosphor's stripes),
+switched on and off in the extras menu (-); on a desktop F4 does it too.
 
 Films are decoded by FFmpeg's libraries built into the program
 (`ffmpeg.sh`: the AVI demuxer, Indeo 3, Microsoft Video 1, MS ADPCM and PCM

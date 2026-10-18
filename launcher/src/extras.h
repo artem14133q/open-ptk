@@ -17,6 +17,15 @@ enum { EXTRA_CRT, EXTRA_BAND, EXTRA_HIGHLIGHT, EXTRA_RESTORED, EXTRA_AIM, EXTRA_
 
 #define EXTRAS_FILE "extras.ini"
 
+// The debug overlay (F1, the extras' row for it, PETKA_DEBUG): a developer's,
+// so not in a release build (NDEBUG: CMake's Release and RelWithDebInfo, the
+// Switch's Makefile).
+#ifdef NDEBUG
+#define PETKA_DEBUG_SCREEN 0
+#else
+#define PETKA_DEBUG_SCREEN 1
+#endif
+
 #define EXTRAS_X 60
 
 #define EXTRAS_W 520

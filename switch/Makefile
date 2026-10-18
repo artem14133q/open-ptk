@@ -32,7 +32,8 @@ ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 CFLAGS	:=	-g -Wall -O2 -ffunction-sections -std=gnu11 \
 			$(ARCH) $(DEFINES)
 
-CFLAGS	+=	$(INCLUDE) -D__SWITCH__ -DPLATFORM_NX
+# A release build: no debug overlay (extras.h's PETKA_DEBUG_SCREEN).
+CFLAGS	+=	$(INCLUDE) -D__SWITCH__ -DPLATFORM_NX -DNDEBUG
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 

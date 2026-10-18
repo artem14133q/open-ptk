@@ -4,7 +4,7 @@
 // start-up films and menu, then runs a frame at a time: input, the script VM,
 // the clips, and drawing. Controls: a left click acts on the object under
 // the cursor (or walks when there is none), a right click puts up the star
-// of actions, F1 is the debug overlay, Tab the extras menu. In a
+// of actions, F1 is the debug overlay (not in a release build), Tab the extras menu. In a
 // conversation, click a line of the menu (or press its number) to say it; a
 // click or Space skips the phrase being spoken.
 //
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
         game_start(g);
     }
 
-    g->debug = getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
+    g->debug = PETKA_DEBUG_SCREEN && getenv("PETKA_DEBUG") != NULL; // dev: start with the F1 overlay on
     // The extras as last set -- not in an unattended dev run, which keeps
     // to its defaults.
     g->opt_aim = 1;
@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
             g->extras_focus = 0;
             plat_mute();
         }
-        // F4 (a press of the left stick) switches the CRT look by itself.
+        // F4 (a desktop's key) switches the CRT look by itself.
         if (crt_on() != crt_saved) {
             crt_saved = crt_on();
             if (!unattended) extras_save(g);
@@ -222,7 +222,7 @@ int main(int argc, char **argv) {
         }
         PetkaScriptVM *vm = g->vm;
 
-        if (plat_key(KEY_F1)) g->debug = !g->debug;
+        if (PETKA_DEBUG_SCREEN && plat_key(KEY_F1)) g->debug = !g->debug;
         // The cursor's action keys, from the exe's accelerator table: a digit
         // and a letter each (note 3 is "take" and 4 is "use"). The exe's
         // handlers do nothing unless the panel is switched on, and they put

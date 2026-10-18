@@ -162,7 +162,6 @@ int plat_height(void) { return SURFACE_H; }
 
 void plat_poll(void) {
     s_muted = false;
-    if (IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_THUMB)) crt_toggle(); // left stick press
     // The touch screen: a touch puts the pointer there, and its first frame
     // is a click.
     bool touching = GetTouchPointCount() > 0;
@@ -231,7 +230,6 @@ bool plat_key(int key) {
     case KEY_TAB: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_MIDDLE_LEFT);      // -: the extras
     case KEY_F3: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_LEFT_TRIGGER_2);    // ZL: load
     case KEY_F2: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_TRIGGER_2);   // ZR: save
-    case KEY_F1: return IsGamepadButtonPressed(PAD, GAMEPAD_BUTTON_RIGHT_THUMB);       // right stick: debug
     default: return false;
     }
 }
