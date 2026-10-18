@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(petka_engine C)
+project(petka_engine VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
