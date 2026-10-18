@@ -91,9 +91,9 @@ int main(int argc, char **argv) {
     // The extras as last set -- not in an unattended dev run, which keeps
     // to its defaults.
     g->opt_aim = 1;
-    // On by default -- but not in an unattended dev run, whose screenshots
-    // are compared pixel for pixel with older ones.
-    g->opt_highlight = !unattended || getenv("PETKA_HIGHLIGHT");
+    // Off by default, as the original has none; PETKA_HIGHLIGHT puts it on
+    // in an unattended dev run.
+    g->opt_highlight = getenv("PETKA_HIGHLIGHT") != NULL;
     // The restored dialogues likewise: on, but not in an unattended run
     // unless PETKA_RESTORED asks.
     g->opt_restored = !unattended || getenv("PETKA_RESTORED");

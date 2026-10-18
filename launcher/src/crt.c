@@ -62,7 +62,8 @@ void crt_init(void) {
     snprintf(source, sizeof(source), "%s%s", CRT_HEAD, kCrtBody);
     s_shader = LoadShaderFromMemory(NULL, source);
     const char *env = getenv("PETKA_CRT");
-    s_on = env ? atoi(env) != 0 : !(getenv("PETKA_SHOT") || getenv("PETKA_PLAY") || getenv("PETKA_TURBO"));
+    // Off by default: the plain picture, as the original's (PETKA_CRT=1 for a dev run).
+    s_on = env ? atoi(env) != 0 : false;
     // A shader that did not build comes back as raylib's default one.
     if (!IsShaderValid(s_shader) || s_shader.id == rlGetShaderIdDefault()) s_on = false;
 }
