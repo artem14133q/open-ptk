@@ -1,6 +1,6 @@
 # Nintendo Switch build
 
-[По-русски](README.ru.md)
+[Русский](README.ru.md)
 
 `petka.nro`, a homebrew application: the launcher and the engine's core on
 [raylib-nx](https://github.com/luizpestana/raylib-nx) (raylib 6.0 on libnx,
