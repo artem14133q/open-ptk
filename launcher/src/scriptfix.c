@@ -56,6 +56,7 @@ static const struct {
 };
 
 void scriptfix_script(Game *g) {
+    if (g->game != 1) return; // the fixes are the first game's
     for (size_t f = 0; f < sizeof(kFixes) / sizeof(kFixes[0]); f++) {
         if (kFixes[f].part != g->part_number) continue;
         PetkaObject *obj = petka_script_find(g->script, kFixes[f].obj);
@@ -81,6 +82,7 @@ void scriptfix_script(Game *g) {
 }
 
 void scriptfix_state(Game *g) {
+    if (g->game != 1) return;
     for (size_t f = 0; f < sizeof(kFixes) / sizeof(kFixes[0]); f++) {
         if (kFixes[f].part != g->part_number || kFixes[f].add_op != PETKA_OP_SET) continue;
         PetkaObjectState *st = petka_scriptvm_state(g->vm, kFixes[f].add_to);

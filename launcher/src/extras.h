@@ -38,7 +38,7 @@ extern const char *const kExtraName[EXTRA_COUNT];
 
 // EN: The rows the extras menu shows.
 // RU: Строки, которые показывает меню «Дополнительно».
-int extras_rows(int *rows);
+int extras_rows(const Game *g, int *rows);
 // EN: Whether an extra is on.
 // RU: Включена ли функция.
 int extra_value(const Game *g, int i);

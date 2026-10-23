@@ -39,7 +39,8 @@ void set_talker(Game *g, uint16_t id) {
 // characters in a room, a sequence or a pose ("Петька - КОМНАТА ПЕТЬКИ",
 // "ВИЧ на стуле", "Grass1- Seq - ПОДВОДНЫЙ МИР" is Petka): the character's
 // own name for each, by the part. The heroes are the same in every part;
-// any other speaker goes by his object's name.
+// any other speaker goes by his object's name. The parts' entries are the
+// first game's; in the second every speaker goes by his object's name.
 static const struct {
     uint8_t part; // 0: every part
     uint16_t id;
@@ -64,7 +65,8 @@ static const struct {
 
 const char *speaker_name(const Game *g, uint16_t id) {
     for (size_t i = 0; i < sizeof(kSpeakers) / sizeof(kSpeakers[0]); i++)
-        if ((kSpeakers[i].part == 0 || kSpeakers[i].part == g->part_number) && kSpeakers[i].id == id)
+        if ((kSpeakers[i].part == 0 || (g->game == 1 && kSpeakers[i].part == g->part_number)) &&
+            kSpeakers[i].id == id)
             return kSpeakers[i].name;
     const PetkaObject *obj = id == PETKA_NONE ? NULL : petka_script_find(g->script, id);
     return obj ? utf8_name(obj->name) : "";

@@ -106,7 +106,9 @@ static const struct {
     {3, 63, {154}},
 };
 
+// The lines restored are the first game's, by its parts and objects.
 int restored_phrases(const Game *g, uint16_t obj_id, uint16_t *out, int max) {
+    if (g->game != 1) return 0;
     for (size_t i = 0; i < sizeof(kPhrases) / sizeof(kPhrases[0]); i++) {
         if (kPhrases[i].part != g->part_number || kPhrases[i].obj != obj_id) continue;
         int n = 0;
@@ -117,6 +119,7 @@ int restored_phrases(const Game *g, uint16_t obj_id, uint16_t *out, int max) {
 }
 
 const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *first) {
+    if (g->game != 1) return NULL;
     for (size_t i = 0; i < sizeof(kSplit) / sizeof(kSplit[0]); i++)
         if (kSplit[i].part == g->part_number && kSplit[i].obj == obj_id) {
             *first = kSplit[i].first;
@@ -132,7 +135,7 @@ void restored_player_action(Game *g, uint16_t obj, uint16_t op) {
 
 int host_restore_dialogue(void *user, uint16_t obj_id, uint32_t key, uint8_t status) {
     Game *g = (Game *)user;
-    if (!g->opt_restored) return 0;
+    if (!g->opt_restored || g->game != 1) return 0;
     // Only for the player's own action, and once.
     if (obj_id != g->acted_obj || (key & 0xFFFF) != g->acted_op) return 0;
     for (size_t i = 0; i < sizeof(kRestored) / sizeof(kRestored[0]); i++)

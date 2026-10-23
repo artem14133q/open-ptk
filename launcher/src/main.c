@@ -33,7 +33,8 @@ int main(int argc, char **argv) {
     game_setup(g, game_dir);
     if (!part_open(g, atoi(digit), 1)) return 1;
 
-    InitWindow(GAME_W * 2, GAME_H * 2, "Петька и Василий Иванович");
+    InitWindow(GAME_W * 2, GAME_H * 2,
+               g->game == 2 ? "Петька и Василий Иванович 2: Судный день" : "Петька и Василий Иванович");
     // Esc belongs to the game (it backs out of things); the window's own
     // close button ends the program.
     SetExitKey(KEY_NULL);
@@ -69,11 +70,12 @@ int main(int argc, char **argv) {
     long shot_frame = getenv("PETKA_SHOT_FRAME") ? atol(getenv("PETKA_SHOT_FRAME")) : 120;
     long frame = 0;
     // The exe opens with three films, one after another (sub_410CD0): the
-    // publisher's and the developer's marks and an advertisement.
+    // publisher's and the developer's marks and an advertisement. The second
+    // game has no advertisement.
     if (!unattended) {
         play_film(g, "buka.avi");
         play_film(g, "skif.avi");
-        play_film(g, "adv.avi");
+        if (g->game == 1) play_film(g, "adv.avi");
     }
     int menu = unattended && !getenv("PETKA_MENU") ? 1 : run_menu(g, font);
     if (g->quit || !menu) { plat_close(); CloseWindow(); return 0; }

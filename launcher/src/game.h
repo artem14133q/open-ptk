@@ -178,6 +178,8 @@ typedef struct {
     char game_dir[1024];
     char part[16];      // "PART_n", the folder its files are under
     int part_number;
+    int game;           // 1: the first game; 2: the second («Петька 2: Судный
+                        // день»), told by its stores (part_open)
     int chapter;
     int chapter_store;  // which of `stores` is the chapter's, -1 = none
     PetkaScriptHost host;

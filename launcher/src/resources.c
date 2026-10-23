@@ -4,18 +4,28 @@
 // RU: Файлы игры: архивы (.STR), RESOURCE.QRC, ресурсы по пути, фоны, работа с именами файлов.
 #include "game.h"
 
+#include <ctype.h>
+
 // ---- resources ----
 
 // The stores of a part live in different places depending on whether the
-// game was copied from the CDs or installed; look in all of them.
+// game was copied from the CDs or installed; look in all of them. Their
+// names are in capitals on the first game's discs and in small letters on
+// the second's (flc1.str), which matters where names mind the case.
 PetkaStore *open_store(const char *game_dir, const char *file) {
     static const char *dirs[] = {
         "", "data1_out/Main/", "data1_out/Flics/", "data1_out/Sfxs/", "Main/", "Flics/", "Sfxs/",
     };
+    char lower[64];
+    size_t n = 0;
+    for (; file[n] && n < sizeof(lower) - 1; n++) lower[n] = (char)tolower((unsigned char)file[n]);
+    lower[n] = 0;
     char path[1024];
     for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
-        snprintf(path, sizeof(path), "%s/%s%s", game_dir, dirs[i], file);
-        if (FileExists(path)) return petka_store_open(path);
+        for (int k = 0; k < 2; k++) {
+            snprintf(path, sizeof(path), "%s/%s%s", game_dir, dirs[i], k ? lower : file);
+            if (FileExists(path)) return petka_store_open(path);
+        }
     }
     return NULL;
 }

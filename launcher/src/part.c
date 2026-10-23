@@ -104,6 +104,12 @@ int part_open(Game *g, int number, int chapter) {
         if (store) g->stores[g->store_count++] = store;
         else fprintf(stderr, "store not found under %s: %s\n", g->game_dir, file);
     }
+    // Which game this is: the second has PART_1\objects.ids in its main
+    // store, the first nothing of the kind. What the launcher puts right in
+    // the first game's script, by its parts and objects, is not for it.
+    g->game = 1;
+    for (int i = 0; i < g->store_count; i++)
+        if (petka_store_find(g->stores[i], "PART_1\\objects.ids")) g->game = 2;
     // Only a part split into chapters has a chapter store; it carries that
     // chapter's speech, names and colours.
     snprintf(file, sizeof(file), "CHAP%d%d.STR", number, chapter);
