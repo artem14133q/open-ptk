@@ -70,6 +70,15 @@ void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         g->seq_room = obj->id;
         if (g->trace) fprintf(stderr, "seq: %u is up\n", obj->id);
         break;
+    case PETKA_OP_GOTO:
+        // Going to a room ends the sequence that is up, as ENDSEQ does: the
+        // exe's room change starts by stopping the screen that has the
+        // display (ScummVM's InterfaceMain::loadRoom, _currInterface->stop()).
+        // The first game's scripts say ENDSEQ next to their GOTO all the
+        // same; the second's intro to part 2 (Seq - INTRO - VICH1) does not,
+        // and its sequence went on for ever over Broadway.
+        if (g->seq_room == PETKA_NONE) break;
+        // fall through
     case PETKA_OP_ENDSEQ:
         if (g->seq_room != PETKA_NONE) sequence_sounds(g, 0);
         g->seq_room = PETKA_NONE;
