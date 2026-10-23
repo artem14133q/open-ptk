@@ -524,9 +524,11 @@ func copySection(img image, e isoEntry, dst string) error {
 // the descriptor -- a file table of directory names and file descriptors,
 // and the file groups, which name where files go -- and the files' data.
 // A compressed file is a run of chunks, each a 16-bit length and that many
-// bytes of raw deflate. Where there is no data1.hdr the descriptor is in the
-// .cab itself, as on these discs. Each file's MD5 is checked where the
-// cabinet has one. (After unshield.)
+// bytes of raw deflate. The descriptor is in the .cab itself (the first
+// game's discs) or, where the .cab's header leaves it out, in data1.hdr
+// beside it, which starts with the same header (the second game's disc);
+// the files' data is in the .cab either way. Each file's MD5 is checked
+// where the cabinet has one. (After unshield.)
 
 const (
 	fileSplit      = 1
@@ -545,14 +547,33 @@ type cabFile struct {
 	volume           int
 }
 
-func readCab(r io.ReaderAt) ([]cabFile, error) {
+// readCab reads the file table of a cabinet: from the .cab, or from hdr
+// (the data1.hdr beside it, nil where there is none) when the .cab has no
+// descriptor of its own.
+func readCab(cab, hdr io.ReaderAt) ([]cabFile, error) {
 	le := binary.LittleEndian
 	head := make([]byte, 20)
-	if _, err := r.ReadAt(head, 0); err != nil {
-		return nil, fmt.Errorf("reading the cabinet header: %v", err)
+	readHead := func(r io.ReaderAt, what string) error {
+		if _, err := r.ReadAt(head, 0); err != nil {
+			return fmt.Errorf("reading the %s header: %v", what, err)
+		}
+		if le.Uint32(head) != 0x28635349 {
+			return fmt.Errorf("the %s is not an InstallShield cabinet", what)
+		}
+		return nil
 	}
-	if le.Uint32(head) != 0x28635349 {
-		return nil, errors.New("not an InstallShield cabinet")
+	if err := readHead(cab, "cabinet"); err != nil {
+		return nil, err
+	}
+	r := cab
+	if le.Uint32(head[12:]) == 0 || le.Uint32(head[16:]) == 0 {
+		if hdr == nil {
+			return nil, errors.New("the cabinet's descriptor is in a separate .hdr file, and there is none beside it")
+		}
+		if err := readHead(hdr, ".hdr file"); err != nil {
+			return nil, err
+		}
+		r = hdr
 	}
 	version := le.Uint32(head[4:])
 	descOff := int64(le.Uint32(head[12:]))
@@ -568,7 +589,7 @@ func readCab(r io.ReaderAt) ([]cabFile, error) {
 		}
 	}
 	if descOff == 0 || descSize == 0 {
-		return nil, errors.New("the cabinet's descriptor is in a separate .hdr file, which is not supported")
+		return nil, errors.New("the cabinet has no descriptor")
 	}
 	// The descriptor's size does not cover all it points at: in these
 	// cabinets the file table starts near its end and runs past it (unshield
@@ -784,8 +805,9 @@ func extractCabFile(r io.ReaderAt, f cabFile, dst string) error {
 }
 
 // extractCab unpacks a whole cabinet as unshield does: <group>/<dir>/<file>.
-func extractCab(r io.ReaderAt, outDir string, report func(string)) (int, error) {
-	files, err := readCab(r)
+// hdr is the data1.hdr beside the .cab, or nil.
+func extractCab(r, hdr io.ReaderAt, outDir string, report func(string)) (int, error) {
+	files, err := readCab(r, hdr)
 	if err != nil {
 		return 0, err
 	}
@@ -821,14 +843,15 @@ func extractCab(r io.ReaderAt, outDir string, report func(string)) (int, error) 
 // ---- the game ----
 
 // gameFile says whether a file from a CD root belongs in the game folder,
-// and under which name: the resource stores, the intro, the disc marks
-// (as the game looks for them, in lower case).
+// and under which name: the resource stores, the films (the first game's
+// intro; the second's intro, outro and the flight between its parts), the
+// disc marks (as the game looks for them, in lower case).
 func gameFile(name string) (string, bool) {
 	upper := strings.ToUpper(name)
 	switch {
 	case strings.HasSuffix(upper, ".STR"):
 		return name, true
-	case upper == "INTRO.AVI":
+	case strings.HasSuffix(upper, ".AVI"):
 		return name, true
 	case strings.HasPrefix(upper, "DISK") && strings.HasSuffix(upper, ".ID"):
 		return strings.ToLower(name), true
@@ -852,22 +875,19 @@ func cmdGame(outDir string, images []string) error {
 			return fmt.Errorf("%s: %v", name, err)
 		}
 		fmt.Printf("%s\n", filepath.Base(name))
-		for _, e := range entries {
+		// data1.cab, and the data1.hdr that may hold its descriptor, are
+		// unpacked once the disc's other files are copied.
+		var cab, hdr *isoEntry
+		for i, e := range entries {
 			if e.isDir || e.parent != "" {
 				continue
 			}
 			if strings.EqualFold(e.path, "data1.cab") {
-				dst := filepath.Join(outDir, "data1_out")
-				fmt.Printf("  %s -> data1_out/\n", e.path)
-				n, err := extractCab(io.NewSectionReader(img, e.lba*sector, e.size), dst, func(p string) {
-					rel, _ := filepath.Rel(outDir, p)
-					fmt.Printf("    %s\n", filepath.ToSlash(rel))
-				})
-				if err != nil {
-					img.Close()
-					return fmt.Errorf("%s: %v", e.path, err)
-				}
-				cabs += n
+				cab = &entries[i]
+				continue
+			}
+			if strings.EqualFold(e.path, "data1.hdr") {
+				hdr = &entries[i]
 				continue
 			}
 			target, ok := gameFile(e.path)
@@ -879,6 +899,23 @@ func cmdGame(outDir string, images []string) error {
 				img.Close()
 				return err
 			}
+		}
+		if cab != nil {
+			dst := filepath.Join(outDir, "data1_out")
+			fmt.Printf("  %s -> data1_out/\n", cab.path)
+			var hdrR io.ReaderAt
+			if hdr != nil {
+				hdrR = io.NewSectionReader(img, hdr.lba*sector, hdr.size)
+			}
+			n, err := extractCab(io.NewSectionReader(img, cab.lba*sector, cab.size), hdrR, dst, func(p string) {
+				rel, _ := filepath.Rel(outDir, p)
+				fmt.Printf("    %s\n", filepath.ToSlash(rel))
+			})
+			if err != nil {
+				img.Close()
+				return fmt.Errorf("%s: %v", cab.path, err)
+			}
+			cabs += n
 		}
 		img.Close()
 	}
@@ -967,7 +1004,17 @@ func cmdCab(src, outDir string) error {
 		return err
 	}
 	defer f.Close()
-	n, err := extractCab(f, outDir, func(p string) { fmt.Println(p) })
+	// The .hdr beside it, under the same name, if there is one.
+	var hdr io.ReaderAt
+	base := strings.TrimSuffix(src, filepath.Ext(src))
+	for _, ext := range []string{".hdr", ".HDR", ".Hdr"} {
+		if h, err := os.Open(base + ext); err == nil {
+			defer h.Close()
+			hdr = h
+			break
+		}
+	}
+	n, err := extractCab(f, hdr, outDir, func(p string) { fmt.Println(p) })
 	if err != nil {
 		return err
 	}
@@ -978,11 +1025,12 @@ func cmdCab(src, outDir string) error {
 const usage = `ptk-unpack: the game's files out of its CD images (.isz or .iso)
 
   ptk-unpack game <out-dir> <image>...      a ready game folder from all the CDs:
-                                            the .STR stores, intro.avi, diskN.id,
+                                            the .STR stores, the .avi films, diskN.id,
                                             and data1.cab unpacked to data1_out/
   ptk-unpack extract <image> <out-dir>      every file of one image
   ptk-unpack isz2iso <image.isz> [out.iso]  the ISO out of an ISZ image, checked
   ptk-unpack cab <data1.cab> <out-dir>      unpack an InstallShield cabinet
+                                            (and data1.hdr beside it, if any)
   ptk-unpack ls <image>                     list the files of an image
 
 A multi-part ISZ image is given by its first part.
