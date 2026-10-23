@@ -292,6 +292,7 @@ typedef struct {
     int verb;
     int quit;
     int to_menu;      // the game is over: back to the start-up menu
+    int map_request;  // TOMAP: the map command, at the top of the next frame
     int menu_on_back; // the save screen came from that menu: leaving it goes back there
     int fast;  // dev: no voice, phrases flash by
     int trace; // dev: log delivered script messages

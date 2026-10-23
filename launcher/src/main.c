@@ -457,6 +457,10 @@ int main(int argc, char **argv) {
         int map_key = plat_key(KEY_M) ||
                       (getenv("PETKA_MAP") && atol(getenv("PETKA_MAP")) == frame);
         if (map_key && can_act && !g->menu_count) map_command(g);
+        if (g->map_request && !g->menu_count) {
+            g->map_request = 0;
+            map_command(g);
+        }
         // dev: PETKA_PANEL=<frame> presses O on that frame of an unattended run.
         int panel_key = plat_key(KEY_O) || (getenv("PETKA_PANEL") && atol(getenv("PETKA_PANEL")) == frame);
         if (panel_key && can_act && !g->menu_count) panel_command(g);

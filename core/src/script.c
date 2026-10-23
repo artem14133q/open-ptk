@@ -21,7 +21,7 @@ static const char *const kOpcodeNames[] = {
     [45] = "NOMAP", [46] = "SETINV", [47] = "BGSFX", [48] = "MUSIC",
     [49] = "IMAGE", [50] = "STAND", [51] = "ON", [52] = "OFF", [53] = "PLAY",
     [54] = "LEAVEBG", [55] = "SHAKE", [57] = "RANDOM", [58] = "JUMP", [59] = "JUMPVICH",
-    [60] = "PART", [61] = "CHAPTER", [62] = "AVI",
+    [60] = "PART", [61] = "CHAPTER", [62] = "AVI", [63] = "TOMAP",
 };
 
 const char *petka_opcode_name(uint16_t opcode) {

@@ -80,6 +80,10 @@ typedef enum {
     PETKA_OP_PART = 60,
     PETKA_OP_CHAPTER = 61,
     PETKA_OP_AVI = 62,
+    // The second game's: the map, as its key or the case's button puts it
+    // up (or takes it down) -- an exit to a place reached by the map only
+    // (ScummVM's kToMap).
+    PETKA_OP_TOMAP = 63,
 } PetkaOpcode;
 
 // Never NULL; unknown opcodes come back as "OP_<n>" in a static buffer.

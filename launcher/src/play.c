@@ -128,8 +128,11 @@ void play_tick(Game *g, int can_act) {
     // PETKA_PLAY_HASTY=1: a walk under way does not hold the next step back,
     // for clicking again before the hero is there.
     int walking = (g->walk[0].active || g->walk[1].active) && !getenv("PETKA_PLAY_HASTY");
+    // The map up is rest for a "map" step: the script may have put it up
+    // itself (the second game's TOMAP exits), and the step picks a place.
+    int map_step = s_play.at < s_play.count && !strcmp(s_play.steps[s_play.at].verb, "map");
     int at_rest = can_act && vm->interface_enabled && !g->paused && vm->queue_count == 0 && !walking &&
-                  !g->save_mode && (!g->map_open || s_play.phase);
+                  !g->save_mode && (!g->map_open || s_play.phase || map_step);
     s_play.rest = at_rest ? s_play.rest + 1 : 0;
     if (s_play.hold > 0) { s_play.hold--; return; }
     if (s_play.rest < PLAY_REST) {

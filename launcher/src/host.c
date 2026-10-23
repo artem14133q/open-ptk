@@ -76,7 +76,11 @@ void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         // display (ScummVM's InterfaceMain::loadRoom, _currInterface->stop()).
         // The first game's scripts say ENDSEQ next to their GOTO all the
         // same; the second's intro to part 2 (Seq - INTRO - VICH1) does not,
-        // and its sequence went on for ever over Broadway.
+        // and its sequence went on for ever over Broadway. The map is such
+        // a screen too, and is left as the map is: a place picked on it may
+        // be the very room it was put up from (the second game's exits to
+        // the map), and no room change would then take it down.
+        if (g->map_open) { map_leave(g); break; }
         if (g->seq_room == PETKA_NONE) break;
         // fall through
     case PETKA_OP_ENDSEQ:
@@ -110,6 +114,13 @@ void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
         break;
     case PETKA_OP_AVI:
         play_film(g, g->qrc[m->arg1]);
+        break;
+    case PETKA_OP_TOMAP:
+        // The second game's exits to places reached by the map alone, and
+        // some of its conversations' ends: the map command, as M or the
+        // case's button gives it (ScummVM's kToMap, toggleMapInterface) --
+        // in the frame's own time, not in the middle of the script's turn.
+        g->map_request = 1;
         break;
     case PETKA_OP_PART:
         // The whole game is taken down and built again for the new part

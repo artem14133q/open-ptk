@@ -1,0 +1,14 @@
+# The second game, part 2 (started with PART_2): BG-LIBERTY, reached by
+# the map alone. Broadway's exit 2 and Liberty's exit 1 put the map up
+# (TOMAP); its "loc 1" goes to Liberty, the second time from Liberty itself.
+# Object ids are those of Part_2's script.
+wait 7000           # the intro, up to Broadway
+room 366            # BG-BROADWAY
+walk 151            # BROADWAY - EXIT 2: the map
+map 139             # Карта 2 - loc 1
+wait 200
+room 370            # BG-LIBERTY
+walk 232            # LIBERTY - EXIT 1: the map again
+map 139
+wait 200
+room 370
