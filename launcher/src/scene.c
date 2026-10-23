@@ -99,23 +99,46 @@ Rectangle visual_dest(const Game *g, const PetkaObject *obj) {
 
 // Topmost active object under (x, y): the exe walks the z order from the top
 // and stops at the first object whose own hit test says yes.
+int object_is_exit(const PetkaObject *obj) {
+    for (uint32_t r = 0; r < obj->reaction_count; r++) {
+        const PetkaReaction *re = &obj->reactions[r];
+        if (re->opcode != PETKA_OP_WALK) continue;
+        for (uint32_t m = 0; m < re->message_count; m++)
+            if (re->messages[m].opcode == PETKA_OP_GOTO || re->messages[m].opcode == PETKA_OP_TOMAP) return 1;
+    }
+    return 0;
+}
+
+// Whether a point hits an active object of the room.
+static int object_hit(Game *g, const PetkaObject *obj, float x, float y) {
+    const Visual *v = &g->visuals[obj_index(g, obj)];
+    if (!g->vm->state[obj_index(g, obj)].active) return 0;
+    if (!is_hero(obj->id)) {
+        const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
+        return clip_hit(v, (int)x - st->x, (int)y - st->y);
+    }
+    // A hero (sub_4086B0): the pixel itself, on his scaled sprite.
+    Rectangle d = visual_dest(g, obj);
+    if (d.width <= 0 || x < d.x || y < d.y || x >= d.x + d.width || y >= d.y + d.height) return 0;
+    int px = (int)((x - d.x) * v->flic->width / d.width);
+    int py = (int)((y - d.y) * v->flic->height / d.height);
+    if (px < 0 || py < 0 || px >= v->flic->width || py >= v->flic->height) return 0;
+    return !petka_flic_keyed(v->flic, v->flic->indices[py * v->flic->width + px]);
+}
+
 const PetkaObject *object_at(Game *g, const Drawable *scene, int n, float x, float y) {
     for (int i = n - 1; i >= 0; i--) {
         const PetkaObject *obj = scene[i].obj;
-        const Visual *v = &g->visuals[obj_index(g, obj)];
-        if (!g->vm->state[obj_index(g, obj)].active) continue;
-        if (!is_hero(obj->id)) {
-            const PetkaObjectState *st = &g->vm->state[obj_index(g, obj)];
-            if (clip_hit(v, (int)x - st->x, (int)y - st->y)) return obj;
-            continue;
-        }
-        // A hero (sub_4086B0): the pixel itself, on his scaled sprite.
-        Rectangle d = visual_dest(g, obj);
-        if (d.width <= 0 || x < d.x || y < d.y || x >= d.x + d.width || y >= d.y + d.height) continue;
-        int px = (int)((x - d.x) * v->flic->width / d.width);
-        int py = (int)((y - d.y) * v->flic->height / d.height);
-        if (px < 0 || py < 0 || px >= v->flic->width || py >= v->flic->height) continue;
-        if (!petka_flic_keyed(v->flic, v->flic->indices[py * v->flic->width + px])) return obj;
+        if (!object_hit(g, obj, x, y)) continue;
+        // Ours, not the exe's: a hero standing in a doorway would keep the
+        // pointer from the way out behind him, and walking is all the
+        // cursor would do to him. So while it walks, with nothing carried,
+        // an exit under a hero comes first.
+        if (is_hero(obj->id) && g->verb == 1 && g->vm->cursor_object == PETKA_NONE)
+            for (int k = i - 1; k >= 0; k--)
+                if (!is_hero(scene[k].obj->id) && object_is_exit(scene[k].obj) && object_hit(g, scene[k].obj, x, y))
+                    return scene[k].obj;
+        return obj;
     }
     return NULL;
 }

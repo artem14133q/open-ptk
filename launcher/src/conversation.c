@@ -63,13 +63,37 @@ static const struct {
     {3, 357, "Василий Иванович"},
 };
 
+// The second game's speakers go by the name NAMES.INI shows for them
+// ("WOODOO - WOMAN" is "Вудуистка"); the heroes in a room or a sequence of
+// their own ("Петька - Seq - INTRO 1", "ВИЧ - КОМНАТА ПЕТЬКИ") by the
+// heroes' names; and the two whose NAMES.INI name is empty by these.
+static const struct {
+    const char *script; // cp1251
+    const char *name;
+} kSpeakers2[] = {
+    {"SHOP - ROBBER", "Грабитель"},
+    {"WOODOO - KRISHNA", "Кришна"},
+};
+
+static const char *speaker_name2(const Game *g, const PetkaObject *obj) {
+    for (size_t i = 0; i < sizeof(kSpeakers2) / sizeof(kSpeakers2[0]); i++)
+        if (strcmp(obj->name, kSpeakers2[i].script) == 0) return kSpeakers2[i].name;
+    const char *shown = g->names[obj - g->script->objects];
+    if (shown && shown[0]) return utf8_name(shown);
+    if (strncmp(obj->name, "\xCF\xE5\xF2\xFC\xEA\xE0", 6) == 0) return "Петька";        // "Петька"
+    if (strncmp(obj->name, "\xC2\xC8\xD7", 3) == 0) return "Василий Иванович";          // "ВИЧ"
+    return utf8_name(obj->name);
+}
+
 const char *speaker_name(const Game *g, uint16_t id) {
     for (size_t i = 0; i < sizeof(kSpeakers) / sizeof(kSpeakers[0]); i++)
         if ((kSpeakers[i].part == 0 || (g->game == 1 && kSpeakers[i].part == g->part_number)) &&
             kSpeakers[i].id == id)
             return kSpeakers[i].name;
     const PetkaObject *obj = id == PETKA_NONE ? NULL : petka_script_find(g->script, id);
-    return obj ? utf8_name(obj->name) : "";
+    if (!obj) return "";
+    if (g->game == 2) return speaker_name2(g, obj);
+    return utf8_name(obj->name);
 }
 
 // Where a speaker's voice sits between the speakers, -1 (left) to 1 (right).
