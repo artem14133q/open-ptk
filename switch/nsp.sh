@@ -18,12 +18,18 @@
 # are signed with no key Nintendo has, so the console runs them only with
 # signature patches.
 #
+# PETKA_GAME=2 makes the second game's title («Петька 2: Судный день»)
+# instead: petka2.nsp / petka2-full.nsp, its own id, name and icon
+# (icon2.jpg), assets2.txt, the SD card's sdmc:/switch/petka2/. The program
+# is the same; it tells the games by their files and the folder by the id.
+#
 # RU: petka.nsp -- игра как установленное приложение с иконкой на главном
 # экране, из petka.elf, который собирает make. Нужны hacBrewPack (в deps/) и
 # ключи консоли prod.keys (снимаются Lockpick_RCM) в ~/.switch/prod.keys, в
 # .switch/prod.keys в корне репозитория или по пути из PETKA_KEYS; на
 # консоли -- патчи подписей. nsp-full кладёт внутрь файлы игры из списка
-# assets.txt, взятые из папки PETKA_ASSETS.
+# assets.txt, взятые из папки PETKA_ASSETS. PETKA_GAME=2 -- то же для второй
+# игры: petka2.nsp, свой ID, название, иконка icon2.jpg, assets2.txt.
 set -e
 FULL=${1:-}
 cd "$(dirname "$0")"
@@ -31,6 +37,20 @@ cd "$(dirname "$0")"
 # The title's id: an application's, unique to this game (the low 16 bits
 # are an application's 0000); the same in petka.json.
 TITLE_ID=0x0100F35700A50000
+# The second game's title: the next id (platform.c's TITLE_ID_GAME2).
+GAME=${PETKA_GAME:-1}
+NAME=petka
+ICON=icon.jpg
+ASSETS=assets.txt
+SD=sdmc:/switch/petka/
+if [ "$GAME" = 2 ]; then
+    TITLE_ID=0x0100F35700A60000
+    NAME=petka2
+    ICON=icon2.jpg
+    ASSETS=assets2.txt
+    SD=sdmc:/switch/petka2/
+    APP_TITLE="Петька и Василий Иванович 2: Судный день"
+fi
 # The keys: PETKA_KEYS, else ~/.switch/prod.keys, else .switch/prod.keys at
 # the top of the repository (which .gitignore keeps out of it).
 KEYS=${PETKA_KEYS:-$HOME/.switch/prod.keys}
@@ -55,9 +75,11 @@ fi
 W=build/nsp
 rm -rf "$W"
 mkdir -p "$W/exefs" "$W/control"
-# The program: the ELF as an NSO, and the process it runs as (petka.json).
+# The program: the ELF as an NSO, and the process it runs as (petka.json,
+# with the title's id).
 "$TOOLS/elf2nso" petka.elf "$W/exefs/main"
-"$TOOLS/npdmtool" petka.json "$W/exefs/main.npdm" 2> /dev/null
+sed "s/0x0100F35700A50000/$TITLE_ID/g" petka.json > "$W/main.json"
+"$TOOLS/npdmtool" "$W/main.json" "$W/exefs/main.npdm" 2> /dev/null
 # Its name and icon on the home menu, the same in every language.
 "$TOOLS/nacptool" --create "$TITLE" "$AUTHOR" "$VERSION" "$W/control/control.nacp" --titleid=$TITLE_ID
 # The console's way with saved games: a user is asked for as the title
@@ -69,23 +91,23 @@ patch 0x3080 '\000\000\200\000\000\000\000\000'
 patch 0x3088 '\000\000\200\000\000\000\000\000'
 for lang in AmericanEnglish BritishEnglish Japanese French German LatinAmericanSpanish Spanish Italian Dutch \
             CanadianFrench Portuguese Russian Korean TraditionalChinese SimplifiedChinese BrazilianPortuguese; do
-    cp icon.jpg "$W/control/icon_$lang.dat"
+    cp "$ICON" "$W/control/icon_$lang.dat"
 done
 # A title's Program NCA has all three of its sections, ExeFS, RomFS and Logo
 # -- the console did not start one with the ExeFS alone. With no game inside,
 # the romfs holds a note and no MAIN.STR: the game is read from the SD card.
 mkdir -p "$W/romfs"
 ROMFS="--romfsdir $W/romfs"
-OUT=petka.nsp
+OUT=$NAME.nsp
 if [ "$FULL" != full ]; then
-    echo "open-ptk: the game's files are read from sdmc:/switch/petka/" > "$W/romfs/README.txt"
+    echo "open-ptk: the game's files are read from $SD" > "$W/romfs/README.txt"
 fi
 if [ "$FULL" = full ]; then
-    # The game inside: each file of assets.txt, found whatever its case in
+    # The game inside: each file of assets.txt (assets2.txt), found whatever its case in
     # the places the launcher looks, under the name the launcher asks for.
     # Hard links where they can be (no copy of 2 GB), copies where not.
     missing=0
-    grep -v '^#' assets.txt | grep -v '^ *$' | while read -r name; do
+    grep -v '^#' "$ASSETS" | grep -v '^ *$' | while read -r name; do
         src=""
         for dir in . data1_out/Main data1_out/Flics data1_out/Sfxs Main Flics Sfxs; do
             [ -d "$PETKA_ASSETS/$dir" ] || continue
@@ -97,7 +119,7 @@ if [ "$FULL" = full ]; then
     done
     [ ! -f "$W/missing" ] || { echo "nsp-full: files missing, nothing built"; exit 1; }
     echo "romfs: $(ls "$W/romfs" | wc -l | tr -d ' ') files, $(du -sh "$W/romfs" | cut -f1)"
-    OUT=petka-full.nsp
+    OUT=$NAME-full.nsp
 fi
 "$HBP" -k "$KEYS" --titleid "${TITLE_ID#0x}" --exefsdir "$W/exefs" --controldir "$W/control" $ROMFS --logodir deps/logo \
     --nspdir "$W/out" --ncadir "$W/nca" --tempdir "$W/temp" --backupdir "$W/backup"

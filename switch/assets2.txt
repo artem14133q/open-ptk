@@ -1,0 +1,33 @@
+# assets2.txt -- the second game's files («Петька 2: Судный день») that
+# `PETKA_GAME=2 make nsp-full` puts inside its title: the ones the launcher
+# reads, and no more, under the names its discs give them. The launcher
+# asks for a store in capitals and then in small letters, and for a film as
+# named and in small letters, so these are found in the romfs as they are.
+# See assets.txt.
+#
+# RU: файлы второй игры, которые PETKA_GAME=2 make nsp-full кладёт внутрь
+# приложения, -- только те, что читает лаунчер, с именами как на диске.
+
+# Both parts: the main store (the scripts, the dialogues, the interface).
+main.str
+# Each part's backgrounds, clips, clip sounds, sounds, music and speech.
+bgs1.str
+bgs2.str
+flc1.str
+flc2.str
+wav1.str
+wav2.str
+sfx1.str
+sfx2.str
+music1.str
+music2.str
+speech1.str
+speech2.str
+# The films: at start-up (buka, skif), those the script plays (the intro,
+# the flight between the parts, the outro) and the start-up menu's credits.
+buka.avi
+skif.avi
+intro.avi
+perelet.avi
+outro.avi
+credits.avi

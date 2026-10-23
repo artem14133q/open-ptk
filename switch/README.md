@@ -72,6 +72,27 @@ PETKA_ASSETS=~/ptk1-files make nsp-full
 Started, it reads the game from inside itself. It holds the original
 game's files: it is for your own console, not to be given to anyone.
 
+## The second game
+
+The same `petka.nro` runs «Петька 2: Судный день» too: the game is read
+from the folder the NRO is in when the game's `main.str` is there as well,
+and the saved games are kept there. So the second game's files (`ptk-unpack
+game` makes the folder) go with a copy of `petka.nro` to
+`sdmc:/switch/petka2/`, and the first game stays in `sdmc:/switch/petka/`.
+
+Its installed title is made the same way with `PETKA_GAME=2`: its own id
+(`0100F35700A60000`), name and icon (`icon2.jpg`, the start-up menu's
+picture), its own save data, `sdmc:/switch/petka2/` for its files, and
+`assets2.txt` for the files inside the full one (about 550 MB):
+
+```
+PETKA_GAME=2 make nsp                                  # petka2.nsp
+PETKA_GAME=2 PETKA_ASSETS=~/ptk2-files make nsp-full   # petka2-full.nsp
+```
+
+Its films are Indeo 5: `ffmpeg.sh` builds that decoder in too (run it
+again if `deps/ffmpeg` was built before it did).
+
 ## Controls
 
 | event | description |

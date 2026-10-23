@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds FFmpeg for the Switch as static libraries in deps/ffmpeg, with only
-# what the game's films need: the AVI demuxer, Indeo 3 (INTRO.AVI) and
-# Microsoft Video 1 (the rest), MS ADPCM and 8/16-bit PCM sound, and the
+# what the games' films need: the AVI demuxer, Indeo 3 (the first game's
+# INTRO.AVI), Indeo 5 (the second game's films) and Microsoft Video 1 (the
+# rest), MS ADPCM and 8/16-bit PCM sound, and the
 # scaler and resampler. devkitPro's switch-ffmpeg package would do as well,
 # but drags in libass, freetype, dav1d and the rest for nothing.
 set -e
@@ -26,7 +27,7 @@ cd "$SRC"
     --disable-autodetect --disable-network --disable-pthreads --disable-runtime-cpudetect \
     --disable-everything --disable-avdevice --disable-avfilter \
     --enable-protocol=file --enable-demuxer=avi \
-    --enable-decoder=indeo3,msvideo1,adpcm_ms,pcm_s16le,pcm_u8 \
+    --enable-decoder=indeo3,indeo5,msvideo1,adpcm_ms,pcm_s16le,pcm_u8 \
     --enable-swscale --enable-swresample
 make -j8
 make install

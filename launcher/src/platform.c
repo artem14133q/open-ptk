@@ -62,6 +62,7 @@ int plat_list_step_x(void) { return 0; }
 int plat_page_step(void) { return 0; }
 Vector2 plat_aim(void) { return (Vector2){0, 0}; }
 void plat_pointer_speed(float k) { (void)k; }
+void plat_args(int argc, char **argv) { (void)argc; (void)argv; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
 const char *plat_data_dir(void) { return GetApplicationDirectory(); }
 void plat_commit(void) {}
@@ -80,6 +81,7 @@ Font plat_system_font(int size, int *codepoints, int count) {
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define SURFACE_W 960
 #define SURFACE_H 720
@@ -103,6 +105,49 @@ static bool s_save;    // the title's save data for the user mounted as save:
 
 void plat_mute(void) { s_muted = true; }
 
+// The game's folder on the SD card: where the files are read from (unless
+// they are inside the title), the NRO keeps its saved games and trace.txt
+// is looked for. The NRO's own folder when the game's main store is beside
+// it -- a copy in sdmc:/switch/petka2/ runs the second game from there; an
+// installed title's by its id, the second game's title having a folder of
+// its own; else sdmc:/switch/petka/, as before.
+#define TITLE_ID_GAME2 0x0100F35700A60000ULL // nsp.sh's, PETKA_GAME=2
+static const char *s_argv0;
+void plat_args(int argc, char **argv) { s_argv0 = argc > 0 ? argv[0] : NULL; }
+
+static const char *sd_dir(void) {
+    static char dir[256] = "sdmc:/switch/petka/";
+    static bool picked;
+    if (picked) return dir;
+    picked = true;
+    if (envIsNso()) {
+        u64 id = 0;
+        if (R_SUCCEEDED(svcGetInfo(&id, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0)) && id == TITLE_ID_GAME2)
+            snprintf(dir, sizeof(dir), "sdmc:/switch/petka2/");
+    } else if (s_argv0 && strncmp(s_argv0, "sdmc:/", 6) == 0 && strrchr(s_argv0, '/')) {
+        size_t n = (size_t)(strrchr(s_argv0, '/') - s_argv0) + 1;
+        char own[256], probe[300];
+        if (n < sizeof(own)) {
+            memcpy(own, s_argv0, n);
+            own[n] = 0;
+            snprintf(probe, sizeof(probe), "%sMAIN.STR", own);
+            bool game = FileExists(probe);
+            snprintf(probe, sizeof(probe), "%smain.str", own);
+            if (game || FileExists(probe)) snprintf(dir, sizeof(dir), "%s", own);
+        }
+    }
+    return dir;
+}
+
+// A file in that folder.
+static const char *sd_file(const char *name) {
+    static char path[2][320];
+    static int k;
+    k ^= 1;
+    snprintf(path[k], sizeof(path[k]), "%s%s", sd_dir(), name);
+    return path[k];
+}
+
 void plat_init(void) {
     // Started by nxlink from a computer, stdout and stderr go back to it --
     // the launcher's trace and messages. Started any other way the
@@ -116,13 +161,13 @@ void plat_init(void) {
     // A trace.txt in the game's folder turns the trace on and puts it, with
     // everything else said, in petka.log there: for what happens on the
     // console alone. Line by line, so a hang leaves the lines before it.
-    FILE *flag = fopen("sdmc:/switch/petka/trace.txt", "r");
+    FILE *flag = fopen(sd_file("trace.txt"), "r");
     if (flag) {
         fclose(flag);
         // Both appending: each line goes on the end, whichever stream says it.
-        remove("sdmc:/switch/petka/petka.log");
-        if (freopen("sdmc:/switch/petka/petka.log", "a", stderr)) {
-            freopen("sdmc:/switch/petka/petka.log", "a", stdout);
+        remove(sd_file("petka.log"));
+        if (freopen(sd_file("petka.log"), "a", stderr)) {
+            freopen(sd_file("petka.log"), "a", stdout);
             setvbuf(stderr, NULL, _IOLBF, 0);
             setvbuf(stdout, NULL, _IOLBF, 0);
             setenv("PETKA_TRACE", "1", 1);
@@ -270,25 +315,26 @@ Vector2 plat_aim(void) {
     return (Vector2){GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_X), -GetGamepadAxisMovement(PAD, GAMEPAD_AXIS_LEFT_Y)};
 }
 
-// The game inside the title (make nsp-full): its romfs, with MAIN.STR at the
-// top. "romfs:" with no slash: the launcher puts one between it and a name.
+// The game inside the title (make nsp-full): its romfs, with the main store
+// at the top -- MAIN.STR, or main.str as the second game names it (the
+// romfs minds the case). "romfs:" with no slash: the launcher puts one
+// between it and a name.
 const char *plat_default_game_dir(void) {
     static bool tried;
     if (!tried) {
         tried = true;
         s_romfs = R_SUCCEEDED(romfsInit());
-        if (s_romfs && !FileExists("romfs:/MAIN.STR")) {
+        if (s_romfs && !FileExists("romfs:/MAIN.STR") && !FileExists("romfs:/main.str")) {
             romfsExit();
             s_romfs = false;
         }
     }
-    return s_romfs ? "romfs:" : "sdmc:/switch/petka/";
+    return s_romfs ? "romfs:" : sd_dir();
 }
 
 // The save data: as big as the saved games want with room to spare (some
 // 90 KB each, 18 slots, two .ini), the journal the same.
 #define SAVE_DATA_SIZE 0x800000
-#define SAVE_DATA_SD "sdmc:/switch/petka/"
 
 // The user who plays: the one the console asked for as the title started
 // (its NACP wants one, see nsp.sh).
@@ -318,14 +364,14 @@ static bool save_mount(void) {
 // SD card are taken in (copied; those there stay).
 static void save_take_in(void) {
     static const char *const kFiles[] = {"Petka.ini", "extras.ini"};
-    char from[64], to[64];
+    char from[320], to[64];
     bool taken = false;
     // The two .ini, then the 18 slots of the save screen (6 a page, 3 pages).
     for (int i = -2; i < 18; i++) {
         const char *name = i < 0 ? kFiles[i + 2] : NULL;
         char slot[16];
         if (!name) { snprintf(slot, sizeof(slot), "save%d.dat", i + 1); name = slot; }
-        snprintf(from, sizeof(from), SAVE_DATA_SD "%s", name);
+        snprintf(from, sizeof(from), "%s", sd_file(name));
         snprintf(to, sizeof(to), "save:/%s", name);
         if (FileExists(to) || !FileExists(from)) continue;
         int len = 0;
@@ -350,8 +396,11 @@ const char *plat_data_dir(void) {
     }
     if (s_save) return "save:/";
     mkdir("sdmc:/switch", 0777);
-    mkdir("sdmc:/switch/petka", 0777);
-    return SAVE_DATA_SD;
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s", sd_dir());
+    dir[strlen(dir) - 1] = 0; // without its slash
+    mkdir(dir, 0777);
+    return sd_dir();
 }
 
 void plat_commit(void) {

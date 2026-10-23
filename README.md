@@ -45,6 +45,23 @@ cd tools/unpack && go build -o ptk-unpack .
 даёт папку с хранилищами `.STR`, `intro.avi`, `disk1.id`..`disk3.id` и
 `data1_out/`. Больше лаунчеру ничего не нужно.
 
+## Вторая игра
+
+Тот же лаунчер запускает и «Петьку и Василия Ивановича 2: Судный день»
+(СКИФ/Бука, 1999): движок и форматы у неё те же. Какая игра в папке,
+лаунчер понимает сам, по файлам (`PART_1\objects.ids` в `main.str`), и для
+второй не применяет то, что относится к первой: исправления сценария,
+восстановленные диалоги, рекламный ролик.
+
+```
+./ptk-unpack game ~/ptk2-files ptk2.isz
+build/launcher/petka_launcher ~/ptk2-files            # с начала
+build/launcher/petka_launcher ~/ptk2-files PART_2     # сразу во вторую часть
+```
+
+Её ролики сжаты Indeo 5, это обычный `ffmpeg` тоже умеет. Как поставить её
+на Switch — в [switch/README.ru.md](switch/README.ru.md#вторая-игра).
+
 ## Сборка на компьютере
 
 Нужны CMake 3.16+, компилятор C11, raylib (ищется через pkg-config) и, для

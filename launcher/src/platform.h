@@ -23,6 +23,11 @@
 // RU: До конца кадра игра не получает ввода (для меню поверх игры).
 void plat_mute(void);
 
+// The program's arguments, first of all: on the Switch the homebrew menu
+// names the NRO in argv[0], and its folder may be the game's.
+// RU: Аргументы программы, до всего остального: на Switch argv[0] -- путь NRO.
+void plat_args(int argc, char **argv);
+
 // After InitWindow: makes the Switch's drawing surface.
 // RU: После создания окна: поверхность для рисования, шейдер, журнал на Switch.
 void plat_init(void);
@@ -109,18 +114,23 @@ void plat_pointer_speed(float k);
 
 // The folder the game's files are in when none is given: next to the
 // program on a desktop; on the Switch the title's own romfs when the game is
-// inside it (make nsp-full), else sdmc:/switch/petka/.
+// inside it (make nsp-full), else its folder on the SD card: the NRO's own
+// when the game's main store is beside it, the second game's title's
+// sdmc:/switch/petka2/, or sdmc:/switch/petka/.
 // RU: Папка игры по умолчанию: рядом с программой; на Switch -- romfs
-// приложения, если игра внутри него (make nsp-full), иначе sdmc:/switch/petka/.
+// приложения, если игра внутри него (make nsp-full), иначе папка на карте:
+// та, где лежит NRO, если рядом главный архив игры; sdmc:/switch/petka2/ для
+// установленной второй игры; иначе sdmc:/switch/petka/.
 const char *plat_default_game_dir(void);
 // Where the saved games, the settings and the like are written when no
 // folder is given: the game's folder on a desktop. On the Switch, an
 // installed title (an NSP) keeps them as the console's games do, in its save
 // data for the user who plays (mounted as save:); the homebrew menu's NRO,
-// which may run under another game's title, in sdmc:/switch/petka/.
+// which may run under another game's title, in the game's folder on the SD
+// card (see plat_default_game_dir).
 // RU: Куда пишутся сохранения и настройки: на компьютере -- в папку игры; на
 // Switch установленное приложение (NSP) хранит их как игры консоли, в своих
-// сохранениях пользователя (save:), а NRO -- в sdmc:/switch/petka/.
+// сохранениях пользователя (save:), а NRO -- в папке игры на карте.
 const char *plat_data_dir(void);
 // After a file is written there: made to stay (the save data keeps nothing
 // that is not committed). Nothing to do elsewhere.

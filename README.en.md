@@ -45,6 +45,23 @@ cd tools/unpack && go build -o ptk-unpack .
 gives a folder with the `.STR` stores, `intro.avi`, `disk1.id`..`disk3.id`
 and `data1_out/`. That is all the launcher reads.
 
+## The second game
+
+The same launcher runs «Петька и Василий Иванович 2: Судный день»
+(SKIF/Buka, 1999) as well: its engine and formats are the same. The
+launcher tells which game a folder holds by its files (`PART_1\objects.ids`
+in `main.str`) and leaves the first game's own fixes out for the second:
+the script fixes, the restored dialogues, the advertisement film.
+
+```
+./ptk-unpack game ~/ptk2-files ptk2.isz
+build/launcher/petka_launcher ~/ptk2-files            # from the start
+build/launcher/petka_launcher ~/ptk2-files PART_2     # straight into part 2
+```
+
+Its films are Indeo 5, which the usual `ffmpeg` plays too. For the Switch,
+see [switch/README.md](switch/README.md#the-second-game).
+
 ## Building on a desktop
 
 Needs CMake 3.16+, a C11 compiler, raylib (found through pkg-config) and,
