@@ -109,7 +109,7 @@ ifneq ($(ROMFS),)
 	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: $(BUILD) clean all nsp nsp-full
+.PHONY: $(BUILD) clean all nsp nsp-full nro2
 
 all: $(BUILD)
 
@@ -123,6 +123,14 @@ nsp: all
 nsp-full: all
 	@APP_TITLE="$(APP_TITLE)" APP_AUTHOR="$(APP_AUTHOR)" APP_VERSION="$(APP_VERSION)" ./nsp.sh full
 
+# petka2.nro, the same program under the second game's name and icon
+# (icon2.jpg) in the homebrew menu. It goes in sdmc:/switch/petka2/ with
+# the second game's files: the NRO reads the game from its own folder.
+nro2: all
+	@$(DEVKITPRO)/tools/bin/nacptool --create "Петька и Василий Иванович 2: Судный день" "$(APP_AUTHOR)" "$(APP_VERSION)" $(TARGET)2.nacp
+	@$(DEVKITPRO)/tools/bin/elf2nro $(TARGET).elf $(TARGET)2.nro --icon=$(TOPDIR)/icon2.jpg --nacp=$(TARGET)2.nacp
+	@echo built ... $(TARGET)2.nro
+
 $(BUILD):
 	@[ -f deps/raylib-nx/src/libraylib.a ] || { echo "raylib-nx is not built: run ./raylib.sh first"; exit 1; }
 	@[ -d $@ ] || mkdir -p $@
@@ -131,7 +139,7 @@ $(BUILD):
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).nsp $(TARGET)-full.nsp \
-		$(TARGET)2.nsp $(TARGET)2-full.nsp
+		$(TARGET)2.nsp $(TARGET)2-full.nsp $(TARGET)2.nro $(TARGET)2.nacp
 
 #---------------------------------------------------------------------------------
 else

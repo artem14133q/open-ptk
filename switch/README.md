@@ -79,6 +79,8 @@ from the folder the NRO is in when the game's `main.str` is there as well,
 and the saved games are kept there. So the second game's files (`ptk-unpack
 game` makes the folder) go with a copy of `petka.nro` to
 `sdmc:/switch/petka2/`, and the first game stays in `sdmc:/switch/petka/`.
+`make nro2` makes that copy as `petka2.nro`: the same program, with the
+second game's name and icon (`icon2.jpg`) in the homebrew menu.
 
 Its installed title is made the same way with `PETKA_GAME=2`: its own id
 (`0100F35700A60000`), name and icon (`icon2.jpg`, the game's CD
