@@ -81,8 +81,8 @@ game` makes the folder) go with a copy of `petka.nro` to
 `sdmc:/switch/petka2/`, and the first game stays in `sdmc:/switch/petka/`.
 
 Its installed title is made the same way with `PETKA_GAME=2`: its own id
-(`0100F35700A60000`), name and icon (`icon2.jpg`, the start-up menu's
-picture), its own save data, `sdmc:/switch/petka2/` for its files, and
+(`0100F35700A60000`), name and icon (`icon2.jpg`, the game's CD
+cover, fitted into 256x256), its own save data, `sdmc:/switch/petka2/` for its files, and
 `assets2.txt` for the files inside the full one (about 550 MB):
 
 ```
