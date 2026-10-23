@@ -58,6 +58,16 @@ int build_scene(Game *g, Drawable *out, int max) {
         if (!obj) continue;
         const Visual *v = &g->visuals[obj_index(g, obj)];
         PetkaObjectState *state = &g->vm->state[obj_index(g, obj)];
+        // Ours, not the exe's: a hidden object whose z follows its frames
+        // goes back to the room's z for it. The exe keeps the z of the last
+        // frame it showed, and a hotspot that was shown for a moment then
+        // lies over what it was under: the second game's bas-relief, shown
+        // while Petka presses the sign, stayed over the handlebar on it, and
+        // the handlebar could not be taken after the sign.
+        if (state->auto_z && !state->visible && i < room->attached_count) {
+            state->z = room->attached[i].z;
+            continue;
+        }
         if (!v->live || !state->auto_z || !state->animate || !state->visible) continue;
         if (is_hero(obj->id)) {
             // A hero (sub_409530): the bottom edge of his scaled frame
