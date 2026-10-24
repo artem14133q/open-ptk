@@ -127,6 +127,13 @@ build/tools/scripttest/scripttest ~/ptk1-files/MAIN.STR PART_1
 build/tools/walktest/walktest ~/ptk1-files/FLC1.STR
 ```
 
+## raylib
+
+Проект сделан на [raylib](https://www.raylib.com) (Рамон Сантамария и
+участники, лицензия zlib/libpng): окно, графика, звук и ввод лаунчера — его.
+Сборка под Nintendo Switch использует
+[raylib-nx](https://github.com/luizpestana/raylib-nx), порт raylib на libnx.
+
 ## Оригинал
 
 Игра и её файлы принадлежат их правообладателям (СКИФ, Бука). В этом

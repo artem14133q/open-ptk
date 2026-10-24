@@ -127,6 +127,13 @@ build/tools/scripttest/scripttest ~/ptk1-files/MAIN.STR PART_1
 build/tools/walktest/walktest ~/ptk1-files/FLC1.STR
 ```
 
+## raylib
+
+The project is built on [raylib](https://www.raylib.com) (Ramon Santamaria
+and contributors, zlib/libpng license): the launcher's window, graphics,
+sound and input are its. The Nintendo Switch build uses
+[raylib-nx](https://github.com/luizpestana/raylib-nx), raylib ported to libnx.
+
 ## The original
 
 The game and its files belong to their owners (SKIF, Buka). This
