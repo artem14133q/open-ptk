@@ -1,5 +1,6 @@
 deps/
 build/
+build2/
 *.nro
 *.nsp
 *.nacp
