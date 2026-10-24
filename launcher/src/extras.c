@@ -10,13 +10,12 @@ const char *const kExtraName[EXTRA_COUNT] = {
 };
 
 // The rows shown: the pull is a controller's only, the debug overlay a
-// developer's (PETKA_DEBUG_SCREEN), the restored dialogues the first game's.
+// developer's (PETKA_DEBUG_SCREEN).
 int extras_rows(const Game *g, int *rows) {
+    (void)g;
     int n = 0;
     for (int i = 0; i < EXTRA_COUNT; i++)
-        if ((i != EXTRA_AIM || plat_pad()) && (i != EXTRA_DEBUG || PETKA_DEBUG_SCREEN) &&
-            (i != EXTRA_RESTORED || g->game == 1))
-            rows[n++] = i;
+        if ((i != EXTRA_AIM || plat_pad()) && (i != EXTRA_DEBUG || PETKA_DEBUG_SCREEN)) rows[n++] = i;
     return n;
 }
 

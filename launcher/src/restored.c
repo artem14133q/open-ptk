@@ -39,14 +39,16 @@
 // phrase table's indices, 0 for none). A line that tells of what the action
 // has done (the fireplace's lamp, "I turned it, though I did not tear it off")
 // is not here but a DIALOG that scriptfix.c puts at the reaction's end.
-static const struct {
+typedef struct {
     uint8_t part;
     uint16_t obj;
     uint32_t key;
     uint8_t status;
     uint8_t instead;
     uint16_t then[3];
-} kRestored[] = {
+} Restored;
+
+static const Restored kRestored[] = {
     {1, 89, 0x6, 1}, // Ой, что это там на дне блестит?
     {1, 93, 0x1, 0, 1}, // Спрятаться в шкаф?
     {1, 93, 0x1, 2, 1}, // Спрятаться в шкаф?
@@ -70,6 +72,24 @@ static const struct {
     {3, 344, 0xE001A, 255}, // Василь Иваныч, можно вас попросить?
     {3, 348, 0x1001A, 255}, // Берем!
     {3, 349, 0x1001A, 255}, // Почему бы и нет?
+};
+
+// The second game's, found the same way (its Reloaded edition, 2016): of the
+// reactions whose object's own dialogue the exe leaves unsaid, those whose
+// line it says nowhere else -- not in another status of the object, where
+// no reaction leaves the dialogue to be said, nor through a talk of the
+// reaction's own -- and that Reloaded says for the same object and action.
+// Left out: the crane's stick (said in status 0), the beekeeper's formula (a
+// talk of its own), the radiation sign (said in status 0), the laser's
+// halved glasses (Reloaded says them before the handlebar is up, status 0,
+// where the exe says them too), the fly on the bolts (Reloaded gives
+// Chapayev's line to TAKE).
+static const Restored kRestored2[] = {
+    {1, 100, 0x1, 0, 1}, // Спрятаться в шкаф? (the wardrobe opens by its door)
+    {1, 100, 0x1, 2, 1}, // Спрятаться в шкаф?
+    {1, 317, 0x6, 255}, // А вот это, пожалуй, возьмем.
+    {1, 393, 0x6, 0}, // А вот это мой размерчик.
+    {1, 393, 0x6, 1}, // А вот это мой размерчик.
 };
 
 // The dialogues said in two parts round the action (restored.h): the part,
@@ -135,16 +155,18 @@ void restored_player_action(Game *g, uint16_t obj, uint16_t op) {
 
 int host_restore_dialogue(void *user, uint16_t obj_id, uint32_t key, uint8_t status) {
     Game *g = (Game *)user;
-    if (!g->opt_restored || g->game != 1) return 0;
+    if (!g->opt_restored) return 0;
     // Only for the player's own action, and once.
     if (obj_id != g->acted_obj || (key & 0xFFFF) != g->acted_op) return 0;
-    for (size_t i = 0; i < sizeof(kRestored) / sizeof(kRestored[0]); i++)
-        if (kRestored[i].part == g->part_number && kRestored[i].obj == obj_id && kRestored[i].key == key &&
-            kRestored[i].status == status) {
+    const Restored *table = g->game == 2 ? kRestored2 : kRestored;
+    size_t count = g->game == 2 ? sizeof(kRestored2) / sizeof(kRestored2[0]) : sizeof(kRestored) / sizeof(kRestored[0]);
+    for (size_t i = 0; i < count; i++)
+        if (table[i].part == g->part_number && table[i].obj == obj_id && table[i].key == key &&
+            table[i].status == status) {
             g->acted_obj = PETKA_NONE;
             g->then_count = g->then_pos = 0;
-            for (int k = 0; k < 3 && kRestored[i].then[k]; k++) g->then_phrase[g->then_count++] = kRestored[i].then[k];
-            return kRestored[i].instead ? 2 : 1;
+            for (int k = 0; k < 3 && table[i].then[k]; k++) g->then_phrase[g->then_count++] = table[i].then[k];
+            return table[i].instead ? 2 : 1;
         }
     return 0;
 }
