@@ -57,6 +57,21 @@ void host_message(void *user, PetkaScriptVM *vm, const PetkaObject *obj,
                 reacted ? "  (reaction)" : "");
     switch (m->opcode) {
     case PETKA_OP_SET:
+        // Ours, not the exe's: a hero on his way keeps his walk clip when a
+        // phrase puts his standing or talking clip on (SAY, SAID, STAND --
+        // made SETs of them by the VM). With it gone he slid along standing
+        // until his next turn, or, the standing clip resting after a loop,
+        // stood still for good: Chapayev going over to the pioneer as the
+        // talk with him starts. The walk's end puts him in his pose.
+        if (is_hero(obj->id) && g->walk[obj->id].active) {
+            PetkaObjectState *st = petka_scriptvm_state(vm, obj->id);
+            if (st && st->costume != PETKA_NONE && (m->arg1 == st->costume || m->arg1 == st->costume + 1)) {
+                st->resource = (uint16_t)(st->costume + 10 + g->walk[obj->id].walker.dir);
+                st->rest_after_loop = 0;
+                break;
+            }
+        }
+        // fall through
     case PETKA_OP_PLAY:
         // PLAY starts the clip over; so does SET with 1 as its second argument.
         if (m->opcode == PETKA_OP_PLAY || m->arg2 == 1) g->visuals[obj_index(g, obj)].restart = 1;

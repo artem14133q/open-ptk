@@ -238,13 +238,20 @@ void walk_frame(Game *g, uint16_t hero_id) {
     int result = petka_walker_step(&w->walker);
     st->x = (int32_t)lround(w->walker.x);
     st->y = (int32_t)lround(w->walker.y);
+    Visual *v = &g->visuals[obj_index(g, petka_script_find(g->script, hero_id))];
     if (result == 2) {
         // New direction: its clip, from the first frame.
         st->resource = (uint16_t)(st->costume + 10 + w->walker.dir);
-        visual_load(g, &g->visuals[obj_index(g, petka_script_find(g->script, hero_id))], st->resource);
+        visual_load(g, v, st->resource);
     } else if (result == 0) {
         w->active = 0;
         petka_scriptvm_walk_ended(g->vm, hero_id);
+        // Ours: there, still saying his phrase, he talks rather than stands.
+        if (g->talker == hero_id && st->costume != PETKA_NONE) {
+            st->resource = (uint16_t)(st->costume + 1);
+            st->rest_after_loop = 0;
+            v->restart = 1;
+        }
     }
 }
 
