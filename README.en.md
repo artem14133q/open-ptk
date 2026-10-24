@@ -59,7 +59,9 @@ build/launcher/petka_launcher ~/ptk2-files            # from the start
 build/launcher/petka_launcher ~/ptk2-files PART_2     # straight into part 2
 ```
 
-Its films are Indeo 5, which the usual `ffmpeg` plays too. For the Switch,
+Its films are Indeo 5, which the usual `ffmpeg` plays too. `-DPETKA_GAME=1`
+or `-DPETKA_GAME=2` builds the launcher for one of the games alone (the
+default, 0, tells the game by its files). For the Switch,
 see [switch/README.md](switch/README.md#the-second-game).
 
 ## Building on a desktop

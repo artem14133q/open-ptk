@@ -17,16 +17,20 @@
 
 #include <stdbool.h>
 
+// Which game the build is for: 1 the first, 2 the second («Петька 2: Судный
+// день»); 0, a desktop's default, tells them by the game's files (part.c).
+// The Switch's Makefile always gives it: make PETKA_GAME=2 for the second.
+// RU: Для какой игры сборка: 1 -- первая, 2 -- вторая; 0 (по умолчанию на
+// компьютере) -- по файлам игры. Switch собирается с явным PETKA_GAME.
+#ifndef PETKA_GAME
+#define PETKA_GAME 0
+#endif
+
 // For the rest of this frame the game hears no input: every call below
 // that reads a key, a button or a stick says nothing (the pointer still
 // moves). For a menu over the game that has had its input first.
 // RU: До конца кадра игра не получает ввода (для меню поверх игры).
 void plat_mute(void);
-
-// The program's arguments, first of all: on the Switch the homebrew menu
-// names the NRO in argv[0], and its folder may be the game's.
-// RU: Аргументы программы, до всего остального: на Switch argv[0] -- путь NRO.
-void plat_args(int argc, char **argv);
 
 // After InitWindow: makes the Switch's drawing surface.
 // RU: После создания окна: поверхность для рисования, шейдер, журнал на Switch.
@@ -114,20 +118,18 @@ void plat_pointer_speed(float k);
 
 // The folder the game's files are in when none is given: next to the
 // program on a desktop; on the Switch the title's own romfs when the game is
-// inside it (make nsp-full), else its folder on the SD card: the NRO's own
-// when the game's main store is beside it, the second game's title's
-// sdmc:/switch/petka2/, or sdmc:/switch/petka/.
+// inside it (make nsp-full), else the build's game's folder on the SD card:
+// sdmc:/switch/petka/, or sdmc:/switch/petka2/ for the second game.
 // RU: Папка игры по умолчанию: рядом с программой; на Switch -- romfs
-// приложения, если игра внутри него (make nsp-full), иначе папка на карте:
-// та, где лежит NRO, если рядом главный архив игры; sdmc:/switch/petka2/ для
-// установленной второй игры; иначе sdmc:/switch/petka/.
+// приложения, если игра внутри него (make nsp-full), иначе папка игры этой
+// сборки на карте: sdmc:/switch/petka/, для второй игры sdmc:/switch/petka2/.
 const char *plat_default_game_dir(void);
 // Where the saved games, the settings and the like are written when no
 // folder is given: the game's folder on a desktop. On the Switch, an
 // installed title (an NSP) keeps them as the console's games do, in its save
 // data for the user who plays (mounted as save:); the homebrew menu's NRO,
-// which may run under another game's title, in the game's folder on the SD
-// card (see plat_default_game_dir).
+// which may run under another game's title, in the build's game's folder on
+// the SD card (see plat_default_game_dir).
 // RU: Куда пишутся сохранения и настройки: на компьютере -- в папку игры; на
 // Switch установленное приложение (NSP) хранит их как игры консоли, в своих
 // сохранениях пользователя (save:), а NRO -- в папке игры на карте.

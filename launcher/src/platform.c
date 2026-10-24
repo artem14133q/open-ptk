@@ -62,7 +62,6 @@ int plat_list_step_x(void) { return 0; }
 int plat_page_step(void) { return 0; }
 Vector2 plat_aim(void) { return (Vector2){0, 0}; }
 void plat_pointer_speed(float k) { (void)k; }
-void plat_args(int argc, char **argv) { (void)argc; (void)argv; }
 const char *plat_default_game_dir(void) { return GetApplicationDirectory(); }
 const char *plat_data_dir(void) { return GetApplicationDirectory(); }
 void plat_commit(void) {}
@@ -107,36 +106,13 @@ void plat_mute(void) { s_muted = true; }
 
 // The game's folder on the SD card: where the files are read from (unless
 // they are inside the title), the NRO keeps its saved games and trace.txt
-// is looked for. The NRO's own folder when the game's main store is beside
-// it -- a copy in sdmc:/switch/petka2/ runs the second game from there; an
-// installed title's by its id, the second game's title having a folder of
-// its own; else sdmc:/switch/petka/, as before.
-#define TITLE_ID_GAME2 0x0100F35700A60000ULL // nsp.sh's, PETKA_GAME=2
-static const char *s_argv0;
-void plat_args(int argc, char **argv) { s_argv0 = argc > 0 ? argv[0] : NULL; }
-
+// is looked for -- the build's game's (PETKA_GAME), wherever the NRO is.
 static const char *sd_dir(void) {
-    static char dir[256] = "sdmc:/switch/petka/";
-    static bool picked;
-    if (picked) return dir;
-    picked = true;
-    if (envIsNso()) {
-        u64 id = 0;
-        if (R_SUCCEEDED(svcGetInfo(&id, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0)) && id == TITLE_ID_GAME2)
-            snprintf(dir, sizeof(dir), "sdmc:/switch/petka2/");
-    } else if (s_argv0 && strncmp(s_argv0, "sdmc:/", 6) == 0 && strrchr(s_argv0, '/')) {
-        size_t n = (size_t)(strrchr(s_argv0, '/') - s_argv0) + 1;
-        char own[256], probe[300];
-        if (n < sizeof(own)) {
-            memcpy(own, s_argv0, n);
-            own[n] = 0;
-            snprintf(probe, sizeof(probe), "%sMAIN.STR", own);
-            bool game = FileExists(probe);
-            snprintf(probe, sizeof(probe), "%smain.str", own);
-            if (game || FileExists(probe)) snprintf(dir, sizeof(dir), "%s", own);
-        }
-    }
-    return dir;
+#if PETKA_GAME == 2
+    return "sdmc:/switch/petka2/";
+#else
+    return "sdmc:/switch/petka/";
+#endif
 }
 
 // A file in that folder.

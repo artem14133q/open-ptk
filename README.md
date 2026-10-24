@@ -59,7 +59,9 @@ build/launcher/petka_launcher ~/ptk2-files            # с начала
 build/launcher/petka_launcher ~/ptk2-files PART_2     # сразу во вторую часть
 ```
 
-Её ролики сжаты Indeo 5, это обычный `ffmpeg` тоже умеет. Как поставить её
+Её ролики сжаты Indeo 5, это обычный `ffmpeg` тоже умеет. Собрать лаунчер
+только для одной из игр можно опцией `-DPETKA_GAME=1` или `-DPETKA_GAME=2`
+(по умолчанию 0 — игра определяется по файлам). Как поставить её
 на Switch — в [switch/README.ru.md](switch/README.ru.md#вторая-игра).
 
 ## Сборка на компьютере

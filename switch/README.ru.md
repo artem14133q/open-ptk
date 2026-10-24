@@ -74,13 +74,16 @@ PETKA_ASSETS=~/ptk1-files make nsp-full
 
 ## Вторая игра
 
-Тот же `petka.nro` запускает и «Петьку 2: Судный день»: игра читается из
-папки, где лежит NRO, если там же лежит её `main.str`, и сохранения
-хранятся там же. Поэтому файлы второй игры (папку делает `ptk-unpack game`)
-кладутся вместе с копией `petka.nro` в `sdmc:/switch/petka2/`, а первая игра
-остаётся в `sdmc:/switch/petka/`. `make nro2` делает такую копию —
-`petka2.nro`: та же программа с названием и иконкой второй игры (`icon2.jpg`)
-в homebrew-меню.
+Для «Петьки 2: Судный день» — своя сборка: `make PETKA_GAME=2` делает
+`petka2.nro` (в `build2/`) с названием и иконкой второй игры (`icon2.jpg`) в
+homebrew-меню; он читает игру из `sdmc:/switch/petka2/` и хранит там
+сохранения, где бы ни лежал сам NRO. Файлы второй игры (папку делает
+`ptk-unpack game`) кладутся туда; первая игра остаётся в
+`sdmc:/switch/petka/`, её читает `petka.nro` (`make`, `PETKA_GAME=1`).
+
+```
+make PETKA_GAME=2                                       # petka2.nro
+```
 
 Устанавливаемое приложение для неё собирается так же, с `PETKA_GAME=2`: свой
 ID (`0100F35700A60000`), название и иконка (`icon2.jpg`, обложка
@@ -88,8 +91,8 @@ ID (`0100F35700A60000`), название и иконка (`icon2.jpg`, обло
 `assets2.txt` — список файлов для полного варианта (около 550 МБ):
 
 ```
-PETKA_GAME=2 make nsp                                  # petka2.nsp
-PETKA_GAME=2 PETKA_ASSETS=~/ptk2-files make nsp-full   # petka2-full.nsp
+make PETKA_GAME=2 nsp                                  # petka2.nsp
+PETKA_ASSETS=~/ptk2-files make PETKA_GAME=2 nsp-full   # petka2-full.nsp
 ```
 
 Её ролики сжаты Indeo 5: `ffmpeg.sh` теперь собирает и этот декодер

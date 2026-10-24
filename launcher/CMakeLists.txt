@@ -4,6 +4,11 @@ add_executable(petka_launcher
 
 target_link_libraries(petka_launcher PRIVATE petka_core)
 
+# PETKA_GAME=1 or 2 builds the launcher for that game alone; 0, the
+# default, tells the game by its files.
+set(PETKA_GAME 0 CACHE STRING "The game to build for: 0 either (told by its files), 1 or 2")
+target_compile_definitions(petka_launcher PRIVATE PETKA_GAME=${PETKA_GAME})
+
 # Prefer pkg-config over find_package(raylib)'s CMake package: some distro
 # raylib CMake configs (e.g. the Homebrew bottle at the time of writing)
 # bake in absolute SDK framework paths from the machine that built them,

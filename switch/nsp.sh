@@ -1,6 +1,7 @@
 #!/bin/sh
 # nsp.sh -- petka.nsp: the game as an installed title on the Switch, with its
-# icon on the home menu, from the petka.elf that `make` builds.
+# icon on the home menu, from the petka.elf that `make` builds (petka2.elf,
+# `make PETKA_GAME=2`, for the second game).
 #
 #   make nsp                     (or ./nsp.sh after make)
 #   PETKA_ASSETS=<game folder> make nsp-full     (or ./nsp.sh full)
@@ -18,10 +19,10 @@
 # are signed with no key Nintendo has, so the console runs them only with
 # signature patches.
 #
-# PETKA_GAME=2 makes the second game's title («Петька 2: Судный день»)
-# instead: petka2.nsp / petka2-full.nsp, its own id, name and icon
-# (icon2.jpg), assets2.txt, the SD card's sdmc:/switch/petka2/. The program
-# is the same; it tells the games by their files and the folder by the id.
+# PETKA_GAME=2 (make PETKA_GAME=2 nsp) makes the second game's title
+# («Петька 2: Судный день») instead, from petka2.elf, built for it:
+# petka2.nsp / petka2-full.nsp, its own id, name and icon (icon2.jpg),
+# assets2.txt; its program reads sdmc:/switch/petka2/.
 #
 # RU: petka.nsp -- игра как установленное приложение с иконкой на главном
 # экране, из petka.elf, который собирает make. Нужны hacBrewPack (в deps/) и
@@ -29,7 +30,8 @@
 # .switch/prod.keys в корне репозитория или по пути из PETKA_KEYS; на
 # консоли -- патчи подписей. nsp-full кладёт внутрь файлы игры из списка
 # assets.txt, взятые из папки PETKA_ASSETS. PETKA_GAME=2 -- то же для второй
-# игры: petka2.nsp, свой ID, название, иконка icon2.jpg, assets2.txt.
+# игры из petka2.elf (make PETKA_GAME=2): petka2.nsp, свой ID, название,
+# иконка icon2.jpg, assets2.txt.
 set -e
 FULL=${1:-}
 cd "$(dirname "$0")"
@@ -37,7 +39,7 @@ cd "$(dirname "$0")"
 # The title's id: an application's, unique to this game (the low 16 bits
 # are an application's 0000); the same in petka.json.
 TITLE_ID=0x0100F35700A50000
-# The second game's title: the next id (platform.c's TITLE_ID_GAME2).
+# The second game's title: the next id.
 GAME=${PETKA_GAME:-1}
 NAME=petka
 ICON=icon.jpg
@@ -66,7 +68,7 @@ VERSION=${APP_VERSION:-1.0.0}
 [ -s deps/logo/NintendoLogo.png ] && [ -s deps/logo/StartupMovie.gif ] ||
     { echo "no boot logo in deps/logo: run ./hacbrewpack.sh"; exit 1; }
 [ -f "$KEYS" ] || { echo "no keys at $KEYS: dump the console's prod.keys with Lockpick_RCM (or set PETKA_KEYS)"; exit 1; }
-[ -f petka.elf ] || { echo "no petka.elf: run make first"; exit 1; }
+[ -f "$NAME.elf" ] || { echo "no $NAME.elf: run make first"; exit 1; }
 if [ "$FULL" = full ]; then
     [ -n "$PETKA_ASSETS" ] && [ -d "$PETKA_ASSETS" ] ||
         { echo "nsp-full: set PETKA_ASSETS to the game's folder (the one the desktop launcher runs from)"; exit 1; }
@@ -77,7 +79,7 @@ rm -rf "$W"
 mkdir -p "$W/exefs" "$W/control"
 # The program: the ELF as an NSO, and the process it runs as (petka.json,
 # with the title's id).
-"$TOOLS/elf2nso" petka.elf "$W/exefs/main"
+"$TOOLS/elf2nso" "$NAME.elf" "$W/exefs/main"
 sed "s/0x0100F35700A50000/$TITLE_ID/g" petka.json > "$W/main.json"
 "$TOOLS/npdmtool" "$W/main.json" "$W/exefs/main.npdm" 2> /dev/null
 # Its name and icon on the home menu, the same in every language.

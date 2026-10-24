@@ -17,7 +17,6 @@
 #include "game.h"
 
 int main(int argc, char **argv) {
-    plat_args(argc, argv);
     // With no arguments the game is where the program is: a copy dropped
     // into the game's folder runs it from there, however it was started, and
     // keeps its saved games and settings in that folder too. (On the Switch

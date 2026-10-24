@@ -14,13 +14,25 @@ endif
 TOPDIR ?= $(CURDIR)
 include $(DEVKITPRO)/libnx/switch_rules
 
+# Which game: 1, the first (petka.nro, sdmc:/switch/petka/), or with
+# `make PETKA_GAME=2` the second (petka2.nro, sdmc:/switch/petka2/, its own
+# name and icon); each has a build folder of its own.
+PETKA_GAME	?=	1
+export PETKA_GAME
+ifeq ($(PETKA_GAME),2)
+TARGET		:=	petka2
+BUILD		:=	build2
+APP_TITLE	:=	Петька и Василий Иванович 2: Судный день
+ICON		:=	icon2.jpg
+else
 TARGET		:=	petka
 BUILD		:=	build
+APP_TITLE	:=	Петька и Василий Иванович спасают галактику
+endif
 SOURCES		:=	../core/src ../launcher/src
 DATA		:=
 INCLUDES	:=	../core/include deps/raylib-nx/src deps/ffmpeg/include
 
-APP_TITLE	:=	Петька и Василий Иванович спасают галактику
 APP_AUTHOR	:=	Бука & S.K.I.F. & artem14133q
 APP_VERSION	:=	1.0.0
 
@@ -33,7 +45,7 @@ CFLAGS	:=	-g -Wall -O2 -ffunction-sections -std=gnu11 \
 			$(ARCH) $(DEFINES)
 
 # A release build: no debug overlay (extras.h's PETKA_DEBUG_SCREEN).
-CFLAGS	+=	$(INCLUDE) -D__SWITCH__ -DPLATFORM_NX -DNDEBUG
+CFLAGS	+=	$(INCLUDE) -D__SWITCH__ -DPLATFORM_NX -DNDEBUG -DPETKA_GAME=$(PETKA_GAME)
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
@@ -109,27 +121,19 @@ ifneq ($(ROMFS),)
 	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: $(BUILD) clean all nsp nsp-full nro2
+.PHONY: $(BUILD) clean all nsp nsp-full
 
 all: $(BUILD)
 
-# petka.nsp, the game as an installed title (nsp.sh: needs hacBrewPack and
-# the console's keys).
+# petka.nsp (petka2.nsp), the game as an installed title (nsp.sh: needs
+# hacBrewPack and the console's keys).
 nsp: all
-	@APP_TITLE="$(APP_TITLE)" APP_AUTHOR="$(APP_AUTHOR)" APP_VERSION="$(APP_VERSION)" ./nsp.sh
+	@PETKA_GAME=$(PETKA_GAME) APP_TITLE="$(APP_TITLE)" APP_AUTHOR="$(APP_AUTHOR)" APP_VERSION="$(APP_VERSION)" ./nsp.sh
 
-# petka-full.nsp, the same with the game's files inside (assets.txt, taken
-# from the folder PETKA_ASSETS names).
+# petka-full.nsp (petka2-full.nsp), the same with the game's files inside
+# (assets.txt or assets2.txt, taken from the folder PETKA_ASSETS names).
 nsp-full: all
-	@APP_TITLE="$(APP_TITLE)" APP_AUTHOR="$(APP_AUTHOR)" APP_VERSION="$(APP_VERSION)" ./nsp.sh full
-
-# petka2.nro, the same program under the second game's name and icon
-# (icon2.jpg) in the homebrew menu. It goes in sdmc:/switch/petka2/ with
-# the second game's files: the NRO reads the game from its own folder.
-nro2: all
-	@$(DEVKITPRO)/tools/bin/nacptool --create "Петька и Василий Иванович 2: Судный день" "$(APP_AUTHOR)" "$(APP_VERSION)" $(TARGET)2.nacp
-	@$(DEVKITPRO)/tools/bin/elf2nro $(TARGET).elf $(TARGET)2.nro --icon=$(TOPDIR)/icon2.jpg --nacp=$(TARGET)2.nacp
-	@echo built ... $(TARGET)2.nro
+	@PETKA_GAME=$(PETKA_GAME) APP_TITLE="$(APP_TITLE)" APP_AUTHOR="$(APP_AUTHOR)" APP_VERSION="$(APP_VERSION)" ./nsp.sh full
 
 $(BUILD):
 	@[ -f deps/raylib-nx/src/libraylib.a ] || { echo "raylib-nx is not built: run ./raylib.sh first"; exit 1; }
@@ -138,8 +142,7 @@ $(BUILD):
 
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).nsp $(TARGET)-full.nsp \
-		$(TARGET)2.nsp $(TARGET)2-full.nsp $(TARGET)2.nro $(TARGET)2.nacp
+	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).nsp $(TARGET)-full.nsp
 
 #---------------------------------------------------------------------------------
 else

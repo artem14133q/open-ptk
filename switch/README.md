@@ -74,13 +74,17 @@ game's files: it is for your own console, not to be given to anyone.
 
 ## The second game
 
-The same `petka.nro` runs «Петька 2: Судный день» too: the game is read
-from the folder the NRO is in when the game's `main.str` is there as well,
-and the saved games are kept there. So the second game's files (`ptk-unpack
-game` makes the folder) go with a copy of `petka.nro` to
-`sdmc:/switch/petka2/`, and the first game stays in `sdmc:/switch/petka/`.
-`make nro2` makes that copy as `petka2.nro`: the same program, with the
-second game's name and icon (`icon2.jpg`) in the homebrew menu.
+«Петька 2: Судный день» has a build of its own: `make PETKA_GAME=2` makes
+`petka2.nro` (in `build2/`), with the second game's name and icon
+(`icon2.jpg`) in the homebrew menu, which reads the game from
+`sdmc:/switch/petka2/` and keeps its saved games there, wherever the NRO
+itself is. The second game's files (`ptk-unpack game` makes the folder) go
+there; the first game stays in `sdmc:/switch/petka/`, read by `petka.nro`
+(`make`, `PETKA_GAME=1`).
+
+```
+make PETKA_GAME=2                                       # petka2.nro
+```
 
 Its installed title is made the same way with `PETKA_GAME=2`: its own id
 (`0100F35700A60000`), name and icon (`icon2.jpg`, the game's CD
@@ -88,8 +92,8 @@ cover, fitted into 256x256), its own save data, `sdmc:/switch/petka2/` for its f
 `assets2.txt` for the files inside the full one (about 550 MB):
 
 ```
-PETKA_GAME=2 make nsp                                  # petka2.nsp
-PETKA_GAME=2 PETKA_ASSETS=~/ptk2-files make nsp-full   # petka2-full.nsp
+make PETKA_GAME=2 nsp                                  # petka2.nsp
+PETKA_ASSETS=~/ptk2-files make PETKA_GAME=2 nsp-full   # petka2-full.nsp
 ```
 
 Its films are Indeo 5: `ffmpeg.sh` builds that decoder in too (run it
