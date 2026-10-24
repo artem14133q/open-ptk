@@ -142,6 +142,7 @@ int part_open(Game *g, int number, int chapter) {
         g->dtree = petka_dialoguetree_open(fix, fix_len);
     }
     if (!g->phrases || !g->dtree) fprintf(stderr, "dialogue data unavailable for %s\n", g->part);
+    phrasefix_apply(g);
 
     g->vm = petka_scriptvm_open(g->script, &g->host);
     load_names(g, g->part);

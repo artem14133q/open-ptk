@@ -331,5 +331,6 @@ typedef struct {
 #include "highlight.h"
 #include "restored.h"
 #include "scriptfix.h"
+#include "phrasefix.h"
 
 #endif

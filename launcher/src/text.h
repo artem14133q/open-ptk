@@ -12,6 +12,9 @@ extern int s_band;
 // EN: Converts the game's CP1251 text to UTF-8.
 // RU: Переводит текст игры из CP1251 в UTF-8.
 void cp1251_to_utf8(const char *in, char *out, size_t out_sz);
+// EN: The other way: UTF-8 to CP1251 (ASCII, Ё and А-я; anything else is '?').
+// RU: Обратно: UTF-8 в CP1251 (ASCII, Ё и А-я; остальное -- '?').
+void utf8_to_cp1251(const char *in, char *out, size_t out_sz);
 // EN: An object's script name in UTF-8 (for logs).
 // RU: Имя объекта из сценария в UTF-8 (для журнала).
 const char *utf8_name(const char *cp1251);

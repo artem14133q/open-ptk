@@ -30,6 +30,23 @@ void cp1251_to_utf8(const char *in, char *out, const size_t out_sz) {
     out[oi] = 0;
 }
 
+void utf8_to_cp1251(const char *in, char *out, const size_t out_sz) {
+    size_t oi = 0;
+
+    for (const unsigned char *p = (const unsigned char *)in; *p && oi + 1 < out_sz;) {
+        unsigned int cp = *p++;
+
+        if (cp >= 0xC0 && (*p & 0xC0) == 0x80) cp = ((cp & 0x1F) << 6) | (*p++ & 0x3F);
+        if (cp < 0x80) out[oi++] = (char)cp;
+        else if (cp == 0x0401) out[oi++] = (char)0xA8; // Ё
+        else if (cp == 0x0451) out[oi++] = (char)0xB8; // ё
+        else if (cp >= 0x0410 && cp <= 0x044F) out[oi++] = (char)(0xC0 + (cp - 0x0410)); // А-я
+        else out[oi++] = '?';
+    }
+
+    out[oi] = 0;
+}
+
 const char *utf8_name(const char *cp1251) {
     static char buf[4][256];
     static int next;
