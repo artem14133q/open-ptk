@@ -538,10 +538,18 @@ static void apply_builtin(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued
     case PETKA_OP_WALKTO:
         if (walk_target(st, m, &x, &y)) {
             walk_hero(vm, PETKA_ID_PETKA, x, y);
-            // Chapayev follows when Petka is about to leave the room.
+            // Chapayev follows when Petka is about to leave the room -- not
+            // when a scene a host has put back comes first (PETKA_OP_RESTORED,
+            // taken): that has him go when it means him to.
             PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
             if (petka && petka->walk_tail.present) {
                 for (uint32_t i = 0; i < petka->walk_tail.count; i++) {
+                    if (petka->walk_tail.messages[i].opcode == PETKA_OP_RESTORED) {
+                        uint32_t skip = restored_skip(vm, &petka->walk_tail.messages[i]);
+                        if (!skip) break;
+                        i += skip;
+                        continue;
+                    }
                     if (petka->walk_tail.messages[i].opcode == PETKA_OP_GOTO) {
                         walk_hero(vm, PETKA_ID_CHAPAYEV, x, y);
                         break;
