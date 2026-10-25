@@ -99,20 +99,29 @@ static const Restored kRestored2[] = {
     {1, 393, 0x6, 1}, // А вот это мой размерчик.
 };
 
-// Phrases of other dialogues the second game's Reloaded says after an
-// object's own dialogue for the player's action, where the object has no
-// reaction to it (restored_after()): the part, the object, the opcode, the
-// phrase table's indices.
+// Phrases of other dialogues the second game's Reloaded says after the
+// dialogue the exe says for the player's action, where the object has no
+// reaction to it (restored_after()), or in its place (`instead`): the part,
+// the object, the opcode, the phrase table's indices.
 static const struct {
     uint8_t part;
     uint16_t obj, op;
     uint16_t then[3];
+    uint8_t instead;
 } kAfter2[] = {
     // The fly on the bolts, taken: Petka's "Я бы с удовольствием убрал ее
     // оттуда, но она прикручена здоровыми болтами." and Chapayev's "Что
     // мне, зубами эти болты перекусывать?" (his dialogue for being sent to
     // it, which the exe never says; Reloaded has him go and hit it silent).
     {1, 346, PETKA_OP_TAKE, {1174}},
+    // The aquarium in Petka's room. Taken: Reloaded's Petka says "Надо бы
+    // его взять и поближе разглядеть." (the folded mattress's USE, 272) in
+    // place of the exe's "В дом тащить надо вещи, а не из него!". Used:
+    // Chapayev's "Я выпил бы, да для желудка говорят вредно." (his line for
+    // being sent to it, 271, which stays there too) in place of the stock
+    // "Я не могу использовать это.".
+    {1, 96, PETKA_OP_TAKE, {272}, 1},
+    {1, 96, PETKA_OP_USE, {271}, 1},
 };
 
 // The dialogues said in two parts round the action (restored.h): the part,
@@ -180,15 +189,16 @@ int host_restored(void *user) {
     return ((Game *)user)->opt_restored;
 }
 
-void restored_after(Game *g, uint16_t obj_id) {
-    if (!g->opt_restored || g->game != 2 || obj_id != g->acted_obj) return;
+int restored_after(Game *g, uint16_t obj_id) {
+    if (!g->opt_restored || g->game != 2 || obj_id != g->acted_obj) return 0;
     for (size_t i = 0; i < sizeof(kAfter2) / sizeof(kAfter2[0]); i++)
         if (kAfter2[i].part == g->part_number && kAfter2[i].obj == obj_id && kAfter2[i].op == g->acted_op) {
             g->acted_obj = PETKA_NONE;
             g->then_count = g->then_pos = 0;
             for (int k = 0; k < 3 && kAfter2[i].then[k]; k++) g->then_phrase[g->then_count++] = kAfter2[i].then[k];
-            return;
+            return kAfter2[i].instead ? 2 : 1;
         }
+    return 0;
 }
 
 int host_restore_dialogue(void *user, uint16_t obj_id, uint32_t key, uint8_t status) {

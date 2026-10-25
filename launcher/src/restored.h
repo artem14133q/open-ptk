@@ -44,11 +44,12 @@ const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *fir
 int host_restored(void *user);
 
 // A dialogue the exe says for the player's action on an object with no
-// reaction to it: the phrases of others Reloaded says after it (restored.c's
-// kAfter2), set to follow it.
+// reaction to it: the phrases of others Reloaded says after it, or in its
+// place (restored.c's kAfter2), set in then_phrase. 1: after it; 2: in its
+// place; 0: none.
 // RU: Диалог, который exe говорит на действие игрока с объектом без реакции:
-// фразы других диалогов, которые Reloaded говорит после него.
-void restored_after(Game *g, uint16_t obj_id);
+// фразы других диалогов, которые Reloaded говорит после него или вместо него.
+int restored_after(Game *g, uint16_t obj_id);
 
 // EN: Whether to say the object's own dialogue before this reaction (1), instead of it (2), or not (0) -- the VM's restore_dialogue callback.
 // RU: Проиграть ли собственный диалог объекта перед этой реакцией (1), вместо неё (2) или нет (0) - обратный вызов машины restore_dialogue.

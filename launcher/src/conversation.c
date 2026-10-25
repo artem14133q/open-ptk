@@ -206,23 +206,27 @@ void next_phrase(Game *g) {
     }
 }
 
+// No dialogue, the phrases of then_phrase alone, one after another.
+static void say_phrases_only(Game *g) {
+    g->then_pos = 0;
+    g->say_limit = -1;
+    g->say_skip = 0;
+    if (!g->then_count || !g->phrases) { g->dialogue_done = 1; return; }
+    g->phrases_only = 1;
+    g->talking = 1;
+    g->paused = 0;
+    g->menu_count = 0;
+    next_phrase(g);
+}
+
 void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
     Game *g = (Game *)user;
     // A restored line put after the action (scriptfix.c): not said with the switch off.
     if (arg == RESTORED_LATE && !g->opt_restored) g->dialogue = NULL;
-    // Phrases where the script says nothing (restored.h): no dialogue, the
-    // phrases alone, one after another.
+    // Phrases where the script says nothing (restored.h).
     if (arg == RESTORED_PHRASES) {
         g->then_count = g->opt_restored ? restored_phrases(g, obj_id, g->then_phrase, 4) : 0;
-        g->then_pos = 0;
-        g->say_limit = -1;
-        g->say_skip = 0;
-        if (!g->then_count || !g->phrases) { g->dialogue_done = 1; return; }
-        g->phrases_only = 1;
-        g->talking = 1;
-        g->paused = 0;
-        g->menu_count = 0;
-        next_phrase(g);
+        say_phrases_only(g);
         return;
     }
     // A restored line in two parts round the action: its own dialogue, the
@@ -237,7 +241,8 @@ void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
         else g->say_skip = first;
     } else {
         g->dialogue = NULL;
-        restored_after(g, obj_id);
+        // Reloaded's phrases after the dialogue, or in its place.
+        if (restored_after(g, obj_id) == 2) { say_phrases_only(g); return; }
     }
     if (!dialogue || !g->phrases) { g->dialogue_done = 1; return; }
     petka_dialoguevm_start(&g->dvm, g->dtree, dialogue->entries[0].bytecode_offset);
