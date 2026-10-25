@@ -110,6 +110,52 @@ static const PetkaMessage kDungeonLookRound[] = {
     M(476, SYSTEM, 1, NONE),
 };
 
+// DUNGEON ROOM 1 (483), the five pillars: the exe has a thing put on one
+// without Petka moving. Reloaded has him reach out to it -- his own clips,
+// which the exe has him play to take the fly off the pillar: reaching
+// (pg_b, 19000), the thing there, back (pg_b___r, 19001) and turning to us
+// (pt_b_f, 20901); for the tall pillar of water reaching up (pg_f_up and
+// pg_f_upr, 19010 and 19011), facing us all along.
+static const PetkaMessage kPillarReach[] = {
+    M(PETKA_ID_PETKA, PLAY, 19000, NONE),
+};
+static const PetkaMessage kPillarBack[] = {
+    M(PETKA_ID_PETKA, PLAY, 19001, NONE),
+    M(PETKA_ID_PETKA, PLAY, 20901, NONE),
+    M(PETKA_ID_PETKA, STAND, NONE, NONE),
+};
+static const PetkaMessage kPillarReachUp[] = {
+    M(PETKA_ID_PETKA, PLAY, 19010, NONE),
+};
+static const PetkaMessage kPillarBackUp[] = {
+    M(PETKA_ID_PETKA, PLAY, 19011, NONE),
+    M(PETKA_ID_PETKA, STAND, NONE, NONE),
+};
+
+// ...and its far passage (EXIT 2, 344), to DUNGEON ROOM 2: the exe goes
+// there at once. Its clips of the heroes climbing in are used by nothing --
+// Petka's (P-LESET.FLC, 4132), then Chapayev's once he has come up to it
+// (W-LESET.FLC, 4133) -- and Reloaded plays them; here on the passage
+// itself, which gets its own clip back before the room is left.
+static const PetkaMessage kPassageClimb[] = {
+    M(344, SYSTEM, 0, NONE),
+    M(PETKA_ID_PETKA, OFF, NONE, NONE),
+    M(344, SHOW, NONE, NONE),
+    M(344, PLAY, 4132, NONE),
+    M(344, HIDE, NONE, NONE),
+    M(344, WALKVICH, 334, 284),
+    M(PETKA_ID_CHAPAYEV, OFF, NONE, NONE),
+    M(344, SHOW, NONE, NONE),
+    M(344, PLAY, 4133, NONE),
+    M(344, SET, 4130, NONE),
+    M(344, HIDE, NONE, NONE),
+    M(PETKA_ID_PETKA, ON, NONE, NONE),
+    M(PETKA_ID_CHAPAYEV, ON, NONE, NONE),
+    M(344, SYSTEM, 1, NONE),
+};
+
+#define N(a) a, sizeof(a) / sizeof((a)[0])
+
 // Messages put in before a reaction's first message `before_op` to
 // `before_to`, behind a PETKA_OP_RESTORED: taken with the extras switch on.
 static const struct {
@@ -123,7 +169,23 @@ static const struct {
      sizeof(kDungeonLanding) / sizeof(kDungeonLanding[0])},
     {1, 476, PETKA_OP_INITBG, 0, 476, 476, PETKA_OP_STATUS, kDungeonLookRound,
      sizeof(kDungeonLookRound) / sizeof(kDungeonLookRound[0])},
+    // The pillars, each with the thing it takes: love (the rubber woman),
+    // fire (the vat of lava), earth (the pot), air (the plane), water (the
+    // spirit).
+    {1, 348, PETKA_OP_OBJECTUSE, 1, 38, 350, PETKA_OP_SET, N(kPillarReach)},
+    {1, 348, PETKA_OP_OBJECTUSE, 1, 38, 348, PETKA_OP_STATUS, N(kPillarBack)},
+    {1, 351, PETKA_OP_OBJECTUSE, 0, 39, 353, PETKA_OP_SHOW, N(kPillarReach)},
+    {1, 351, PETKA_OP_OBJECTUSE, 0, 39, 351, PETKA_OP_STATUS, N(kPillarBack)},
+    {1, 354, PETKA_OP_OBJECTUSE, 0, 44, 356, PETKA_OP_SHOW, N(kPillarReach)},
+    {1, 354, PETKA_OP_OBJECTUSE, 0, 44, 354, PETKA_OP_STATUS, N(kPillarBack)},
+    {1, 357, PETKA_OP_OBJECTUSE, 0, 42, 359, PETKA_OP_SHOW, N(kPillarReach)},
+    {1, 357, PETKA_OP_OBJECTUSE, 0, 42, 357, PETKA_OP_STATUS, N(kPillarBack)},
+    {1, 360, PETKA_OP_OBJECTUSE, 0, 40, 362, PETKA_OP_SHOW, N(kPillarReachUp)},
+    {1, 360, PETKA_OP_OBJECTUSE, 0, 40, 360, PETKA_OP_STATUS, N(kPillarBackUp)},
+    {1, 344, PETKA_OP_WALK, 0xFF, NONE, 484, PETKA_OP_GOTO, N(kPassageClimb)},
 };
+
+#undef N
 
 // Chapayev's landing ends on its last frame, held there.
 static const PetkaMessage kLandingHeld[] = {
