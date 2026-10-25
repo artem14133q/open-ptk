@@ -176,6 +176,10 @@ void restored_player_action(Game *g, uint16_t obj, uint16_t op) {
     g->acted_op = op;
 }
 
+int host_restored(void *user) {
+    return ((Game *)user)->opt_restored;
+}
+
 void restored_after(Game *g, uint16_t obj_id) {
     if (!g->opt_restored || g->game != 2 || obj_id != g->acted_obj) return;
     for (size_t i = 0; i < sizeof(kAfter2) / sizeof(kAfter2[0]); i++)

@@ -55,8 +55,120 @@ static const struct {
     {2, 652, PETKA_OP_END, PETKA_NONE, PETKA_NONE, 0, PETKA_OP_ON, 653, PETKA_OP_DIALOG, RESTORED_REST, 0},
 };
 
+#define M(to, op, a1, a2) {.obj_id = (to), .opcode = PETKA_OP_##op, .arg1 = (a1), .arg2 = (a2), .arg3 = PETKA_NONE}
+#define NONE PETKA_NONE
+
+// The second game, part 1, DUNGEON 0 (475) first come into, down the well:
+// the exe goes straight to the talk (SpDialog15). Its clips of the heroes
+// landing are in RESOURCE.QRC and used by nothing -- Petka getting up from
+// the floor (WSTAET.FLC, 4031) and Chapayev jumping down after him and
+// looking round through his binoculars (PRIGNUL.FLC, 4032) -- and Reloaded
+// plays them together before the talk. Here too, with the extras switch on:
+// the heroes hidden, the two clips on the room's own clip objects (312 and
+// 314, the ball's scene later in the room), Chapayev held on his last frame
+// (kReactions2) till Petka's has ended; then the heroes stand where the
+// clips leave them, and the objects get their clips back.
+static const PetkaMessage kDungeonLanding[] = {
+    M(475, SYSTEM, 0, NONE),
+    M(PETKA_ID_PETKA, OFF, NONE, NONE),
+    M(PETKA_ID_CHAPAYEV, OFF, NONE, NONE),
+    M(314, SET, 4032, 1),
+    M(314, ON, NONE, NONE),
+    M(312, ON, NONE, NONE),
+    M(312, PLAY, 4031, NONE),
+    M(312, OFF, NONE, NONE),
+    M(314, OFF, NONE, NONE),
+    M(312, SET, 4010, NONE),
+    M(314, SET, 4015, NONE),
+    M(314, ANIMATE, 1, NONE),
+    M(312, JUMP, 152, 321),
+    M(314, JUMPVICH, 95, 303),
+    M(PETKA_ID_PETKA, ON, NONE, NONE),
+    M(PETKA_ID_CHAPAYEV, ON, NONE, NONE),
+    M(475, SYSTEM, 1, NONE),
+};
+
+// Messages put in before a reaction's first message `before_op` to
+// `before_to`, behind a PETKA_OP_RESTORED: taken with the extras switch on.
+static const struct {
+    uint8_t part;
+    uint16_t obj, op, status, sender;
+    uint16_t before_to, before_op;
+    const PetkaMessage *messages;
+    uint32_t count;
+} kInserts2[] = {
+    {1, 475, PETKA_OP_INITBG, 0, 475, 18, PETKA_OP_TALK, kDungeonLanding,
+     sizeof(kDungeonLanding) / sizeof(kDungeonLanding[0])},
+};
+
+// Chapayev's landing ends on its last frame, held there.
+static const PetkaMessage kLandingHeld[] = {
+    M(314, IF, 4032, NONE),
+    M(314, ANIMATE, 0, NONE),
+};
+
+// Reactions added to an object.
+static const struct {
+    uint8_t part;
+    uint16_t obj, op;
+    uint8_t status;
+    uint16_t sender;
+    const PetkaMessage *messages;
+    uint32_t count;
+} kReactions2[] = {
+    {1, 314, PETKA_OP_END, 0xFF, NONE, kLandingHeld, sizeof(kLandingHeld) / sizeof(kLandingHeld[0])},
+};
+
+#undef M
+#undef NONE
+
+static void scriptfix_script2(Game *g) {
+    for (size_t f = 0; f < sizeof(kInserts2) / sizeof(kInserts2[0]); f++) {
+        if (kInserts2[f].part != g->part_number) continue;
+        PetkaObject *obj = petka_script_find(g->script, kInserts2[f].obj);
+        for (uint32_t r = 0; obj && r < obj->reaction_count; r++) {
+            PetkaReaction *re = &obj->reactions[r];
+            if (re->opcode != kInserts2[f].op || re->status != kInserts2[f].status ||
+                re->sender != kInserts2[f].sender)
+                continue;
+            for (uint32_t m = 0; m < re->message_count; m++) {
+                if (re->messages[m].obj_id != kInserts2[f].before_to ||
+                    re->messages[m].opcode != kInserts2[f].before_op)
+                    continue;
+                uint32_t n = kInserts2[f].count;
+                PetkaMessage *msgs =
+                    (PetkaMessage *)realloc(re->messages, (re->message_count + n + 1) * sizeof(PetkaMessage));
+                if (!msgs) return;
+                memmove(msgs + m + n + 1, msgs + m, (re->message_count - m) * sizeof(PetkaMessage));
+                msgs[m] = (PetkaMessage){.obj_id = kInserts2[f].obj, .opcode = PETKA_OP_RESTORED, .arg1 = (uint16_t)n,
+                                         .arg2 = PETKA_NONE, .arg3 = PETKA_NONE};
+                memcpy(msgs + m + 1, kInserts2[f].messages, n * sizeof(PetkaMessage));
+                re->messages = msgs;
+                re->message_count += n + 1;
+                break;
+            }
+        }
+    }
+    for (size_t f = 0; f < sizeof(kReactions2) / sizeof(kReactions2[0]); f++) {
+        if (kReactions2[f].part != g->part_number) continue;
+        PetkaObject *obj = petka_script_find(g->script, kReactions2[f].obj);
+        if (!obj) continue;
+        uint32_t n = kReactions2[f].count;
+        PetkaReaction *res =
+            (PetkaReaction *)realloc(obj->reactions, (obj->reaction_count + 1) * sizeof(PetkaReaction));
+        PetkaMessage *msgs = (PetkaMessage *)malloc(n * sizeof(PetkaMessage));
+        if (!res || !msgs) { free(msgs); return; }
+        obj->reactions = res;
+        memcpy(msgs, kReactions2[f].messages, n * sizeof(PetkaMessage));
+        res[obj->reaction_count++] = (PetkaReaction){.opcode = kReactions2[f].op, .status = kReactions2[f].status,
+                                                     .sender = kReactions2[f].sender, .messages = msgs,
+                                                     .message_count = n};
+    }
+}
+
 void scriptfix_script(Game *g) {
-    if (g->game != 1) return; // the fixes are the first game's
+    if (g->game == 2) { scriptfix_script2(g); return; }
+    if (g->game != 1) return; // kFixes are the first game's
     for (size_t f = 0; f < sizeof(kFixes) / sizeof(kFixes[0]); f++) {
         if (kFixes[f].part != g->part_number) continue;
         PetkaObject *obj = petka_script_find(g->script, kFixes[f].obj);

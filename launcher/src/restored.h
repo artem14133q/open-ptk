@@ -39,6 +39,10 @@ int restored_phrases(const Game *g, uint16_t obj_id, uint16_t *out, int max);
 // RU: Диалог объекта, разделённый вокруг действия, и сколько фраз в первой части.
 const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *first);
 
+// EN: Whether the scenes scriptfix.c puts back behind a PETKA_OP_RESTORED are played -- the VM's restored callback.
+// RU: Играются ли сцены, которые scriptfix.c вернул за PETKA_OP_RESTORED, - обратный вызов машины restored.
+int host_restored(void *user);
+
 // A dialogue the exe says for the player's action on an object with no
 // reaction to it: the phrases of others Reloaded says after it (restored.c's
 // kAfter2), set to follow it.

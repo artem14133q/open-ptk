@@ -84,6 +84,10 @@ typedef enum {
     // up (or takes it down) -- an exit to a place reached by the map only
     // (ScummVM's kToMap).
     PETKA_OP_TOMAP = 63,
+    // Ours, never in a SCRIPT.DAT: put in by a host's fixes to the script.
+    // The reaction's next arg1 messages are taken only if the host's
+    // restored() says so, and skipped otherwise; it is not delivered.
+    PETKA_OP_RESTORED = 0xFFF0,
 } PetkaOpcode;
 
 // Never NULL; unknown opcodes come back as "OP_<n>" in a static buffer.
@@ -229,6 +233,9 @@ typedef struct {
     // 2: the dialogue plays instead of the reaction (a later edition that
     // only says the line there, the reaction's work done elsewhere); 0: no.
     int (*restore_dialogue)(void *user, uint16_t obj_id, uint32_t verb_key, uint8_t status);
+    // Optional: are the messages a PETKA_OP_RESTORED guards taken? Without
+    // this callback they are not.
+    int (*restored)(void *user);
 
     // Start walking a hero. Return non-zero if the walk actually started;
     // the hero is then busy until petka_scriptvm_walk_ended(). Returning 0

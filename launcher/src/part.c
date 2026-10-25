@@ -254,6 +254,7 @@ void game_setup(Game *g, const char *game_dir) {
     g->host.select_dialogue = host_select_dialogue;
     g->host.start_dialogue = host_start_dialogue;
     g->host.restore_dialogue = host_restore_dialogue;
+    g->host.restored = host_restored;
     g->host.walk = host_walk;
     g->host.stop = host_stop;
     g->host.room_changed = host_room_changed;

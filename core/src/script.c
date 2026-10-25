@@ -400,6 +400,12 @@ static int check_fails(PetkaScriptVM *vm, const PetkaMessage *m) {
     return !target || target->status != m->arg1;
 }
 
+// A PETKA_OP_RESTORED: how many of the messages after it to pass over --
+// all it guards with the host's restored() off, none with it on.
+static uint32_t restored_skip(PetkaScriptVM *vm, const PetkaMessage *m) {
+    return vm->host.restored && vm->host.restored(vm->host.user) ? 0 : m->arg1;
+}
+
 // Continues a parked reaction (sub_404790). Unlike the first pass in
 // process_base(), IF and RANDOM are not evaluated here.
 static void run_tail(PetkaScriptVM *vm, PetkaTail *slot, int sender) {
@@ -410,6 +416,7 @@ static void run_tail(PetkaScriptVM *vm, PetkaTail *slot, int sender) {
     slot->count = 0;
     slot->present = 0;
     for (uint32_t i = 0; i < cur.count; i++) {
+        if (cur.messages[i].opcode == PETKA_OP_RESTORED) { i += restored_skip(vm, &cur.messages[i]); continue; }
         if (check_fails(vm, &cur.messages[i])) break;
         if (!post_step(vm, cur.messages, cur.count, i, sender)) break;
     }
@@ -621,6 +628,7 @@ static int process_base(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued *
 
         for (uint32_t i = 0; i < re->message_count; i++) {
             PetkaMessage *m = &re->messages[i];
+            if (m->opcode == PETKA_OP_RESTORED) { i += restored_skip(vm, m); continue; }
             if (check_fails(vm, m)) break;
             // IF compares its arguments with those of the incoming message.
             if (m->opcode == PETKA_OP_IF &&
