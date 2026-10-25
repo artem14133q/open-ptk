@@ -93,8 +93,8 @@ static const PetkaMessage kDungeonLanding[] = {
 // the passage, Chapayev looking the room over through his binoculars
 // (P&W.FLC, 3017), is used by nothing; Reloaded plays it then. Here too, with
 // the extras switch on, on the hidden relief (336), which gets its own clip
-// back after; the room's status, which kReactions2's reaction sets, keeps it
-// to the first time.
+// back after; the room's status, which kReactions2's reaction sets before
+// it, keeps it to the first time.
 static const PetkaMessage kDungeonLookRound[] = {
     M(476, SYSTEM, 0, NONE),
     M(PETKA_ID_PETKA, OFF, NONE, NONE),
@@ -107,7 +107,6 @@ static const PetkaMessage kDungeonLookRound[] = {
     M(336, JUMPVICH, 355, 395),
     M(PETKA_ID_PETKA, ON, NONE, NONE),
     M(PETKA_ID_CHAPAYEV, ON, NONE, NONE),
-    M(476, SYSTEM, 1, NONE),
 };
 
 // DUNGEON ROOM 1 (483), the five pillars: the exe has a thing put on one
@@ -178,7 +177,7 @@ static const struct {
 } kInserts2[] = {
     {1, 475, PETKA_OP_INITBG, 0, 475, 18, PETKA_OP_TALK, kDungeonLanding,
      sizeof(kDungeonLanding) / sizeof(kDungeonLanding[0])},
-    {1, 476, PETKA_OP_INITBG, 0, 476, 476, PETKA_OP_STATUS, kDungeonLookRound,
+    {1, 476, PETKA_OP_INITBG, 0, 476, 476, PETKA_OP_SYSTEM, kDungeonLookRound,
      sizeof(kDungeonLookRound) / sizeof(kDungeonLookRound[0])},
     // The pillars, each with the thing it takes: love (the rubber woman),
     // fire (the vat of lava), earth (the pot), air (the plane), water (the
@@ -209,11 +208,14 @@ static const PetkaMessage kLandingHeld[] = {
     M(314, ANIMATE, 0, NONE),
 };
 
-// DUNGEON 1 first come into: its status set, for kDungeonLookRound. From
-// the room itself, as the exe's rooms take their INITBG: it goes to every
-// object when any room is come into.
+// DUNGEON 1 first come into: its status set first, as the exe's rooms do
+// (DUNGEON 0), so that kDungeonLookRound -- put in before the interface
+// comes back -- is played once whatever becomes of it. From the room
+// itself, as the exe's rooms take their INITBG: it goes to every object
+// when any room is come into.
 static const PetkaMessage kDungeon1Entered[] = {
     M(476, STATUS, 1, NONE),
+    M(476, SYSTEM, 1, NONE),
 };
 
 // Reactions added to an object (before kInserts2 is put in).
