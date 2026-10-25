@@ -185,6 +185,34 @@ void restored_player_action(Game *g, uint16_t obj, uint16_t op) {
     g->acted_op = op;
 }
 
+// Phrases the second game's Reloaded says inside a dialogue, after one of
+// its phrases (restored_within()): the part, that phrase, the phrases put
+// in (the phrase table's indices).
+static const struct {
+    uint8_t part;
+    uint16_t after;
+    uint16_t phrases[3];
+} kWithin2[] = {
+    // DUNGEON ROOM 1, the rubber woman put on the altar: after Petka's "Так
+    // вот она какая - настоящая любовь!" Reloaded has Chapayev's "Ага.
+    // Именно поэтому ты ее с собой везде и таскаешь..." and Petka's "А вот
+    // это уж дело сугубо личное, и никого не касается!" -- the end of what
+    // they say when she is put on the pillar of water -- before Chapayev's
+    // "Кстати, Петька...".
+    {1, 1188, {1249, 1250}},
+};
+
+int restored_within(const Game *g, uint32_t phrase, uint16_t *out, int max) {
+    if (!g->opt_restored || g->game != 2) return 0;
+    for (size_t i = 0; i < sizeof(kWithin2) / sizeof(kWithin2[0]); i++) {
+        if (kWithin2[i].part != g->part_number || kWithin2[i].after != phrase) continue;
+        int n = 0;
+        for (int k = 0; k < 3 && kWithin2[i].phrases[k] && n < max; k++) out[n++] = kWithin2[i].phrases[k];
+        return n;
+    }
+    return 0;
+}
+
 int host_restored(void *user) {
     return ((Game *)user)->opt_restored;
 }

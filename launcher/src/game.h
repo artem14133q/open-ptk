@@ -222,6 +222,10 @@ typedef struct {
     // reaction (restored.c's `then`), and how many are said yet.
     uint16_t then_phrase[4];
     int then_count, then_pos;
+    // Phrases Reloaded says inside a dialogue, after one of its phrases
+    // (restored_within()), before the dialogue goes on; how many are said.
+    uint16_t within_phrase[4];
+    int within_count, within_pos;
     // A split restored dialogue (restored.h): phrases still to say in its
     // first part (-1: no limit), and phrases to pass over in its second.
     int say_limit, say_skip;
