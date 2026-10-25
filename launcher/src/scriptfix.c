@@ -116,6 +116,17 @@ static const PetkaMessage kDungeonLookRound[] = {
 // (pg_b, 19000), the thing there, back (pg_b___r, 19001) and turning to us
 // (pt_b_f, 20901); for the tall pillar of water reaching up (pg_f_up and
 // pg_f_upr, 19010 and 19011), facing us all along.
+// He goes up to it first, as Reloaded has him: the pillars have no walk
+// point (their WALKTO takes him nowhere). The altar's is the one the exe
+// has him go to for taking the fly off it; the others' are found the same
+// way, a little in front of the pillar's foot -- to the right of the tall
+// pillar of water, which goes down to the bottom of the screen, his
+// raised hand at its top.
+static const PetkaMessage kPillarWalk1[] = {M(348, WALKTO, 360, 400)};
+static const PetkaMessage kPillarWalk2[] = {M(351, WALKTO, 115, 425)};
+static const PetkaMessage kPillarWalk3[] = {M(354, WALKTO, 483, 361)};
+static const PetkaMessage kPillarWalk4[] = {M(357, WALKTO, 163, 350)};
+static const PetkaMessage kPillarWalk5[] = {M(360, WALKTO, 600, 380)};
 static const PetkaMessage kPillarReach[] = {
     M(PETKA_ID_PETKA, PLAY, 19000, NONE),
 };
@@ -172,6 +183,11 @@ static const struct {
     // The pillars, each with the thing it takes: love (the rubber woman),
     // fire (the vat of lava), earth (the pot), air (the plane), water (the
     // spirit).
+    {1, 348, PETKA_OP_OBJECTUSE, 1, 38, 348, PETKA_OP_CURSOR, N(kPillarWalk1)},
+    {1, 351, PETKA_OP_OBJECTUSE, 0, 39, 351, PETKA_OP_CURSOR, N(kPillarWalk2)},
+    {1, 354, PETKA_OP_OBJECTUSE, 0, 44, 354, PETKA_OP_CURSOR, N(kPillarWalk3)},
+    {1, 357, PETKA_OP_OBJECTUSE, 0, 42, 357, PETKA_OP_CURSOR, N(kPillarWalk4)},
+    {1, 360, PETKA_OP_OBJECTUSE, 0, 40, 360, PETKA_OP_CURSOR, N(kPillarWalk5)},
     {1, 348, PETKA_OP_OBJECTUSE, 1, 38, 350, PETKA_OP_SET, N(kPillarReach)},
     {1, 348, PETKA_OP_OBJECTUSE, 1, 38, 348, PETKA_OP_STATUS, N(kPillarBack)},
     {1, 351, PETKA_OP_OBJECTUSE, 0, 39, 353, PETKA_OP_SHOW, N(kPillarReach)},
