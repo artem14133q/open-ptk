@@ -237,6 +237,7 @@ void host_start_dialogue(void *user, uint16_t obj_id, uint16_t arg) {
         else g->say_skip = first;
     } else {
         g->dialogue = NULL;
+        restored_after(g, obj_id);
     }
     if (!dialogue || !g->phrases) { g->dialogue_done = 1; return; }
     petka_dialoguevm_start(&g->dvm, g->dtree, dialogue->entries[0].bytecode_offset);
