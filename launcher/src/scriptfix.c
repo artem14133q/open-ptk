@@ -88,6 +88,28 @@ static const PetkaMessage kDungeonLanding[] = {
     M(475, SYSTEM, 1, NONE),
 };
 
+// DUNGEON 1 (476), the room of the red sign and the relief, first come
+// into: the exe has no reaction to it. Its clip of the heroes coming out of
+// the passage, Chapayev looking the room over through his binoculars
+// (P&W.FLC, 3017), is used by nothing; Reloaded plays it then. Here too, with
+// the extras switch on, on the hidden relief (336), which gets its own clip
+// back after; the room's status, which kReactions2's reaction sets, keeps it
+// to the first time.
+static const PetkaMessage kDungeonLookRound[] = {
+    M(476, SYSTEM, 0, NONE),
+    M(PETKA_ID_PETKA, OFF, NONE, NONE),
+    M(PETKA_ID_CHAPAYEV, OFF, NONE, NONE),
+    M(336, SHOW, NONE, NONE),
+    M(336, PLAY, 3017, NONE),
+    M(336, SET, 3015, NONE),
+    M(336, HIDE, NONE, NONE),
+    M(336, JUMP, 268, 449),
+    M(336, JUMPVICH, 355, 395),
+    M(PETKA_ID_PETKA, ON, NONE, NONE),
+    M(PETKA_ID_CHAPAYEV, ON, NONE, NONE),
+    M(476, SYSTEM, 1, NONE),
+};
+
 // Messages put in before a reaction's first message `before_op` to
 // `before_to`, behind a PETKA_OP_RESTORED: taken with the extras switch on.
 static const struct {
@@ -99,6 +121,8 @@ static const struct {
 } kInserts2[] = {
     {1, 475, PETKA_OP_INITBG, 0, 475, 18, PETKA_OP_TALK, kDungeonLanding,
      sizeof(kDungeonLanding) / sizeof(kDungeonLanding[0])},
+    {1, 476, PETKA_OP_INITBG, 0, 476, 476, PETKA_OP_STATUS, kDungeonLookRound,
+     sizeof(kDungeonLookRound) / sizeof(kDungeonLookRound[0])},
 };
 
 // Chapayev's landing ends on its last frame, held there.
@@ -107,7 +131,14 @@ static const PetkaMessage kLandingHeld[] = {
     M(314, ANIMATE, 0, NONE),
 };
 
-// Reactions added to an object.
+// DUNGEON 1 first come into: its status set, for kDungeonLookRound. From
+// the room itself, as the exe's rooms take their INITBG: it goes to every
+// object when any room is come into.
+static const PetkaMessage kDungeon1Entered[] = {
+    M(476, STATUS, 1, NONE),
+};
+
+// Reactions added to an object (before kInserts2 is put in).
 static const struct {
     uint8_t part;
     uint16_t obj, op;
@@ -117,12 +148,28 @@ static const struct {
     uint32_t count;
 } kReactions2[] = {
     {1, 314, PETKA_OP_END, 0xFF, NONE, kLandingHeld, sizeof(kLandingHeld) / sizeof(kLandingHeld[0])},
+    {1, 476, PETKA_OP_INITBG, 0, 476, kDungeon1Entered, sizeof(kDungeon1Entered) / sizeof(kDungeon1Entered[0])},
 };
 
 #undef M
 #undef NONE
 
 static void scriptfix_script2(Game *g) {
+    for (size_t f = 0; f < sizeof(kReactions2) / sizeof(kReactions2[0]); f++) {
+        if (kReactions2[f].part != g->part_number) continue;
+        PetkaObject *obj = petka_script_find(g->script, kReactions2[f].obj);
+        if (!obj) continue;
+        uint32_t n = kReactions2[f].count;
+        PetkaReaction *res =
+            (PetkaReaction *)realloc(obj->reactions, (obj->reaction_count + 1) * sizeof(PetkaReaction));
+        PetkaMessage *msgs = (PetkaMessage *)malloc(n * sizeof(PetkaMessage));
+        if (!res || !msgs) { free(msgs); return; }
+        obj->reactions = res;
+        memcpy(msgs, kReactions2[f].messages, n * sizeof(PetkaMessage));
+        res[obj->reaction_count++] = (PetkaReaction){.opcode = kReactions2[f].op, .status = kReactions2[f].status,
+                                                     .sender = kReactions2[f].sender, .messages = msgs,
+                                                     .message_count = n};
+    }
     for (size_t f = 0; f < sizeof(kInserts2) / sizeof(kInserts2[0]); f++) {
         if (kInserts2[f].part != g->part_number) continue;
         PetkaObject *obj = petka_script_find(g->script, kInserts2[f].obj);
@@ -148,21 +195,6 @@ static void scriptfix_script2(Game *g) {
                 break;
             }
         }
-    }
-    for (size_t f = 0; f < sizeof(kReactions2) / sizeof(kReactions2[0]); f++) {
-        if (kReactions2[f].part != g->part_number) continue;
-        PetkaObject *obj = petka_script_find(g->script, kReactions2[f].obj);
-        if (!obj) continue;
-        uint32_t n = kReactions2[f].count;
-        PetkaReaction *res =
-            (PetkaReaction *)realloc(obj->reactions, (obj->reaction_count + 1) * sizeof(PetkaReaction));
-        PetkaMessage *msgs = (PetkaMessage *)malloc(n * sizeof(PetkaMessage));
-        if (!res || !msgs) { free(msgs); return; }
-        obj->reactions = res;
-        memcpy(msgs, kReactions2[f].messages, n * sizeof(PetkaMessage));
-        res[obj->reaction_count++] = (PetkaReaction){.opcode = kReactions2[f].op, .status = kReactions2[f].status,
-                                                     .sender = kReactions2[f].sender, .messages = msgs,
-                                                     .message_count = n};
     }
 }
 
