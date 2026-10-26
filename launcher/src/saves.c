@@ -201,6 +201,7 @@ int game_load(Game *g, const char *path) {
         petka_scriptvm_send(vm, PETKA_ID_CHAPAYEV, PETKA_OP_IMAGE, (uint16_t)save->chapayev_costume, 1, 0, -1);
     vm->interface_enabled = 1;
     vm->cursor_visible = 1;
+    map_places_known(g);
     petka_save_free(save);
     return 1;
 }

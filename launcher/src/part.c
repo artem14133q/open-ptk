@@ -7,6 +7,7 @@
 void game_init(Game *g) {
     g->vm->rng = (uint32_t)(GetTime() * 1e6) | 1u;
     petka_scriptvm_init(g->vm);
+    map_places_known(g);
 }
 
 void game_enter(Game *g) {

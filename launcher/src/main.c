@@ -706,8 +706,10 @@ int main(int argc, char **argv) {
             Rectangle at = {d.x * scale, d.y * scale, d.width * scale, d.height * scale};
             // On the map a place's clip is its highlight: the script keeps it
             // hidden, and the map's mouse function (sub_41D4D0) shows the one
-            // under the pointer, on its first frame, and hides the rest.
-            if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover)) visual_draw(v, at);
+            // under the pointer, on its first frame, and hides the rest. A
+            // new place's blinks, too (screens.c).
+            if (shown || (g->map_open && !g->panel_open && scene[i].obj == hover) || map_blinking(g, scene[i].obj))
+                visual_draw(v, at);
             if (outline && scene[i].obj == hover && highlight_wanted(g, scene[i].obj)) {
                 outlined = v;
                 outlined_at = at;

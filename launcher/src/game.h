@@ -74,6 +74,7 @@
 #define GAME_W 640
 #define GAME_H 480
 #define MAX_STORES 10
+#define MAX_MAP_PLACES 32
 #define MAX_SOUNDS 8
 // Scrolling of backgrounds wider than the screen: when Petka comes within
 // SCROLL_MARGIN of either side of the screen the view is asked to centre on
@@ -154,6 +155,11 @@ typedef struct {
     int panel_open;  // ... and it is the panel
     int panel_hover; // which of the panel's objects the pointer is on, -1 = none
     int tracks_hushed; // the room's music and ambience are paused for a sequence
+    // The places on the map known to be in use, and the new ones blinking
+    // since the map was opened (screens.c's map_places_known()).
+    uint16_t map_known[MAX_MAP_PLACES], map_blink[MAX_MAP_PLACES];
+    int map_known_count, map_blink_count;
+    double map_blink_at;
     int map_verb;    // the cursor's action to give back when it is left
     float map_camera; // and the view's scroll
     int subtitles;   // the panel's switch: phrases are shown as text

@@ -11,10 +11,60 @@ int map_allowed(const Game *g) {
     return room && room->on_map;
 }
 
+// The map's room, "КАРТА".
+static const PetkaObject *map_room(const Game *g) {
+    return petka_script_find_name(g->script, "\xCA\xC0\xD0\xD2\xC0"); // cp1251
+}
+
+// A new place on the map: Reloaded has its picture (the clip the map shows
+// under the pointer) blink three times when the map is first opened after
+// it has come into use. The places in use once the part has begun or a
+// game has been loaded are known; one that comes into use after them is
+// new, and blinks the next time the map is opened -- with the extras switch
+// on, the second game's.
+#define MAP_BLINK_SECONDS 0.3
+#define MAP_BLINKS 3
+
+void map_places_known(Game *g) {
+    g->map_known_count = g->map_blink_count = 0;
+    const PetkaObject *map = map_room(g);
+    for (uint32_t k = 0; map && k < map->attached_count; k++) {
+        const PetkaObjectState *st = petka_scriptvm_state(g->vm, map->attached[k].obj_id);
+        if (st && st->active && g->map_known_count < MAX_MAP_PLACES)
+            g->map_known[g->map_known_count++] = map->attached[k].obj_id;
+    }
+}
+
+static void map_places_new(Game *g, const PetkaObject *map) {
+    g->map_blink_count = 0;
+    for (uint32_t k = 0; k < map->attached_count; k++) {
+        uint16_t id = map->attached[k].obj_id;
+        const PetkaObjectState *st = petka_scriptvm_state(g->vm, id);
+        if (!st || !st->active) continue;
+        int known = 0;
+        for (int i = 0; i < g->map_known_count && !known; i++) known = g->map_known[i] == id;
+        if (known || g->map_known_count >= MAX_MAP_PLACES) continue;
+        g->map_known[g->map_known_count++] = id;
+        if (g->opt_restored && g->game == 2 && g->map_blink_count < MAX_MAP_PLACES)
+            g->map_blink[g->map_blink_count++] = id;
+    }
+    g->map_blink_at = game_now();
+}
+
+int map_blinking(const Game *g, const PetkaObject *obj) {
+    if (!g->map_open || g->panel_open) return 0;
+    int blinks = 0;
+    for (int i = 0; i < g->map_blink_count && !blinks; i++) blinks = g->map_blink[i] == obj->id;
+    if (!blinks) return 0;
+    double t = game_now() - g->map_blink_at;
+    return t < 2 * MAP_BLINKS * MAP_BLINK_SECONDS && (int)(t / MAP_BLINK_SECONDS) % 2 == 0;
+}
+
 // Back from the map to the room (the map screen's leave, sub_41D730): the
 // cursor's action and the view's scroll are as they were.
 void map_leave(Game *g) {
     if (!g->map_open) return;
+    g->map_blink_count = 0;
     g->map_open = g->panel_open = 0;
     g->seq_room = PETKA_NONE;
     g->verb = g->map_verb;
@@ -33,7 +83,7 @@ void map_command(Game *g) {
     if (g->panel_open) return;
     if (g->map_open) { map_leave(g); return; }
     if (!map_allowed(g) || g->seq_room != PETKA_NONE) return;
-    const PetkaObject *map = petka_script_find_name(g->script, "\xCA\xC0\xD0\xD2\xC0"); // "КАРТА", cp1251
+    const PetkaObject *map = map_room(g);
     if (!map) { set_status(g, "(в этой части нет карты)"); return; }
     g->case_open = 0;
     drop_item(g);
@@ -43,6 +93,7 @@ void map_command(Game *g) {
     g->map_open = 1;
     g->seq_room = map->id;
     petka_scriptvm_broadcast(g->vm, PETKA_OP_INITBG, 0, 0, 0, map->id);
+    map_places_new(g, map);
 }
 
 // The panel command (sub_417D20; key O and the case's diskette button): to

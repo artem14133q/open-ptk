@@ -12,6 +12,12 @@ extern const char *const kDialKey[4];
 // EN: Whether the map can be opened from this room.
 // RU: Можно ли открыть карту из этой комнаты.
 int map_allowed(const Game *g);
+// EN: The places on the map in use now are known: none of them blinks (at the part's start, a game loaded).
+// RU: Места на карте, открытые сейчас, считаются известными: ни одно не мигает.
+void map_places_known(Game *g);
+// EN: Whether a new place's picture is up in this moment of its blinking on the map.
+// RU: Видна ли сейчас картинка нового места, мигающая на карте.
+int map_blinking(const Game *g, const PetkaObject *obj);
 // EN: Takes the map (or the panel) down.
 // RU: Закрывает карту (или панель).
 void map_leave(Game *g);
