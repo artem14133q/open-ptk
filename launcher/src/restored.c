@@ -213,6 +213,27 @@ int restored_within(const Game *g, uint32_t phrase, uint16_t *out, int max) {
     return 0;
 }
 
+// Where the heroes come into a room from another that the exe has no way
+// between and Reloaded has (scriptfix.c's kToLiberty and kToBroadway): the
+// part, the room, the one left, the exit they stand at -- BGS.INI's own
+// lines for them, commented out there.
+static const struct {
+    uint8_t part;
+    uint16_t room, from;
+    const char *exit;
+} kEntries2[] = {
+    {2, 366, 370, "BROADWAY - EXIT 2"},
+    {2, 370, 366, "LIBERTY - EXIT 1"},
+};
+
+const char *restored_entry(const Game *g, uint16_t room, uint16_t from) {
+    if (!g->opt_restored || g->game != 2) return NULL;
+    for (size_t i = 0; i < sizeof(kEntries2) / sizeof(kEntries2[0]); i++)
+        if (kEntries2[i].part == g->part_number && kEntries2[i].room == room && kEntries2[i].from == from)
+            return kEntries2[i].exit;
+    return NULL;
+}
+
 int host_restored(void *user) {
     return ((Game *)user)->opt_restored;
 }

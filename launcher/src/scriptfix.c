@@ -164,17 +164,35 @@ static const PetkaMessage kPassageClimb[] = {
     M(344, SYSTEM, 1, NONE),
 };
 
+// Part 2, the beach on Broadway (366) and the Statue of Liberty (370): the
+// exe's way between them is the map, each exit putting it up (TOMAP). Their
+// way to each other is in BGS.INI, put out of use there ("BG-LIBERTY =
+// BROADWAY - EXIT 2", "BG-BROADWAY = LIBERTY - EXIT 1", commented out);
+// Reloaded goes straight there. With the extras switch on, so does the
+// launcher (restored.c's restored_entry() has where they come in).
+static const PetkaMessage kToLiberty[] = {
+    M(370, GOTO, NONE, NONE),
+};
+static const PetkaMessage kToBroadway[] = {
+    M(366, GOTO, NONE, NONE),
+};
+
 #define N(a) a, sizeof(a) / sizeof((a)[0])
 
 // Messages put in before a reaction's first message `before_op` to
 // `before_to`, behind a PETKA_OP_RESTORED: taken with the extras switch on.
+// `replace`: the reaction's messages from there on that they take the place
+// of, taken only with the switch off.
 static const struct {
     uint8_t part;
     uint16_t obj, op, status, sender;
     uint16_t before_to, before_op;
     const PetkaMessage *messages;
     uint32_t count;
+    uint16_t replace;
 } kInserts2[] = {
+    {2, 151, PETKA_OP_WALK, 0xFF, NONE, 151, PETKA_OP_TOMAP, N(kToLiberty), 1},
+    {2, 232, PETKA_OP_WALK, 0xFF, NONE, 232, PETKA_OP_TOMAP, N(kToBroadway), 1},
     {1, 475, PETKA_OP_INITBG, 0, 475, 18, PETKA_OP_TALK, kDungeonLanding,
      sizeof(kDungeonLanding) / sizeof(kDungeonLanding[0])},
     {1, 476, PETKA_OP_INITBG, 0, 476, 476, PETKA_OP_SYSTEM, kDungeonLookRound,
@@ -262,16 +280,19 @@ static void scriptfix_script2(Game *g) {
                 if (re->messages[m].obj_id != kInserts2[f].before_to ||
                     re->messages[m].opcode != kInserts2[f].before_op)
                     continue;
-                uint32_t n = kInserts2[f].count;
+                uint32_t n = kInserts2[f].count, extra = n + 1 + (kInserts2[f].replace ? 1 : 0);
                 PetkaMessage *msgs =
-                    (PetkaMessage *)realloc(re->messages, (re->message_count + n + 1) * sizeof(PetkaMessage));
+                    (PetkaMessage *)realloc(re->messages, (re->message_count + extra) * sizeof(PetkaMessage));
                 if (!msgs) return;
-                memmove(msgs + m + n + 1, msgs + m, (re->message_count - m) * sizeof(PetkaMessage));
+                memmove(msgs + m + extra, msgs + m, (re->message_count - m) * sizeof(PetkaMessage));
                 msgs[m] = (PetkaMessage){.obj_id = kInserts2[f].obj, .opcode = PETKA_OP_RESTORED, .arg1 = (uint16_t)n,
                                          .arg2 = PETKA_NONE, .arg3 = PETKA_NONE};
                 memcpy(msgs + m + 1, kInserts2[f].messages, n * sizeof(PetkaMessage));
+                if (kInserts2[f].replace)
+                    msgs[m + n + 1] = (PetkaMessage){.obj_id = kInserts2[f].obj, .opcode = PETKA_OP_RESTORED,
+                                                     .arg1 = kInserts2[f].replace, .arg2 = 1, .arg3 = PETKA_NONE};
                 re->messages = msgs;
-                re->message_count += n + 1;
+                re->message_count += extra;
                 break;
             }
         }

@@ -86,7 +86,9 @@ typedef enum {
     PETKA_OP_TOMAP = 63,
     // Ours, never in a SCRIPT.DAT: put in by a host's fixes to the script.
     // The reaction's next arg1 messages are taken only if the host's
-    // restored() says so, and skipped otherwise; it is not delivered.
+    // restored() says so, and skipped otherwise -- or, with 1 for arg2, the
+    // other way round (the original's, which a restored scene replaces);
+    // it is not delivered.
     PETKA_OP_RESTORED = 0xFFF0,
 } PetkaOpcode;
 

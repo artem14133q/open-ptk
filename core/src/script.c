@@ -401,9 +401,11 @@ static int check_fails(PetkaScriptVM *vm, const PetkaMessage *m) {
 }
 
 // A PETKA_OP_RESTORED: how many of the messages after it to pass over --
-// all it guards with the host's restored() off, none with it on.
+// all it guards with the host's restored() off, none with it on (the other
+// way round for the original's messages, arg2 1).
 static uint32_t restored_skip(PetkaScriptVM *vm, const PetkaMessage *m) {
-    return vm->host.restored && vm->host.restored(vm->host.user) ? 0 : m->arg1;
+    int on = vm->host.restored && vm->host.restored(vm->host.user);
+    return (m->arg2 == 1 ? !on : on) ? 0 : m->arg1;
 }
 
 // Continues a parked reaction (sub_404790). Unlike the first pass in
@@ -540,15 +542,19 @@ static void apply_builtin(PetkaScriptVM *vm, PetkaObject *obj, const PetkaQueued
             walk_hero(vm, PETKA_ID_PETKA, x, y);
             // Chapayev follows when Petka is about to leave the room -- not
             // when a scene a host has put back comes first (PETKA_OP_RESTORED,
-            // taken): that has him go when it means him to.
+            // taken) and does more than leave: that has him go when it means
+            // him to.
             PetkaObjectState *petka = petka_scriptvm_state(vm, PETKA_ID_PETKA);
             if (petka && petka->walk_tail.present) {
                 for (uint32_t i = 0; i < petka->walk_tail.count; i++) {
-                    if (petka->walk_tail.messages[i].opcode == PETKA_OP_RESTORED) {
-                        uint32_t skip = restored_skip(vm, &petka->walk_tail.messages[i]);
-                        if (!skip) break;
-                        i += skip;
-                        continue;
+                    const PetkaMessage *t = &petka->walk_tail.messages[i];
+                    if (t->opcode == PETKA_OP_RESTORED) {
+                        uint32_t skip = restored_skip(vm, t);
+                        if (skip) { i += skip; continue; }
+                        if (t->arg1 == 1 && i + 1 < petka->walk_tail.count &&
+                            petka->walk_tail.messages[i + 1].opcode == PETKA_OP_GOTO)
+                            walk_hero(vm, PETKA_ID_CHAPAYEV, x, y);
+                        break;
                     }
                     if (petka->walk_tail.messages[i].opcode == PETKA_OP_GOTO) {
                         walk_hero(vm, PETKA_ID_CHAPAYEV, x, y);

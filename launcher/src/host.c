@@ -25,7 +25,9 @@ void host_room_changed(void *user, uint16_t prev_id, uint16_t room_id) {
     }
 
     const PetkaRoom *section = g->topo ? petka_topology_find_room(g->topo, room->name) : NULL;
-    const PetkaObject *entry = NULL;
+    // A way between the rooms put back (restored.h) has its own entry point.
+    const char *restored = prev ? restored_entry(g, room_id, prev_id) : NULL;
+    const PetkaObject *entry = restored ? petka_script_find_name(g->script, restored) : NULL;
     for (uint32_t i = 0; section && i < section->exit_count && !entry; i++)
         if (prev && strcmp(section->exits[i].target, prev->name) == 0)
             entry = petka_script_find_name(g->script, section->exits[i].description);

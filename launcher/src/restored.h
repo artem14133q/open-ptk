@@ -39,6 +39,11 @@ int restored_phrases(const Game *g, uint16_t obj_id, uint16_t *out, int max);
 // RU: Диалог объекта, разделённый вокруг действия, и сколько фраз в первой части.
 const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *first);
 
+// The exit the heroes come into `room` at from `from` where the exe has no
+// way between them and Reloaded has (restored.c's kEntries2); NULL for none.
+// RU: Выход, у которого герои входят в комнату из той, куда в exe пути нет, а в Reloaded есть.
+const char *restored_entry(const Game *g, uint16_t room, uint16_t from);
+
 // Phrases Reloaded says inside a dialogue right after this phrase of it
 // (restored.c's kWithin2), into out (up to max); how many, 0 for none.
 // RU: Фразы, которые Reloaded говорит внутри диалога сразу после этой его фразы.
