@@ -234,6 +234,28 @@ const char *restored_entry(const Game *g, uint16_t room, uint16_t from) {
     return NULL;
 }
 
+// Clips the second game's script sets that its resource tables lack, whose
+// pictures Reloaded drew: the resource, the part, the path in RELOADED.STR
+// (made by tools/reloaded from the edition's sprite).
+static const struct {
+    uint16_t resource;
+    uint8_t part;
+    const char *path;
+} kClips2[] = {
+    // The apiary's beekeeper dead drunk, once he has given the glasses away
+    // (the room's INITBG in status 2 shows him in place of the sober one,
+    // and the talk is of how quickly he got there): RESOURCE.QRC has no 1111
+    // and no clip of him anywhere, so he was gone. Reloaded's DEDVSE.
+    {1111, 1, "PART_1\\PASEKA.BG\\DED\\DEDVSE.FLC"},
+};
+
+const char *restored_clip(const Game *g, uint16_t resource) {
+    if (!g->opt_restored || g->game != 2) return NULL;
+    for (size_t i = 0; i < sizeof(kClips2) / sizeof(kClips2[0]); i++)
+        if (kClips2[i].resource == resource && kClips2[i].part == g->part_number) return kClips2[i].path;
+    return NULL;
+}
+
 int host_restored(void *user) {
     return ((Game *)user)->opt_restored;
 }

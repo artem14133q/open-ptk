@@ -39,6 +39,11 @@ int restored_phrases(const Game *g, uint16_t obj_id, uint16_t *out, int max);
 // RU: Диалог объекта, разделённый вокруг действия, и сколько фраз в первой части.
 const PetkaDialogueVerb *restored_split(const Game *g, uint16_t obj_id, int *first);
 
+// The path of a clip the game's resource table lacks and RELOADED.STR has
+// (restored.c's kClips2), for `resource`; NULL for none.
+// RU: Путь клипа, которого нет в таблице ресурсов игры, а в RELOADED.STR есть.
+const char *restored_clip(const Game *g, uint16_t resource);
+
 // The exit the heroes come into `room` at from `from` where the exe has no
 // way between them and Reloaded has (restored.c's kEntries2); NULL for none.
 // RU: Выход, у которого герои входят в комнату из той, куда в exe пути нет, а в Reloaded есть.

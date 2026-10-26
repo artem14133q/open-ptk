@@ -73,7 +73,7 @@
 
 #define GAME_W 640
 #define GAME_H 480
-#define MAX_STORES 8
+#define MAX_STORES 10
 #define MAX_SOUNDS 8
 // Scrolling of backgrounds wider than the screen: when Petka comes within
 // SCROLL_MARGIN of either side of the screen the view is asked to centre on

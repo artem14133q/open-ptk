@@ -122,6 +122,11 @@ int part_open(Game *g, int number, int chapter) {
         g->chapter_store = g->store_count;
         g->stores[g->store_count++] = chapter_store;
     }
+    // Ours, if there: what tools/reloaded took out of the Reloaded edition
+    // for the clips the game itself lacks (restored.c's kClips2). Looked up
+    // last, after the game's own stores.
+    PetkaStore *reloaded = open_store(g->game_dir, "RELOADED.STR");
+    if (reloaded) g->stores[g->store_count++] = reloaded;
 
     size_t script_len = 0, bg_len = 0, len = 0;
     const uint8_t *script_data = part_file(g, g->part, "SCRIPT.DAT", &script_len);

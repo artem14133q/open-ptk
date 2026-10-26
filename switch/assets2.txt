@@ -31,3 +31,6 @@ intro.avi
 perelet.avi
 outro.avi
 credits.avi
+# Ours, if made: what tools/reloaded took out of the Reloaded edition for
+# the pictures the game lacks (the apiary's drunk beekeeper). Optional.
+?RELOADED.STR

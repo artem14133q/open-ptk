@@ -62,7 +62,8 @@ void visual_load(Game *g, Visual *v, uint16_t resource) {
     visual_free(v);
     v->resource = resource;
     v->sound_pending = 1;
-    visual_load_path(g, v, g->qrc[resource]);
+    // A clip the game's resource table lacks may be one put back (restored.h).
+    visual_load_path(g, v, g->qrc[resource] ? g->qrc[resource] : restored_clip(g, resource));
 }
 
 void visual_load_path(Game *g, Visual *v, const char *path) {
@@ -299,7 +300,7 @@ void visual_update(Game *g, const PetkaObject *obj) {
 
     if (v->next_frame < now - 1.0) v->next_frame = now + period;
 
-    if (v->sound_pending && v->flic->frame_index == 0) {
+    if (v->sound_pending && v->flic->frame_index == 0 && g->qrc[v->resource]) {
         char wav[512];
         swap_ext(g->qrc[v->resource], "WAV", wav, sizeof(wav));
         if (!g->clips_quiet) play_sound(g, wav);

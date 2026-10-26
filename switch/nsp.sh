@@ -110,12 +110,16 @@ if [ "$FULL" = full ]; then
     # Hard links where they can be (no copy of 2 GB), copies where not.
     missing=0
     grep -v '^#' "$ASSETS" | grep -v '^ *$' | while read -r name; do
+        # "?name": taken if it is there (made by a tool, not on the discs).
+        optional=0
+        case "$name" in "?"*) optional=1; name=${name#?} ;; esac
         src=""
         for dir in . data1_out/Main data1_out/Flics data1_out/Sfxs Main Flics Sfxs; do
             [ -d "$PETKA_ASSETS/$dir" ] || continue
             src=$(find "$PETKA_ASSETS/$dir" -maxdepth 1 -type f -iname "$name" | head -1)
             [ -n "$src" ] && break
         done
+        if [ -z "$src" ] && [ $optional = 1 ]; then continue; fi
         if [ -z "$src" ]; then echo "nsp-full: $name is not in $PETKA_ASSETS"; echo x >> "$W/missing"; continue; fi
         ln "$src" "$W/romfs/$name" 2> /dev/null || cp "$src" "$W/romfs/$name"
     done
