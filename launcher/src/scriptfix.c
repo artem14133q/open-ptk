@@ -177,6 +177,15 @@ static const PetkaMessage kToBroadway[] = {
     M(366, GOTO, NONE, NONE),
 };
 
+// Part 1, the apiary come into once the beekeeper has given the glasses
+// away (status 2): the exe has Petka walk in first and only then puts the
+// drunk beekeeper (restored.c's kClips2) in the sober one's place, who
+// stood there meanwhile. Reloaded has him lying there from the start.
+static const PetkaMessage kBeekeeperDrunk[] = {
+    M(233, OFF, NONE, NONE),
+    M(236, ON, NONE, NONE),
+};
+
 #define N(a) a, sizeof(a) / sizeof((a)[0])
 
 // Messages put in before a reaction's first message `before_op` to
@@ -191,6 +200,7 @@ static const struct {
     uint32_t count;
     uint16_t replace;
 } kInserts2[] = {
+    {1, 469, PETKA_OP_INITBG, 2, 469, 469, PETKA_OP_WALKTO, N(kBeekeeperDrunk)},
     {2, 151, PETKA_OP_WALK, 0xFF, NONE, 151, PETKA_OP_TOMAP, N(kToLiberty), 1},
     {2, 232, PETKA_OP_WALK, 0xFF, NONE, 232, PETKA_OP_TOMAP, N(kToBroadway), 1},
     {1, 475, PETKA_OP_INITBG, 0, 475, 18, PETKA_OP_TALK, kDungeonLanding,
